@@ -29,12 +29,24 @@ export interface DefaultRule {
 }
 
 /**
- * 기본 차단 명령어 목록 (서버에서 관리 — 하드코딩 제거됨)
+ * 기본 차단 명령어 목록
  */
-export const DEFAULT_BLOCKED_COMMANDS: DefaultRule[] = [];
+export const DEFAULT_BLOCKED_COMMANDS: DefaultRule[] = [
+    { id: 'rm_rf', pattern: 'rm\\s+-rf\\s+/', description: '루트 경로 삭제 (rm -rf /)' },
+    { id: 'rm_recursive', pattern: 'rm\\s+(-[a-zA-Z]*r[a-zA-Z]*|--recursive)\\s+(\\/|~|\\.\\.\\/)', description: '상위/홈/루트 재귀 삭제' },
+    { id: 'chmod_777', pattern: 'chmod\\s+(-R\\s+)?777\\s+/', description: '루트 경로 전체 권한 부여' },
+    { id: 'mkfs', pattern: 'mkfs|format\\s+[cCdD]:', description: '디스크 포맷' },
+    { id: 'dd_disk', pattern: 'dd\\s+.*of=\\/dev\\/', description: '디스크 직접 쓰기 (dd)' },
+    { id: 'curl_pipe_sh', pattern: 'curl\\s+.*\\|\\s*(sudo\\s+)?(ba)?sh', description: 'URL에서 스크립트 다운로드 실행' },
+    { id: 'wget_pipe_sh', pattern: 'wget\\s+.*\\|\\s*(sudo\\s+)?(ba)?sh', description: 'URL에서 스크립트 다운로드 실행' },
+    { id: 'eval_remote', pattern: 'eval\\s+"?\\$\\(curl', description: '원격 코드 eval 실행' },
+    { id: 'shutdown', pattern: '(shutdown|reboot|halt|poweroff)\\s', description: '시스템 종료/재시작' },
+    { id: 'fdisk', pattern: '\\b(fdisk|parted)\\b', description: '파티션 변경' },
+    { id: 'sudo_rm', pattern: 'sudo\\s+rm\\s', description: 'sudo 권한 파일 삭제' },
+];
 
 /**
- * 기본 보호 파일 목록 (서버에서 관리 — 하드코딩 제거됨)
+ * 기본 보호 파일 목록
  */
 export const DEFAULT_PROTECTED_FILES: DefaultRule[] = [];
 
@@ -171,6 +183,16 @@ export class PreToolUseValidator {
     private static _cachedSensitiveFiles: RegExp[] | null = null;
     private static _cachedReadOnlyFiles: RegExp[] | null = null;
     private static _cachedHiddenFilePatterns: RegExp[] | null = null;
+
+    /**
+     * 파일이 민감한 파일(보호/은닉)인지 체크
+     */
+    static isSensitiveFile(filePath: string): boolean {
+        for (const pattern of this.SENSITIVE_FILES) {
+            if (pattern.test(filePath)) return true;
+        }
+        return false;
+    }
 
     /**
      * 캐시 무효화 — 규칙 변경 시 호출

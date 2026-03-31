@@ -309,7 +309,8 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
         const requestData: any = {
             model: this.modelName,
             messages,
-            stream: false
+            stream: false,
+            options: { num_predict: 16384 },
         };
 
         if (options?.disableThinking) {
@@ -580,7 +581,8 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
         const requestData: any = {
             model: this.modelName,
             messages,
-            stream: true
+            stream: true,
+            options: { num_predict: 16384 },
         };
 
         if (options?.disableThinking) {

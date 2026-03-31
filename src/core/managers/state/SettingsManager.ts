@@ -129,13 +129,15 @@ export class SettingsManager extends BaseManager {
             const { CodePilotApiClient } = await import('../../../services/api/CodePilotApiClient');
             const api = CodePilotApiClient.getInstance();
             // org 없어도 호출 (프리셋/지원모델 등 개인 사용자용 설정 조회)
-            const raw: any = await api.getAllEffectiveSettings(orgId || undefined);
+            // 프로젝트 ID가 설정되어 있으면 프로젝트별 설정 조회
+            const projectId = this._context?.globalState?.get<string>('codepilot.projectId');
+            const raw: any = await api.getAllEffectiveSettings(orgId || undefined, projectId || undefined);
             // WrapResponseMiddleware가 {data: ...}로 래핑하므로 언래핑
             const allSettings = raw.data || raw;
 
             // RAG 소스 조회 (조직: org RAG, 개인: 개인 RAG)
             try {
-                const ragRaw: any = await api.getRagSources(orgId || undefined);
+                const ragRaw: any = await api.getRagSources(orgId || undefined, projectId || undefined);
                 const ragSources = Array.isArray(ragRaw) ? ragRaw : (ragRaw?.data || ragRaw?.results || []);
                 if (Array.isArray(ragSources) && ragSources.length > 0) {
                     allSettings.rag = ragSources.map((s: any) => ({
@@ -148,7 +150,7 @@ export class SettingsManager extends BaseManager {
                             source_id: s.id,
                         },
                         enforcement: s.enforcement || 'personal',
-                        source: s.organization ? 'admin' : 'personal',
+                        source: s.project ? 'project' : (s.organization ? 'admin' : 'personal'),
                         description: s.description || '',
                     }));
                 }
@@ -369,11 +371,12 @@ export class SettingsManager extends BaseManager {
     /**
      * 서버 MCP 서버 설정 목록
      */
-    public getServerMCPConfigs(): { key: string; value: any; enforcement: string }[] {
+    public getServerMCPConfigs(): { key: string; value: any; enforcement: string; source?: string }[] {
         return this.getServerSettings('mcp_server').map(s => ({
             key: s.key,
             value: s.value,
             enforcement: s.enforcement,
+            source: s.source,
         }));
     }
 

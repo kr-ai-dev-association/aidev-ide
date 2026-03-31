@@ -596,11 +596,14 @@
     }
 
     .policy-file-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
       padding: 8px 12px;
       border-bottom: 1px solid var(--vscode-panel-border);
+    }
+    .policy-file-item .skill-desc {
+      font-size: 0.75em;
+      color: var(--vscode-descriptionForeground);
+      margin-top: 2px;
+      padding-left: 2px;
     }
 
     .policy-file-item:last-child {
@@ -1318,6 +1321,19 @@
                 </div>
               </div>
 
+              <!-- 프로젝트 선택 -->
+              <div id="settings-project-section" class="section-container" style="display:none;">
+                <h2>프로젝트</h2>
+                <p class="info-message">프로젝트를 선택하면 해당 프로젝트의 설정이 적용됩니다.</p>
+                <div style="margin-top:8px;">
+                  <select id="settings-project-select"
+                    style="width:100%; padding:6px 10px; font-size:12px; border:1px solid var(--vscode-panel-border); border-radius:4px; background:var(--vscode-input-background); color:var(--vscode-input-foreground); outline:none;"
+                    onfocus="this.style.borderColor='var(--vscode-button-background)'" onblur="this.style.borderColor='var(--vscode-panel-border)'">
+                    <option value="">선택 안 함</option>
+                  </select>
+                </div>
+              </div>
+
               <!-- 로그아웃 -->
               <div style="text-align:center; margin-top:40px; padding-bottom:12px;">
                 <button id="settings-logout-btn" class="account-logout-link">로그아웃</button>
@@ -1644,7 +1660,8 @@
                 <select id="ai-model-select">
                   <option value="ollama">Ollama (Local/Remote)</option>
                   <!-- 지원 모델은 settings.js에서 동적 추가 -->
-                  <option value="admin" style="display:none;">관리자</option>
+                  <option value="admin" style="display:none;">팀 기본</option>
+                  <option value="project" style="display:none;">프로젝트</option>
                 </select>
               </div>
               <p id="ai-model-status" class="info-message"></p>
@@ -1697,14 +1714,32 @@
                 <p id="supported-model-status" class="info-message"></p>
               </div>
 
-              <!-- 관리자 모델 설정 (관리자 선택 시에만 표시) -->
+              <!-- 팀 기본 모델 설정 (팀 기본 선택 시에만 표시) -->
               <div class="api-key-section" id="admin-settings-section" style="display:none;">
-                <h3>관리자 모델 설정</h3>
-                <p class="info-message">조직 관리자가 등록한 AI 모델입니다.</p>
+                <h3>팀 기본 모델</h3>
+                <p class="info-message">팀 관리자가 등록한 AI 모델입니다.</p>
                 <div class="api-key-input-group" style="margin-bottom: 15px">
                   <select id="admin-model-select"></select>
                 </div>
+                <div class="api-key-input-group" style="margin-top: 10px">
+                  <input type="password" id="admin-model-api-key-input" placeholder="API 키를 입력하세요." />
+                  <button id="save-admin-model-api-key-button">API 키 저장</button>
+                </div>
                 <p id="admin-model-status" class="info-message"></p>
+              </div>
+
+              <!-- 프로젝트 모델 설정 (프로젝트 선택 시에만 표시) -->
+              <div class="api-key-section" id="project-model-settings-section" style="display:none;">
+                <h3>프로젝트 모델</h3>
+                <p class="info-message">프로젝트에 등록된 AI 모델입니다.</p>
+                <div class="api-key-input-group" style="margin-bottom: 15px">
+                  <select id="project-model-select"></select>
+                </div>
+                <div class="api-key-input-group" style="margin-top: 10px">
+                  <input type="password" id="project-model-api-key-input" placeholder="API 키를 입력하세요." />
+                  <button id="save-project-model-api-key-button">API 키 저장</button>
+                </div>
+                <p id="project-model-status" class="info-message"></p>
               </div>
 
               <!-- Ollama 설정 섹션 그룹 (Ollama 선택 시에만 표시되도록 JS에서 제어) -->
@@ -2580,11 +2615,11 @@
                 <p id="security-rule-status" class="info-message" style="margin-top: 10px"></p>
               </div>
 
-              <!-- 기본 차단 명령어 목록 (개인 사용자만) -->
+              <!-- 기본 차단 명령어 목록 (읽기 전용) -->
               <div id="default-blocked-cmd-section" class="api-key-section" style="margin-top: 20px">
                 <h3>기본 차단 명령어</h3>
                 <p class="info-message" style="margin-bottom: 10px">
-                  클릭하여 개별 규칙을 비활성화/활성화할 수 있습니다.
+                  시스템 보호를 위해 항상 차단되는 명령어입니다.
                 </p>
                 <div id="blocked-command-default-list" style="
             max-height: 200px;
@@ -2601,26 +2636,6 @@
                 </div>
               </div>
 
-              <!-- 기본 보호 파일 목록 (개인 사용자만) -->
-              <div id="default-protected-file-section" class="api-key-section" style="margin-top: 20px">
-                <h3>기본 보호 파일</h3>
-                <p class="info-message" style="margin-bottom: 10px">
-                  클릭하여 개별 규칙을 비활성화/활성화할 수 있습니다.
-                </p>
-                <div id="protected-file-default-list" style="
-            max-height: 200px;
-            overflow-y: auto;
-            padding: 10px;
-            background-color: var(--vscode-textCodeBlock-background);
-            border-radius: 5px;
-            font-family: monospace;
-            font-size: 0.85em;
-            line-height: 1.8;
-            color: var(--vscode-descriptionForeground);
-          ">
-                  <!-- 동적으로 채워짐 -->
-                </div>
-              </div>
             </div>
 
           </div><!-- /tab-security -->
@@ -2874,11 +2889,11 @@
 
           if (syncLabel) syncLabel.textContent = hasOrg ? '동기화: 방금' : '';
 
-          // 기본 차단/보호/제외 패턴 섹션 (개인 사용자만 표시)
-          const defaultSections = ['default-exclusion-section', 'default-blocked-cmd-section', 'default-protected-file-section'];
+          // 기본 차단/보호/제외 패턴 섹션 (모든 사용자에게 표시)
+          const defaultSections = ['default-exclusion-section', 'default-blocked-cmd-section'];
           defaultSections.forEach(id => {
             const el = document.getElementById(id);
-            if (el) el.style.display = hasOrg ? 'none' : '';
+            if (el) el.style.display = '';
           });
 
           // 조직 연결 섹션 (조직 소속 여부에 따라 다르게 표시)
@@ -2931,6 +2946,14 @@
       if (deleteAccountBtn) {
         deleteAccountBtn.addEventListener('click', function () {
           vscode.postMessage({ command: 'deleteAccount' });
+        });
+      }
+
+      // ── 프로젝트 선택 ──
+      const projectSelect = document.getElementById('settings-project-select');
+      if (projectSelect) {
+        projectSelect.addEventListener('change', function () {
+          vscode.postMessage({ command: 'selectProject', projectId: projectSelect.value || null });
         });
       }
 

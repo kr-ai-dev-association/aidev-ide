@@ -191,17 +191,26 @@ function renderAdminServerList() {
   listEl.style.display = "block";
   if (personalLabel) personalLabel.style.display = "flex";
 
-  // preset(super admin)과 org admin 설정 분리
-  const orgServers = adminMcpServers.filter(s => s.enforcement !== 'preset');
+  // preset(super admin)과 org admin/project 설정 분리
+  const teamServers = adminMcpServers.filter(s => s.enforcement !== 'preset' && s.source !== 'project');
+  const projectServers = adminMcpServers.filter(s => s.source === 'project');
   const presetServers = adminMcpServers.filter(s => s.enforcement === 'preset');
 
   let html = '';
 
-  // 조직 관리자 MCP (required/recommended)
-  if (orgServers.length > 0) {
+  // 팀 기본 MCP
+  if (teamServers.length > 0) {
     html += '<div class="org-settings-section">';
-    html += `<div class="org-settings-header">관리자 설정 <span class="org-count">(${orgServers.length})</span></div>`;
-    html += orgServers.map(createAdminServerCard).join("");
+    html += `<div class="org-settings-header">팀 기본 설정 <span class="org-count">(${teamServers.length})</span></div>`;
+    html += teamServers.map(createAdminServerCard).join("");
+    html += '</div>';
+  }
+
+  // 프로젝트 MCP
+  if (projectServers.length > 0) {
+    html += '<div class="org-settings-section" style="margin-top:8px;">';
+    html += `<div class="org-settings-header" style="color:var(--vscode-button-background);">프로젝트 설정 <span class="org-count">(${projectServers.length})</span></div>`;
+    html += projectServers.map(createAdminServerCard).join("");
     html += '</div>';
   }
 

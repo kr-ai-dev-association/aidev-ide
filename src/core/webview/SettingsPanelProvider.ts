@@ -202,6 +202,18 @@ export function openSettingsPanel(
                 const userInfo = context.globalState.get<any>('codepilot.userInfo');
                 return !!(userInfo?.organization || userInfo?.organization_id);
               })(),
+              selectedProjectId: context.globalState.get<string>('codepilot.projectId') || '',
+              projects: await (async () => {
+                try {
+                  const userInfo = context.globalState.get<any>('codepilot.userInfo');
+                  const orgId = userInfo?.organization_id;
+                  if (!orgId) return [];
+                  const { CodePilotApiClient } = await import("../../services/api/CodePilotApiClient");
+                  const api = CodePilotApiClient.getInstance();
+                  const raw: any = await api.get(`/organizations/${orgId}/projects/`);
+                  return Array.isArray(raw) ? raw : (raw?.data || raw?.results || []);
+                } catch { return []; }
+              })(),
             };
             safePostMessage(panel, messageToSend);
           } catch (error: any) {
@@ -2718,6 +2730,24 @@ export function openSettingsPanel(
             console.error('[SettingsPanel] Failed to delete build/test setting:', error);
             safePostMessage(panel, { command: 'buildTestSettingsUpdated', success: false, error: error.message, settings: context.globalState.get<any[]>('personalBuildTestSettings', []) });
           }
+          break;
+        }
+        case "selectProject": {
+          const projectId = data.projectId || null;
+          await context.globalState.update("codepilot.projectId", projectId);
+          console.log(`[PanelManager] Project selected: ${projectId || '(team common)'}`);
+          // 설정 재동기화 후 UI 갱신
+          try {
+            await settingsManager.syncServerSettings();
+            // 업데이트된 설정을 webview에 전송
+            safePostMessage(panel, {
+              command: "updateServerSettings",
+              serverSettings: settingsManager.getAllServerSettings(),
+            });
+            notificationService.showInfoMessage(
+              projectId ? `프로젝트 설정이 적용되었습니다.` : `팀 기본 설정으로 전환되었습니다.`
+            );
+          } catch { /* ignore */ }
           break;
         }
         case "deleteAccount": {

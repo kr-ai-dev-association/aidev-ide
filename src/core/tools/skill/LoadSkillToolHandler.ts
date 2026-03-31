@@ -37,6 +37,9 @@ export class LoadSkillToolHandler implements IToolHandler {
 
         console.log(`[LoadSkillToolHandler] Skill loaded: ${skillKey} (${entry.content.length} chars)`);
 
+        // 참조에 로드된 스킬 추가
+        PromptComposer.addSkillReference(skillKey, entry.source);
+
         return {
             success: true,
             message: `## 스킬: ${skillKey}\n\n${entry.content}`,

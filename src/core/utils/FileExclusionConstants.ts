@@ -5,9 +5,39 @@ import * as vscode from 'vscode';
  * 프로젝트 인덱싱, 파일 검색, 스택 트레이스 분석 등에서 사용
  */
 /**
- * 기본 제외 경로 (서버에서 관리 — 하드코딩 제거됨)
+ * 기본 제외 경로
  */
-export const EXCLUDED_LIBRARY_PATHS: string[] = [];
+export const EXCLUDED_LIBRARY_PATHS: string[] = [
+    'node_modules',
+    '.git',
+    'dist',
+    'build',
+    'out',
+    '.next',
+    '.nuxt',
+    '.output',
+    '.cache',
+    '.turbo',
+    'coverage',
+    '__pycache__',
+    '.pytest_cache',
+    'venv',
+    '.venv',
+    'env',
+    '.idea',
+    '.vscode',
+    '*.min.js',
+    '*.min.css',
+    '*.map',
+    '*.lock',
+    'package-lock.json',
+    'yarn.lock',
+    'pnpm-lock.yaml',
+    'vendor',
+    'target',
+    '.gradle',
+    'Pods',
+];
 
 /**
  * 기본 제외 목록 + 유저 커스텀 제외 패턴을 병합하여 반환

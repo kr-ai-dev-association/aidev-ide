@@ -10,7 +10,7 @@ export class CodePilotApiClient {
     // vscode import를 지연로딩
     const vscode = require("vscode");
     const config = vscode.workspace.getConfiguration("codepilot");
-    this.baseUrl = (config.get("backendUrl") as string) || "https://api-codepilot.banya.ai/api/v1";
+    this.baseUrl = config.get("backendUrl") as string;
   }
 
   static getInstance(): CodePilotApiClient {
@@ -72,9 +72,10 @@ export class CodePilotApiClient {
   /**
    * 전체 유효 설정 조회
    */
-  async getAllEffectiveSettings(orgId?: string): Promise<Record<string, any[]>> {
+  async getAllEffectiveSettings(orgId?: string, projectId?: string): Promise<Record<string, any[]>> {
     const params: any = {};
     if (orgId) params.org_id = orgId;
+    if (projectId) params.project_id = projectId;
     return this.get("/settings/effective/all/", params);
   }
 
@@ -100,10 +101,12 @@ export class CodePilotApiClient {
     query: string,
     orgId?: string,
     sourceIds?: string[],
-    topK: number = 5
+    topK: number = 5,
+    projectId?: string
   ): Promise<any[]> {
     const body: any = { query, top_k: topK };
     if (orgId) body.org_id = orgId;
+    if (projectId) body.project_id = projectId;
     if (sourceIds) body.source_ids = sourceIds;
     return this.post("/rag/search/", body);
   }
@@ -111,9 +114,10 @@ export class CodePilotApiClient {
   /**
    * RAG 소스 목록 조회 (조직 또는 개인)
    */
-  async getRagSources(orgId?: string): Promise<any[]> {
+  async getRagSources(orgId?: string, projectId?: string): Promise<any[]> {
     const params: any = {};
     if (orgId) params.org_id = orgId;
+    if (projectId) params.project_id = projectId;
     return this.get("/rag/sources/", params);
   }
 

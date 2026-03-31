@@ -289,11 +289,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
                             // 관리자 모델 (source=admin만) — 조직 관리자가 직접 등록한 모델
                             adminModels = (aiModelSettings || [])
-                                .filter((s: any) => s.source === 'admin' && s.value && s.value.enabled !== false)
+                                .filter((s: any) => (s.source === 'admin' || s.source === 'project') && s.value && s.value.enabled !== false)
                                 .map((s: any) => ({
                                     key: s.key,
                                     name: `admin:${s.key}`,
                                     displayName: s.value?.model || s.value?.model_name || s.key,
+                                    source: s.source || 'admin',
                                 }));
                         } catch { }
 
@@ -319,11 +320,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                                     group: s.group || 'default',
                                 }));
                             adminModels = (aiModelSettings || [])
-                                .filter((s: any) => s.source === 'admin' && s.value && s.value.enabled !== false)
+                                .filter((s: any) => (s.source === 'admin' || s.source === 'project') && s.value && s.value.enabled !== false)
                                 .map((s: any) => ({
                                     key: s.key,
                                     name: `admin:${s.key}`,
                                     displayName: s.value?.model || s.value?.model_name || s.key,
+                                    source: s.source || 'admin',
                                 }));
                         } catch { }
                         webviewView.webview.postMessage({
@@ -1832,8 +1834,9 @@ ${JSON.stringify(errorContext, null, 2)}
 
                 if (!currentModel) { return; }
 
-                // 프리셋 모델 목록도 함께 전송
+                // 프리셋 + 커스텀 모델 목록도 함께 전송
                 let supportedModels: { key: string; name: string; displayName: string; group: string }[] = [];
+                let adminModels: { key: string; name: string; displayName: string; source?: string }[] = [];
                 try {
                     const aiModelSettings = this.configurationService.getServerSettings('ai_model');
                     supportedModels = (aiModelSettings || [])
@@ -1844,13 +1847,21 @@ ${JSON.stringify(errorContext, null, 2)}
                             displayName: s.value?.name || s.key,
                             group: s.group || 'default',
                         }));
+                    adminModels = (aiModelSettings || [])
+                        .filter((s: any) => (s.source === 'admin' || s.source === 'project') && s.value && s.value.enabled !== false)
+                        .map((s: any) => ({
+                            key: s.key,
+                            name: `admin:${s.key}`,
+                            displayName: s.value?.model || s.value?.model_name || s.key,
+                            source: s.source || 'admin',
+                        }));
                 } catch { }
 
                 webview.postMessage({
                     command: 'ollamaModels',
                     models: [],
                     current: currentModel,
-                    adminModels: [],
+                    adminModels,
                     supportedModels,
                 });
             } catch (e) {

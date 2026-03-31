@@ -140,6 +140,11 @@ export class OrchestrationRouter {
             const toolContext = OrchestrationRouter.buildToolContext();
             const results: AgentLoopResult[] = [];
 
+            // 스킬 registry 사전 로드 (IntentDetector 전에 registry가 채워져야 함)
+            PromptComposer.loadAgentRulesWithKeys();
+            await PromptComposer.ensureServerSettingsSynced();
+            PromptComposer.loadServerPromptTemplates(new Set());
+
             // 스킬이 등록되어 있으면 IntentDetector로 candidateSkillKeys 수집
             let candidateSkillKeys: string[] = [];
             const skillDescriptions = PromptComposer.getSkillDescriptions();
@@ -963,6 +968,16 @@ export class OrchestrationRouter {
             for (const rule of PromptComposer.getLastIncludedServerRuleKeys()) {
                 references.push({ type: 'server_rule', name: rule.title, source: 'server' });
             }
+            // 참조 추적: 추천된 스킬만 (candidateSkillKeys가 있을 때)
+            if (candidateSkillKeys && candidateSkillKeys.length > 0) {
+                for (const skillKey of candidateSkillKeys) {
+                    const skill = PromptComposer.getSkillDescriptions().find(s => s.key === skillKey);
+                    if (skill) {
+                        const refType = skill.source === 'server' ? 'server_skill' : 'local_skill';
+                        references.push({ type: refType, name: skill.key, source: skill.source || 'server' });
+                    }
+                }
+            }
 
             // 스킬 description 목록 + 메인 에이전트가 추천한 후보 힌트
             const skillDescriptions = PromptComposer.getSkillDescriptions();
@@ -1017,18 +1032,23 @@ export class OrchestrationRouter {
             if (auth.isLoggedIn() && userQuery) {
                 const userInfo = auth.getUserInfo();
                 const orgId = userInfo?.organization_id;
-                console.log(`[OrchestrationRouter] RAG: 검색 시작 (query: "${userQuery.substring(0, 50)}...", orgId: ${orgId})`);
                 const { CodePilotApiClient } = await import('../../services/api/CodePilotApiClient');
+                let ragProjectId: string | undefined;
+                try {
+                    const { SettingsManager: RagSettingsMgr } = await import('../managers/state/SettingsManager');
+                    ragProjectId = RagSettingsMgr.getInstance()?.context?.globalState?.get<string>('codepilot.projectId') || undefined;
+                } catch { }
+                console.log(`[OrchestrationRouter] RAG: 검색 시작 (query: "${userQuery.substring(0, 50)}...", orgId: ${orgId}, projectId: ${ragProjectId || 'none'})`);
                 const ragRaw = await CodePilotApiClient.getInstance().searchRag(
-                    userQuery, orgId || undefined, undefined, 3, // 서브에이전트: 3개로 제한 (5→3)
+                    userQuery, orgId || undefined, undefined, 3, ragProjectId || undefined,
                 ) as RagResult[] | { data?: RagResult[]; results?: RagResult[] };
                 const ragResults: RagResult[] = Array.isArray(ragRaw)
                     ? ragRaw
                     : ((ragRaw as { data?: RagResult[]; results?: RagResult[] }).data || (ragRaw as { data?: RagResult[]; results?: RagResult[] }).results || []);
-                // 유사도 80% 이상만 포함 (관련 없는 문서 필터링)
-                const filteredRag = ragResults.filter(r => !r.similarity || r.similarity >= 0.8);
+                // 유사도 75% 이상만 포함 (관련 없는 문서 필터링)
+                const filteredRag = ragResults.filter(r => !r.similarity || r.similarity >= 0.75);
                 if (filteredRag.length > 0) {
-                    console.log(`[OrchestrationRouter] RAG: ${filteredRag.length}/${ragResults.length}개 문서 청크 포함 (유사도 80%+)`);
+                    console.log(`[OrchestrationRouter] RAG: ${filteredRag.length}/${ragResults.length}개 문서 청크 포함 (유사도 75%+)`);
                     const ragText = filteredRag
                         .map((r, i) => {
                             const source = r.source_name || r.source || '';
@@ -1048,7 +1068,7 @@ export class OrchestrationRouter {
                         });
                     }
                 } else {
-                    console.log('[OrchestrationRouter] RAG: 검색 결과 없음 (0건)');
+                    console.log(`[OrchestrationRouter] RAG: 검색 결과 없음 (0건, raw type=${typeof ragRaw}, isArray=${Array.isArray(ragRaw)}, keys=${ragRaw && typeof ragRaw === 'object' ? Object.keys(ragRaw).join(',') : 'N/A'}, ragResults=${ragResults.length})`);
                 }
             } else {
                 console.log(`[OrchestrationRouter] RAG: 스킵 (isLoggedIn=${auth.isLoggedIn()}, hasQuery=${!!userQuery})`);

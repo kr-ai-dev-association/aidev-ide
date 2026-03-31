@@ -221,17 +221,19 @@ export class ContextGatherer {
                     const ragQuery = codeSnippet
                         ? `${options.userQuery}\n\n${codeSnippet}`
                         : options.userQuery;
+                    const ctxProjectId = SettingsManager.getInstance()?.context?.globalState?.get<string>('codepilot.projectId');
                     const ragRaw = await CodePilotApiClient.getInstance().searchRag(
                         ragQuery,
                         orgId || undefined,
                         undefined,
                         3, // 5→3: 기본 청크 수 축소 (토큰 절약)
+                        ctxProjectId || undefined,
                     );
                     const ragResultsRaw = Array.isArray(ragRaw)
                         ? ragRaw
                         : ((ragRaw as any)?.data || (ragRaw as any)?.results || []);
                     // 유사도 임계값 필터링: 낮은 유사도 결과 제외 (무관한 문서 방지)
-                    const RAG_SIMILARITY_THRESHOLD = 0.80;
+                    const RAG_SIMILARITY_THRESHOLD = 0.75;
                     const ragResults = (ragResultsRaw || []).filter((r: any) =>
                         r.similarity == null || r.similarity >= RAG_SIMILARITY_THRESHOLD
                     );

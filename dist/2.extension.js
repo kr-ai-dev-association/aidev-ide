@@ -21,7 +21,7 @@ class CodePilotApiClient {
         // vscode import를 지연로딩
         const vscode = __webpack_require__(1);
         const config = vscode.workspace.getConfiguration("codepilot");
-        this.baseUrl = config.get("backendUrl") || "https://api-codepilot.banya.ai/api/v1";
+        this.baseUrl = config.get("backendUrl");
     }
     static getInstance() {
         if (!CodePilotApiClient.instance) {
@@ -75,10 +75,12 @@ class CodePilotApiClient {
     /**
      * 전체 유효 설정 조회
      */
-    async getAllEffectiveSettings(orgId) {
+    async getAllEffectiveSettings(orgId, projectId) {
         const params = {};
         if (orgId)
             params.org_id = orgId;
+        if (projectId)
+            params.project_id = projectId;
         return this.get("/settings/effective/all/", params);
     }
     /**
@@ -90,10 +92,12 @@ class CodePilotApiClient {
     /**
      * RAG 검색
      */
-    async searchRag(query, orgId, sourceIds, topK = 5) {
+    async searchRag(query, orgId, sourceIds, topK = 5, projectId) {
         const body = { query, top_k: topK };
         if (orgId)
             body.org_id = orgId;
+        if (projectId)
+            body.project_id = projectId;
         if (sourceIds)
             body.source_ids = sourceIds;
         return this.post("/rag/search/", body);
@@ -101,10 +105,12 @@ class CodePilotApiClient {
     /**
      * RAG 소스 목록 조회 (조직 또는 개인)
      */
-    async getRagSources(orgId) {
+    async getRagSources(orgId, projectId) {
         const params = {};
         if (orgId)
             params.org_id = orgId;
+        if (projectId)
+            params.project_id = projectId;
         return this.get("/rag/sources/", params);
     }
     /**

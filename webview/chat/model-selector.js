@@ -121,26 +121,30 @@ export function populateModelDropdown(models, current, adminModels, supportedMod
     }
   }
 
-  // 관리자 모델 추가
+  // 커스텀 모델 추가 (팀 기본 + 프로젝트)
   const adminModelList = adminModels || [];
-  if (adminModelList.length > 0) {
+  const teamModels = adminModelList.filter(m => m.source !== 'project');
+  const projectModels = adminModelList.filter(m => m.source === 'project');
+
+  function addModelSection(models, label) {
+    if (models.length === 0) return;
     const divider = document.createElement('div');
     divider.style.height = '1px';
     divider.style.backgroundColor = 'var(--vscode-panel-border)';
     divider.style.margin = '4px 0';
     modelDropdown.appendChild(divider);
 
-    const adminHeader = document.createElement('div');
-    adminHeader.style.padding = '3px 8px 1px';
-    adminHeader.style.fontSize = '9px';
-    adminHeader.style.fontWeight = '600';
-    adminHeader.style.textTransform = 'uppercase';
-    adminHeader.style.color = 'var(--vscode-descriptionForeground)';
-    adminHeader.style.letterSpacing = '0.5px';
-    adminHeader.textContent = 'Admin';
-    modelDropdown.appendChild(adminHeader);
+    const header = document.createElement('div');
+    header.style.padding = '3px 8px 1px';
+    header.style.fontSize = '9px';
+    header.style.fontWeight = '600';
+    header.style.textTransform = 'uppercase';
+    header.style.color = 'var(--vscode-descriptionForeground)';
+    header.style.letterSpacing = '0.5px';
+    header.textContent = label;
+    modelDropdown.appendChild(header);
 
-    adminModelList.forEach((m) => {
+    models.forEach((m) => {
       const item = document.createElement('div');
       item.className = 'dropdown-option';
       if (m.name === currentOllamaModel) {
@@ -164,6 +168,9 @@ export function populateModelDropdown(models, current, adminModels, supportedMod
       modelDropdown.appendChild(item);
     });
   }
+
+  addModelSection(teamModels, '팀 기본');
+  addModelSection(projectModels, '프로젝트');
 
   // 구분선 (Ollama 모델이 있을 경우에만)
   if (availableOllamaModels.length > 0) {

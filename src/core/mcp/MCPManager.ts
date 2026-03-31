@@ -204,6 +204,7 @@ export class MCPManager {
                     enabled: enforcement === 'required' ? true : !isDisabled,
                     status: 'disconnected',
                     enforcement: enforcement as 'required' | 'recommended',
+                    source: (serverConfig as any).source || 'admin',
                 });
             }
 

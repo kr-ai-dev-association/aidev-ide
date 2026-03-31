@@ -209,13 +209,23 @@ export class UsageMetricsManager {
 
       const api = CodePilotApiClient.getInstance();
 
-      await api.reportUsage({
+      // globalState에서 선택된 프로젝트 ID 가져오기
+      let projectId: string | undefined;
+      try {
+        const { StateManager } = await import('./StateManager');
+        const sm = StateManager.getInstance();
+        projectId = sm.context?.globalState?.get<string>('codepilot.projectId') || undefined;
+      } catch { /* ignore */ }
+
+      const usageData: any = {
         org_id: userInfo?.organization_id,
         model_name: actualModelName,
         token_input: Math.floor(tokenCount * 0.6),
         token_output: Math.floor(tokenCount * 0.4),
         api_calls: 1,
-      });
+      };
+      if (projectId) usageData.project_id = projectId;
+      await api.reportUsage(usageData);
     } catch {
       // 보고 실패 시 무시 (오프라인 등)
     }

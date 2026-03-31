@@ -145,6 +145,8 @@ export interface MCPToolCallRequest {
 export interface AdminMCPServer extends MCPServerConfig {
     /** 적용 방식: required=필수, recommended=권장 */
     enforcement: 'required' | 'recommended';
+    /** 출처: admin=팀 기본, project=프로젝트 */
+    source?: 'admin' | 'project';
 }
 
 /**

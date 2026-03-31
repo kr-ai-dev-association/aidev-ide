@@ -134,7 +134,7 @@ function renderSettingCard(s, category) {
     if (v.category_sub) rows.push(`<b>하위분류:</b> ${escapeHtml(v.category_sub)}`);
     html += `<div class="setting-detail">${rows.join('<br>')}</div>`;
     if (s.skill_description) {
-      html += `<div style="margin-top:4px;font-size:0.75em;color:#b45309;background:#fffbeb;padding:2px 8px;border-radius:4px;">${escapeHtml(s.skill_description)}</div>`;
+      html += `<div style="margin-top:4px;font-size:0.75em;color:var(--vscode-descriptionForeground);background:var(--vscode-textCodeBlock-background);padding:2px 8px;border-radius:4px;">${escapeHtml(s.skill_description)}</div>`;
     }
 
   } else if (category === 'ai_model' && v && typeof v === 'object') {
@@ -145,6 +145,9 @@ function renderSettingCard(s, category) {
     rows.push(`<b>Context Window:</b> ${cw ? Number(cw).toLocaleString() : '<span style="opacity:0.5">미설정</span>'}`);
     const mt = v.max_tokens || v.maxTokens;
     rows.push(`<b>Max Tokens:</b> ${mt ? Number(mt).toLocaleString() : '<span style="opacity:0.5">미설정</span>'}`);
+    if (v.hasApiKey) {
+      rows.push('<span style="font-size:0.85em; color:#16a34a;">✓ 공용 API 키 설정됨</span>');
+    }
     if (rows.length) {
       html += `<div class="setting-detail">${rows.join('<br>')}</div>`;
     } else {
@@ -237,17 +240,12 @@ function renderOrgSettings(category) {
   const container = document.getElementById(`org-settings-${category}`);
   if (!container) return;
 
-  let settings;
-  let headerLabel;
   const rawSettings = cachedServerSettings[category] || [];
+  let settings;
   if (window.userHasOrganization) {
-    // 조직 사용자: 프리셋 제외, 관리자 설정만 표시
     settings = rawSettings.filter(s => s.source !== 'preset');
-    headerLabel = '관리자 설정';
   } else {
-    // 개인 사용자: 프리셋(super에서 개인 활성화한 설정) 표시
     settings = rawSettings.filter(s => s.source === 'preset');
-    headerLabel = '기본 설정';
   }
 
   // RAG 빈 상태 메시지 처리
@@ -267,14 +265,32 @@ function renderOrgSettings(category) {
   const personalLabel = document.getElementById(PERSONAL_LABEL_MAP[category]);
   if (personalLabel) personalLabel.style.display = 'flex';
 
-  let html = `<div class="org-settings-section">`;
-  html += `<div class="org-settings-header">${headerLabel} <span class="org-count">(${settings.length})</span></div>`;
+  let html = '';
 
-  for (const s of settings) {
-    html += renderSettingCard(s, category);
+  if (window.userHasOrganization) {
+    const teamSettings = settings.filter(s => s.source === 'admin');
+    const projectSettings = settings.filter(s => s.source === 'project');
+
+    if (teamSettings.length > 0) {
+      html += `<div class="org-settings-section">`;
+      html += `<div class="org-settings-header">팀 기본 설정 <span class="org-count">(${teamSettings.length})</span></div>`;
+      for (const s of teamSettings) { html += renderSettingCard(s, category); }
+      html += `</div>`;
+    }
+
+    if (projectSettings.length > 0) {
+      html += `<div class="org-settings-section" style="margin-top:8px;">`;
+      html += `<div class="org-settings-header" style="color:var(--vscode-button-background);">프로젝트 설정 <span class="org-count">(${projectSettings.length})</span></div>`;
+      for (const s of projectSettings) { html += renderSettingCard(s, category); }
+      html += `</div>`;
+    }
+  } else {
+    html += `<div class="org-settings-section">`;
+    html += `<div class="org-settings-header">기본 설정 <span class="org-count">(${settings.length})</span></div>`;
+    for (const s of settings) { html += renderSettingCard(s, category); }
+    html += `</div>`;
   }
 
-  html += `</div>`;
   container.innerHTML = html;
 }
 
@@ -355,47 +371,63 @@ function findGroupForSupportedKey(supportedKey) {
  * 관리자 설정 AI 모델을 서브 드롭다운에 추가 (preset 제외 — 순수 admin 모델만)
  */
 function populateAdminModelsInDropdown() {
-  const subSelect = document.getElementById("admin-model-select");
-  if (!subSelect) return;
-
-  subSelect.innerHTML = '';
-
   const aiModels = cachedServerSettings['ai_model'] || [];
-  // source가 'admin'인 것만 = 순수 관리자 모델 (preset, builtin 제외)
-  const adminOnlyModels = aiModels.filter(s => {
-    const v = s.value;
-    return v && v.enabled !== false && s.source === 'admin';
-  });
-
   const mainSelect = document.getElementById("ai-model-select");
-  if (adminOnlyModels.length === 0) {
+
+  // 커스텀 모델 옵션 생성 헬퍼
+  function populateCustomModelSelect(selectId, models, mainOptValue) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    select.innerHTML = '';
+
     if (mainSelect) {
-      const adminOpt = mainSelect.querySelector('option[value="admin"]');
-      if (adminOpt) adminOpt.style.display = 'none';
+      const opt = mainSelect.querySelector(`option[value="${mainOptValue}"]`);
+      if (opt) opt.style.display = models.length > 0 ? '' : 'none';
     }
-    return;
+
+    for (const s of models) {
+      const v = s.value;
+      const option = document.createElement('option');
+      option.value = s.key;
+      const model = v.model || v.model_name || s.key;
+      const lockBadge = s.enforcement === 'required' ? ' 🔒' : '';
+      option.textContent = `${model}${lockBadge}`;
+      option.dataset.hasApiKey = v.hasApiKey ? 'true' : 'false';
+      select.appendChild(option);
+    }
+
+    const pendingKey = select.getAttribute('data-pending-admin-key');
+    if (pendingKey) {
+      select.value = pendingKey;
+      select.removeAttribute('data-pending-admin-key');
+    }
   }
 
-  if (mainSelect) {
-    const adminOpt = mainSelect.querySelector('option[value="admin"]');
-    if (adminOpt) adminOpt.style.display = '';
+  // 팀 기본 모델
+  const teamModels = aiModels.filter(s => s.value && s.value.enabled !== false && s.source === 'admin');
+  populateCustomModelSelect("admin-model-select", teamModels, "admin");
+
+  // 프로젝트 모델
+  const projectModels = aiModels.filter(s => s.value && s.value.enabled !== false && s.source === 'project');
+  populateCustomModelSelect("project-model-select", projectModels, "project");
+
+  // 선택된 모델의 공용 API 키 상태 표시
+  function updateCustomModelStatus(selectId, statusId) {
+    const select = document.getElementById(selectId);
+    const status = document.getElementById(statusId);
+    if (!select || !status) return;
+    const selected = select.options[select.selectedIndex];
+    if (!selected) return;
+    if (selected.dataset.hasApiKey === 'true') {
+      showStatus(status, '공용 API 키가 설정되어 있습니다. 별도 키 입력 없이 사용 가능합니다.', 'success', 0);
+    } else {
+      status.textContent = '';
+    }
   }
 
-  for (const s of adminOnlyModels) {
-    const v = s.value;
-    const option = document.createElement('option');
-    option.value = s.key;
-    const model = v.model || v.model_name || s.key;
-    const badge = s.enforcement === 'required' ? ' 🔒' : '';
-    option.textContent = `${model}${badge}`;
-    subSelect.appendChild(option);
-  }
-
-  const pendingKey = subSelect.getAttribute('data-pending-admin-key');
-  if (pendingKey) {
-    subSelect.value = pendingKey;
-    subSelect.removeAttribute('data-pending-admin-key');
-  }
+  // 초기 상태 표시
+  updateCustomModelStatus("admin-model-select", "admin-model-status");
+  updateCustomModelStatus("project-model-select", "project-model-status");
 }
 
 /**
@@ -422,8 +454,10 @@ function populateRoutingModelOptions() {
     groups[g].push(s);
   }
 
-  // 관리자 모델
-  const adminModels = aiModels.filter(s => s.source === 'admin' && s.value?.enabled !== false);
+  // 팀 기본 커스텀 모델
+  const teamModels = aiModels.filter(s => s.source === 'admin' && s.value?.enabled !== false);
+  // 프로젝트 커스텀 모델
+  const projectModels = aiModels.filter(s => s.source === 'project' && s.value?.enabled !== false);
 
   for (const select of routingSelects) {
     if (!select) continue;
@@ -440,13 +474,22 @@ function populateRoutingModelOptions() {
       select.appendChild(option);
     }
 
-    // 관리자 모델 추가
-    if (adminModels.length > 0) {
-      const adminOpt = document.createElement('option');
-      adminOpt.value = 'admin';
-      adminOpt.textContent = '관리자';
-      adminOpt.setAttribute('data-dynamic', 'true');
-      select.appendChild(adminOpt);
+    // 팀 기본 커스텀 모델
+    if (teamModels.length > 0) {
+      const teamOpt = document.createElement('option');
+      teamOpt.value = 'admin';
+      teamOpt.textContent = '팀 기본';
+      teamOpt.setAttribute('data-dynamic', 'true');
+      select.appendChild(teamOpt);
+    }
+
+    // 프로젝트 커스텀 모델
+    if (projectModels.length > 0) {
+      const projOpt = document.createElement('option');
+      projOpt.value = 'project';
+      projOpt.textContent = '프로젝트';
+      projOpt.setAttribute('data-dynamic', 'true');
+      select.appendChild(projOpt);
     }
   }
 }
@@ -515,13 +558,22 @@ function restoreRoutingModelUI(prefix, modelType, modelName) {
         submodelSelect.appendChild(opt);
       });
     } else if (modelType === 'admin') {
-      const adminModels = aiModels.filter(s => s.source === 'admin' && s.value?.enabled !== false);
-      adminModels.forEach(s => {
+      const teamModels = aiModels.filter(s => s.source === 'admin' && s.value?.enabled !== false);
+      teamModels.forEach(s => {
         const v = s.value || {};
         const opt = document.createElement('option');
         opt.value = s.key;
         const badge = s.enforcement === 'required' ? ' 🔒' : '';
         opt.textContent = `${v.model || v.model_name || v.name || s.key}${badge}`;
+        submodelSelect.appendChild(opt);
+      });
+    } else if (modelType === 'project') {
+      const projModels = aiModels.filter(s => s.source === 'project' && s.value?.enabled !== false);
+      projModels.forEach(s => {
+        const v = s.value || {};
+        const opt = document.createElement('option');
+        opt.value = s.key;
+        opt.textContent = `${v.model || v.model_name || v.name || s.key}`;
         submodelSelect.appendChild(opt);
       });
     }
@@ -1697,6 +1749,7 @@ if (aiModelSelect) {
   aiModelSelect.addEventListener("change", () => {
     const selectedModel = aiModelSelect.value;
     const adminSettingsSection = document.getElementById("admin-settings-section");
+    const projectModelSection = document.getElementById("project-model-settings-section");
 
     // 모든 설정 섹션 초기 숨김
     function hideAllModelSections() {
@@ -1709,6 +1762,9 @@ if (aiModelSelect) {
       if (adminSettingsSection) {
         adminSettingsSection.style.display = "none";
       }
+      if (projectModelSection) {
+        projectModelSection.style.display = "none";
+      }
     }
 
     // 선택된 모델에 따라 설정 섹션 활성화/비활성화 및 표시 제어
@@ -1716,6 +1772,12 @@ if (aiModelSelect) {
       hideAllModelSections();
       if (adminSettingsSection) {
         adminSettingsSection.style.display = "block";
+      }
+      updateStreamingToggle({}); // 제한 해제
+    } else if (selectedModel === "project") {
+      hideAllModelSections();
+      if (projectModelSection) {
+        projectModelSection.style.display = "block";
       }
       updateStreamingToggle({}); // 제한 해제
     } else if (selectedModel.startsWith("group:")) {
@@ -1756,7 +1818,7 @@ if (aiModelSelect) {
     // 선택 변경 시에도 즉시 저장(자동 저장) - 단, 설정 로드 중이 아닐 때만
     // admin은 서브 드롭다운에서 모델 선택 시 저장
     // group:xxx는 서브 드롭다운에서 모델 선택 시 저장 (첫번째 모델 자동 저장)
-    if (!isLoadingSettings && selectedModel !== "admin") {
+    if (!isLoadingSettings && selectedModel !== "admin" && selectedModel !== "project") {
       try {
         let modelToSave = selectedModel;
         if (selectedModel.startsWith("group:")) {
@@ -1777,25 +1839,57 @@ if (aiModelSelect) {
   });
 }
 
-// 관리자 모델 서브 드롭다운 이벤트 리스너
+// 팀 기본 모델 서브 드롭다운 이벤트 리스너
 const adminModelSelect = document.getElementById("admin-model-select");
 const adminModelStatus = document.getElementById("admin-model-status");
-if (adminModelSelect) {
-  adminModelSelect.addEventListener("change", () => {
-    const selectedKey = adminModelSelect.value;
-    if (!selectedKey) return;
-    try {
-      if (adminModelStatus) {
-        adminModelStatus.textContent = "관리자 모델 저장 중...";
-        adminModelStatus.className = "info-message";
-      }
-      // admin:key 형식으로 저장
-      vscode.postMessage({ command: "saveAiModel", model: `admin:${selectedKey}` });
-    } catch (e) {
-      console.warn("Failed to autosave admin model:", e);
+function handleCustomModelChange(select, statusEl) {
+  const selectedKey = select.value;
+  if (!selectedKey) return;
+  try {
+    vscode.postMessage({ command: "saveAiModel", model: `admin:${selectedKey}` });
+  } catch (e) {
+    console.warn("Failed to autosave model:", e);
+  }
+  // 공용 API 키 상태 표시
+  if (statusEl) {
+    const opt = select.options[select.selectedIndex];
+    if (opt?.dataset.hasApiKey === 'true') {
+      showStatus(statusEl, '공용 API 키가 설정되어 있습니다. 별도 키 입력 없이 사용 가능합니다.', 'success');
+    } else {
+      statusEl.textContent = '';
     }
-  });
+  }
 }
+
+if (adminModelSelect) {
+  adminModelSelect.addEventListener("change", () => handleCustomModelChange(adminModelSelect, adminModelStatus));
+}
+
+const projectModelSelect = document.getElementById("project-model-select");
+const projectModelStatus = document.getElementById("project-model-status");
+if (projectModelSelect) {
+  projectModelSelect.addEventListener("change", () => handleCustomModelChange(projectModelSelect, projectModelStatus));
+}
+
+// 커스텀 모델 API 키 저장 버튼
+document.getElementById('save-admin-model-api-key-button')?.addEventListener('click', () => {
+  const input = document.getElementById('admin-model-api-key-input');
+  const key = adminModelSelect?.value;
+  if (input && key) {
+    vscode.postMessage({ command: 'saveCustomModelApiKey', modelKey: key, apiKey: input.value });
+    showStatus(adminModelStatus, 'API 키가 저장되었습니다.', 'success');
+    input.value = '';
+  }
+});
+document.getElementById('save-project-model-api-key-button')?.addEventListener('click', () => {
+  const input = document.getElementById('project-model-api-key-input');
+  const key = projectModelSelect?.value;
+  if (input && key) {
+    vscode.postMessage({ command: 'saveCustomModelApiKey', modelKey: key, apiKey: input.value });
+    showStatus(projectModelStatus, 'API 키가 저장되었습니다.', 'success');
+    input.value = '';
+  }
+});
 
 // 지원 모델 서브셀렉트 이벤트 리스너
 if (supportedModelSubselect) {
@@ -2282,6 +2376,29 @@ window.addEventListener("message", (event) => {
       // ===== 조직 소속 여부 즉시 설정 (로그인 응답보다 먼저 도착할 수 있음) =====
       if (message.hasOrganization !== undefined) {
         window.userHasOrganization = message.hasOrganization;
+        // 프로젝트 섹션 표시 (조직 소속일 때만)
+        const projectSection = document.getElementById('settings-project-section');
+        if (projectSection) {
+          projectSection.style.display = message.hasOrganization ? '' : 'none';
+        }
+      }
+
+      // 프로젝트 목록 복원
+      if (message.projects && Array.isArray(message.projects)) {
+        const projectSelect = document.getElementById('settings-project-select');
+        if (projectSelect) {
+          // 기존 옵션 유지 (첫 번째 "팀 기본 설정")
+          while (projectSelect.options.length > 1) projectSelect.remove(1);
+          message.projects.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.name;
+            projectSelect.appendChild(opt);
+          });
+          if (message.selectedProjectId) {
+            projectSelect.value = message.selectedProjectId;
+          }
+        }
       }
 
       // ===== 서버(조직) 설정 렌더링 (모델 라우팅 복원 전에 먼저 실행해야 group 옵션이 채워짐) =====
@@ -3832,7 +3949,9 @@ const agentPolicyFilesCache = {
 // 파일별 skill type 캐시 (extension에서 전달)
 let agentPolicyFileTypesCache = {};
 
-function renderPolicyFileList(category, files, fileTypes) {
+let agentPolicyFileDescsCache = {};
+
+function renderPolicyFileList(category, files, fileTypes, fileDescriptions) {
   const listContainer = document.getElementById(`${category}-file-list`);
   if (!listContainer) {
     return;
@@ -3842,6 +3961,9 @@ function renderPolicyFileList(category, files, fileTypes) {
   agentPolicyFilesCache[category] = files;
   if (fileTypes) {
     agentPolicyFileTypesCache[category] = fileTypes;
+  }
+  if (fileDescriptions) {
+    agentPolicyFileDescsCache[category] = fileDescriptions;
   }
 
   // 목록 초기화
@@ -3862,16 +3984,24 @@ function renderPolicyFileList(category, files, fileTypes) {
     const item = document.createElement("div");
     item.className = "policy-file-item";
 
+    // 상단 행: 이름 + 뱃지 + 삭제 버튼
+    const topRow = document.createElement("div");
+    topRow.style.cssText = "display:flex;align-items:center;justify-content:space-between;width:100%;";
+
+    const nameGroup = document.createElement("div");
+    nameGroup.style.cssText = "display:flex;align-items:center;";
+
     const nameSpan = document.createElement("span");
     nameSpan.className = "file-name" + (isLegacy ? " legacy" : "");
     nameSpan.textContent = displayName + (isLegacy ? " (레거시)" : "");
-    item.appendChild(nameSpan);
+    nameGroup.appendChild(nameSpan);
 
-    // 규칙/스킬 타입 뱃지
     const typeBadge = document.createElement("span");
     typeBadge.textContent = isSkill ? "스킬" : "규칙";
-    typeBadge.style.cssText = `background:#3b82f6;color:#fff;padding:1px 6px;border-radius:4px;font-size:0.7em;font-weight:500;margin-left:6px;`;
-    item.appendChild(typeBadge);
+    typeBadge.style.cssText = `background:#3b82f6;color:#fff;padding:1px 6px;border-radius:4px;font-size:0.7em;font-weight:500;margin-left:3px;`;
+    nameGroup.appendChild(typeBadge);
+
+    topRow.appendChild(nameGroup);
 
     const deleteBtn = document.createElement("button");
     deleteBtn.className = "delete-file-btn";
@@ -3896,7 +4026,18 @@ function renderPolicyFileList(category, files, fileTypes) {
         isLegacy: isLegacy,
       });
     });
-    item.appendChild(deleteBtn);
+    topRow.appendChild(deleteBtn);
+    item.appendChild(topRow);
+
+    // 스킬 설명 (아랫줄)
+    const descs = agentPolicyFileDescsCache[category] || {};
+    const desc = descs[fileName] || descs[displayName];
+    if (isSkill && desc) {
+      const descDiv = document.createElement("div");
+      descDiv.textContent = desc;
+      descDiv.className = "skill-desc";
+      item.appendChild(descDiv);
+    }
 
     listContainer.appendChild(item);
   });
@@ -4006,6 +4147,10 @@ function setupAgentPolicyFileUpload(
     if (fileNameElement) {
       fileNameElement.textContent = "";
     }
+    // 스킬 설명 입력 초기화
+    if (skillDescInput) {
+      skillDescInput.value = "";
+    }
 
     if (errorCount > 0) {
       showStatus(
@@ -4113,6 +4258,10 @@ function setupAgentPolicyPathInput(category, pathInputId, buttonId, statusId) {
     const skillDescInput = typeSelector ? typeSelector.querySelector('.policy-skill-desc') : null;
     const skillDescription = (policyType === 'skill' && skillDescInput) ? skillDescInput.value.trim() : '';
     vscode.postMessage({ command: "addPathAgentPolicy", category, filePath, policyType, skillDescription });
+    // 스킬 설명 입력 초기화
+    if (skillDescInput) {
+      skillDescInput.value = "";
+    }
   });
 
   pathInput.addEventListener("keydown", (e) => {
@@ -4135,8 +4284,9 @@ window.addEventListener("message", (event) => {
     case "allAgentPolicyFilesList":
       if (message.files) {
         const fileTypes = message.fileTypes || {};
+        const fileDescs = message.fileDescriptions || {};
         for (const category of Object.keys(message.files)) {
-          renderPolicyFileList(category, message.files[category], fileTypes[category]);
+          renderPolicyFileList(category, message.files[category], fileTypes[category], fileDescs[category]);
         }
       }
       break;
@@ -4715,7 +4865,7 @@ function renderContextExclusionLists(
 
   // 기본 패턴 목록 (토글 가능, 개인 사용자만)
   const defaultList = document.getElementById("context-exclusion-default-list");
-  if (defaultList && defaultPatterns && !window.userHasOrganization) {
+  if (defaultList && defaultPatterns) {
     defaultList.innerHTML = defaultPatterns
       .map((p) => {
         const isDisabled = disabled.includes(p);
@@ -4894,37 +5044,23 @@ function renderSecurityRulesLists(
     }
   }
 
-  // 기본 차단 명령어 목록 (토글 가능, 개인 사용자만)
+  // 기본 차단 명령어 목록 (읽기 전용)
+  const defaultCmdSection = document.getElementById("default-blocked-cmd-section");
   const defaultCmdList = document.getElementById("blocked-command-default-list");
-  if (defaultCmdList && defaultBlockedCommands && !window.userHasOrganization) {
+  if (defaultCmdSection) defaultCmdSection.style.display = (defaultBlockedCommands && defaultBlockedCommands.length > 0) ? '' : 'none';
+  if (defaultCmdList && defaultBlockedCommands && defaultBlockedCommands.length > 0) {
     defaultCmdList.innerHTML = defaultBlockedCommands
       .map((rule) => {
-        const isDisabled = disabledCmds.includes(rule.id);
-        const bg = isDisabled ? "rgba(127,127,127,0.1)" : "var(--vscode-badge-background)";
-        const color = isDisabled ? "var(--vscode-disabledForeground, #888)" : "var(--vscode-badge-foreground)";
-        const textDecoration = isDisabled ? "line-through" : "none";
-        const opacity = isDisabled ? "0.5" : "1";
-        const title = isDisabled ? "클릭하여 다시 활성화" : "클릭하여 비활성화";
-        return `<span class="default-blocked-cmd-tag" data-id="${escapeHtml(rule.id)}" data-disabled="${isDisabled}" title="${title}" style="display: inline-block; margin: 3px 4px; padding: 4px 10px; background: ${bg}; color: ${color}; border-radius: 3px; font-size: 0.85em; cursor: pointer; text-decoration: ${textDecoration}; opacity: ${opacity}; user-select: none; transition: opacity 0.2s;">${escapeHtml(rule.description)}</span>`;
+        return `<div style="display: flex; align-items: center; justify-content: space-between; margin: 4px 0; padding: 6px 10px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); border-radius: 4px; font-size: 0.85em; user-select: none;"><span>${escapeHtml(rule.description)}</span><code style="font-size: 0.8em; opacity: 0.7; margin-left: 8px; white-space: nowrap;">${escapeHtml(rule.pattern)}</code></div>`;
       })
       .join("");
-
-    defaultCmdList.querySelectorAll(".default-blocked-cmd-tag").forEach((tag) => {
-      tag.addEventListener("click", (e) => {
-        const id = e.currentTarget.dataset.id;
-        const isDisabled = e.currentTarget.dataset.disabled === "true";
-        if (isDisabled) {
-          vscode.postMessage({ command: "enableBlockedCommand", id: id });
-        } else {
-          vscode.postMessage({ command: "disableBlockedCommand", id: id });
-        }
-      });
-    });
   }
 
-  // 기본 보호 파일 목록 (토글 가능, 개인 사용자만)
+  // 기본 보호 파일 목록 (토글 가능)
+  const defaultFileSection = document.getElementById("default-protected-file-section");
   const defaultFileList = document.getElementById("protected-file-default-list");
-  if (defaultFileList && defaultProtectedFiles && !window.userHasOrganization) {
+  if (defaultFileSection) defaultFileSection.style.display = (defaultProtectedFiles && defaultProtectedFiles.length > 0) ? '' : 'none';
+  if (defaultFileList && defaultProtectedFiles && defaultProtectedFiles.length > 0) {
     defaultFileList.innerHTML = defaultProtectedFiles
       .map((rule) => {
         const isDisabled = disabledFiles.includes(rule.id);
@@ -4933,7 +5069,7 @@ function renderSecurityRulesLists(
         const textDecoration = isDisabled ? "line-through" : "none";
         const opacity = isDisabled ? "0.5" : "1";
         const title = isDisabled ? "클릭하여 다시 활성화" : "클릭하여 비활성화";
-        return `<span class="default-protected-file-tag" data-id="${escapeHtml(rule.id)}" data-disabled="${isDisabled}" title="${title}" style="display: inline-block; margin: 3px 4px; padding: 4px 10px; background: ${bg}; color: ${color}; border-radius: 3px; font-size: 0.85em; cursor: pointer; text-decoration: ${textDecoration}; opacity: ${opacity}; user-select: none; transition: opacity 0.2s;">${escapeHtml(rule.description)}</span>`;
+        return `<div class="default-protected-file-tag" data-id="${escapeHtml(rule.id)}" data-disabled="${isDisabled}" title="${title}" style="display: flex; align-items: center; justify-content: space-between; margin: 4px 0; padding: 6px 10px; background: ${bg}; color: ${color}; border-radius: 4px; font-size: 0.85em; cursor: pointer; text-decoration: ${textDecoration}; opacity: ${opacity}; user-select: none; transition: opacity 0.2s;"><span>${escapeHtml(rule.description)}</span><code style="font-size: 0.8em; opacity: 0.7; margin-left: 8px; white-space: nowrap;">${escapeHtml(rule.pattern)}</code></div>`;
       })
       .join("");
 
@@ -5138,10 +5274,16 @@ if (resetSkillsButton) {
 // ===== 서버(조직) 설정 메시지 핸들러 =====
 window.addEventListener("message", (event) => {
   const message = event.data;
-  if (message.command === "serverSettingsLoaded") {
-    if (message.settings && typeof message.settings === "object") {
-      cachedServerSettings = message.settings;
+  if (message.command === "serverSettingsLoaded" || message.command === "updateServerSettings") {
+    const newSettings = message.settings || message.serverSettings;
+    if (newSettings && typeof newSettings === "object") {
+      cachedServerSettings = newSettings;
       renderAllOrgSettings();
+      populateAdminModelsInDropdown();
+      // MCP 서버도 다시 로드 요청
+      if (message.command === "updateServerSettings") {
+        vscode.postMessage({ command: "getMcpServers" });
+      }
       // 현재 선택된 AI 모델 그룹이면 서브 셀렉트도 갱신
       const mainSelect = document.getElementById("ai-model-select");
       if (mainSelect && mainSelect.value.startsWith("group:")) {

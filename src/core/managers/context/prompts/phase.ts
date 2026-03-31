@@ -17,11 +17,15 @@ export function getIntentPrompt(userQuery: string, skillDescriptions: { key: str
   const skillSection = skillDescriptions.length > 0
     ? `
 
-**사용 가능한 스킬 (필요한 것만 선택):**
-${skillDescriptions.map(s => `- ${s.key}: ${s.description}`).join('\n')}
+**등록된 스킬 — 반드시 requiredSkillKeys에 해당 키를 포함하세요:**
+${skillDescriptions.map(s => `- "${s.key}": ${s.description}`).join('\n')}
 
-위 스킬 중 사용자 요청을 처리하는 데 필요한 스킬이 있으면 requiredSkillKeys에 해당 키를 포함하세요.
-필요한 스킬이 없으면 빈 배열([])을 반환하세요.`
+**requiredSkillKeys 판단 규칙:**
+- 사용자 요청이 위 스킬의 설명과 **키워드/의도가 일치**하면 해당 스킬 키를 requiredSkillKeys 배열에 반드시 포함하세요.
+- 예: "리뷰해줘" → 코드 리뷰 스킬의 설명과 일치하면 해당 키 포함
+- 예: "API 만들어줘" → API 생성 스킬의 설명과 일치하면 해당 키 포함
+- 일치하는 스킬이 없으면 빈 배열([])을 반환하세요.
+- **여러 스킬이 관련 있으면 모두 포함하세요.**`
     : '';
 
   return `
@@ -59,14 +63,16 @@ ${skillDescriptions.map(s => `- ${s.key}: ${s.description}`).join('\n')}
 - "존재하지 않는 파일 수정해줘" → code_modify (수정 의도, 파일 없으면 실행 시 오류 처리)
 ${skillSection}
 
-출력 형식 (JSON):
+출력 형식 (JSON만 반환, 다른 텍스트 없이):
 {
   "subtype": "analysis_function",
   "confidence": 0.9,
   "reasoning": "요청의 구체적인 이유",
   "requiresPlan": false,
-  "requiredSkillKeys": []
+  "requiredSkillKeys": ["일치하는-스킬-키"]
 }
+
+**주의: requiredSkillKeys는 등록된 스킬 중 사용자 요청과 관련 있는 키를 반드시 포함하세요. 관련 스킬이 없으면 빈 배열 []을 반환하세요.**
 
 사용자 요청: "${userQuery}"`;
 }
