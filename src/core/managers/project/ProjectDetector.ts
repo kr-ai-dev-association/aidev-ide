@@ -582,7 +582,7 @@ export class ProjectDetector {
 
                         // Biome (매우 빠른 최신 툴)
                         if (fs.existsSync(path.join(projectRoot, 'biome.json'))) {
-                            return { command: `npx tsc --noEmit && ${pm} biome check .`, description: 'TypeScript 타입 검사 + Biome 검사' };
+                            return { command: `npx tsc --noEmit && npx biome check .`, description: 'TypeScript 타입 검사 + Biome 검사' };
                         }
 
                         // Deno
@@ -613,9 +613,14 @@ export class ProjectDetector {
                 if (fs.existsSync(path.join(projectRoot, 'package.json'))) {
                     const pm = this.detectPackageManager(projectRoot);
 
+                    // package.json scripts 우선 (프로젝트 작성자가 의도한 옵션 포함)
+                    if (this.hasScript(projectRoot, 'lint')) return { command: `${pm} run lint`, description: 'NPM Lint 스크립트' };
+                    if (this.hasScript(projectRoot, 'type-check')) return { command: `${pm} run type-check`, description: 'Type Check' };
+                    if (this.hasScript(projectRoot, 'validate')) return { command: `${pm} run validate`, description: 'Validate 스크립트' };
+
                     // Biome (매우 빠른 최신 툴)
                     if (fs.existsSync(path.join(projectRoot, 'biome.json'))) {
-                        return { command: `${pm} biome check .`, description: 'Biome 검사' };
+                        return { command: `npx biome check .`, description: 'Biome 검사' };
                     }
 
                     // Deno
@@ -630,23 +635,20 @@ export class ProjectDetector {
                         fs.existsSync(path.join(projectRoot, '.eslintrc.yml')) ||
                         fs.existsSync(path.join(projectRoot, 'eslint.config.js')) ||
                         fs.existsSync(path.join(projectRoot, 'eslint.config.mjs'))) {
-                        return { command: `${pm} eslint .`, description: 'ESLint 검사' };
+                        return { command: `npx eslint .`, description: 'ESLint 검사' };
                     }
 
                     // Standard JS (설정이 있는 경우)
                     try {
                         const pkg = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf-8'));
                         if (pkg.devDependencies?.standard || pkg.dependencies?.standard) {
-                            return { command: `${pm} standard`, description: 'Standard JS 검사' };
+                            return { command: `npx standard`, description: 'Standard JS 검사' };
                         }
                     } catch {
                         // package.json 파싱 실패 시 무시
                     }
 
-                    // package.json scripts
-                    if (this.hasScript(projectRoot, 'lint')) return { command: `${pm} run lint`, description: 'NPM Lint 스크립트' };
-                    if (this.hasScript(projectRoot, 'type-check')) return { command: `${pm} run type-check`, description: 'Type Check' };
-                    if (this.hasScript(projectRoot, 'validate')) return { command: `${pm} run validate`, description: 'Validate 스크립트' };
+                    // package.json scripts (빌드/테스트 fallback)
                     if (this.hasScript(projectRoot, 'build')) return { command: `${pm} run build`, description: 'Build 스크립트' };
                     if (this.hasScript(projectRoot, 'test')) return { command: `${pm} run test`, description: 'Test 스크립트' };
                 }

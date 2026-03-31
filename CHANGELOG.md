@@ -2,7 +2,46 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.40**
+> **현재 버전: v1.0.42**
+
+---
+
+## v1.0.42 (2026-03-31)
+
+### 버그 수정
+
+- **같은 턴 read_file + update_file 스킵 제거** (`ConversationManager`, `SubAgentLoop`): read_file과 update_file이 같은 턴에 있으면 무조건 update를 스킵하던 버그 수정 — 보호 파일(sensitive file)만 차단, 일반 파일은 허용
+- **검증 명령어 `npm eslint .` 오류** (`ProjectDetector`): eslint/biome/standard 등 CLI 도구를 `npm` 대신 `npx`로 실행하도록 수정
+- **검증 명령어 우선순위** (`ProjectDetector`): package.json의 `lint`/`type-check`/`validate` 스크립트를 eslint 설정 파일보다 먼저 체크
+
+### 개선
+
+- **대화형 명령어 차단 추가** (`TerminalManager`): `npm init` 을 대화형 명령어 목록에 추가
+- **서브에이전트 요약 길이 확대** (`types.ts`): `SUMMARY_MAX_LENGTH` 500 → 2500
+- **기본 모델 변경**: Ollama 기본 모델 `gemma3:27b` → `gemini-2.5-flash`
+- **이름 변경**: 모든 UI 표시명을 `Codepilot-Standalone`으로 통일 (사이드바, 명령어, 터미널, locale 등)
+
+### 문서
+
+- **프롬프트 최적화 계획** (`docs/PROMPT_OPTIMIZATION.md`): API 캐싱, 대형 출력 처리, XML 태그 구조화 분석 및 구현 로드맵
+
+---
+
+## v1.0.41 (2026-03-31)
+
+### 기능 추가
+
+- **익스텐션 ID 분리**: 모든 식별자를 `codepilot` → `codepilot-standalone`으로 변경 (codepilot과 동시 설치 가능)
+- **스킬 참조 추적 강화**: IntentDetector + load_skill 두 경로로 정확한 스킬 참조 표시
+
+### 보안
+
+- **하드코딩 차단 명령어** (`PreToolUseValidator`): 11개 위험 명령어 기본 차단
+- **보호 파일 체크** (`ConversationManager`): 같은 턴 read+update 시 민감 파일 수정 차단
+
+### 개선
+
+- **Ollama max output** (`OllamaApi`): `num_predict: 16384`로 일관된 최대 출력 토큰 설정
 
 ---
 

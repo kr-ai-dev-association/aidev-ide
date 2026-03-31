@@ -2398,6 +2398,7 @@ JSON 형식으로 응답해주세요:
      */
     private isInteractiveCommand(command: string): boolean {
         const interactiveCommands = [
+            'npm init',
             'npm create',
             'npx create',
             'yarn create',
