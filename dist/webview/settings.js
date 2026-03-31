@@ -5990,6 +5990,22 @@ window.addEventListener("message", event => {
       syncLabel.textContent = count > 0 ? `${count}개 설정` : "";
     }
   }
+
+  // 동기화 시 프로젝트 목록 갱신
+  if (message.command === "projectListUpdated" && Array.isArray(message.projects)) {
+    const projectSelect = document.getElementById('settings-project-select');
+    if (projectSelect) {
+      const currentVal = projectSelect.value;
+      while (projectSelect.options.length > 1) projectSelect.remove(1);
+      message.projects.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        projectSelect.appendChild(opt);
+      });
+      projectSelect.value = currentVal;
+    }
+  }
 });
 
 // ===== 설정 내보내기 / 가져오기 =====

@@ -12,7 +12,7 @@
 export const THINKING_TAG_REGEX = /<think>[\s\S]*?<\/think>/g;
 
 /** 응답 요약 시 최대 길이 */
-export const SUMMARY_MAX_LENGTH = 500;
+export const SUMMARY_MAX_LENGTH = 2500;
 
 // ─── Tool Permission ─────────────────────────────────────
 

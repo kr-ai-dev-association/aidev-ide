@@ -2,7 +2,47 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.40**
+> **현재 버전: v1.0.42**
+
+---
+
+## v1.0.42 (2026-03-31)
+
+### 버그 수정
+
+- **같은 턴 read_file + update_file 스킵 제거** (`ConversationManager`, `SubAgentLoop`): read_file과 update_file이 같은 턴에 있으면 무조건 update를 스킵하던 버그 수정 — 보호 파일(sensitive file)만 차단, 일반 파일은 허용
+- **검증 명령어 `npm eslint .` 오류** (`ProjectDetector`): eslint/biome/standard 등 CLI 도구를 `npm` 대신 `npx`로 실행하도록 수정 — `npm eslint .`는 유효하지 않은 명령어
+- **검증 명령어 우선순위** (`ProjectDetector`): package.json의 `lint`/`type-check`/`validate` 스크립트를 eslint 설정 파일보다 먼저 체크 — 프로젝트 작성자의 의도된 린트 옵션 우선 적용
+
+### 개선
+
+- **대화형 명령어 차단 추가** (`TerminalManager`): `npm init` 을 대화형 명령어 목록에 추가 — `npm init @eslint/config` 등 대화형 명령이 자동 실행되어 멈추는 문제 방지
+- **서브에이전트 요약 길이 확대** (`types.ts`): `SUMMARY_MAX_LENGTH` 500 → 2500 — 멀티 에이전트 작업 상세가 잘리는 문제 해결
+- **설정 동기화 시 프로젝트 목록 갱신** (`SettingsPanelProvider`, `settings.js`): 동기화 버튼 클릭 시 서버 설정과 함께 프로젝트 목록도 갱신
+
+### 문서
+
+- **프롬프트 최적화 계획** (`docs/PROMPT_OPTIMIZATION.md`): API 캐싱, 대형 출력 처리, XML 태그 구조화 분석 및 구현 로드맵
+
+---
+
+## v1.0.41 (2026-03-31)
+
+### 기능 추가
+
+- **프로젝트별 설정**: IDE에서 프로젝트 선택 → 프로젝트별 AI 모델, MCP, RAG, 스킬, 보안 규칙 적용
+- **팀 기본/프로젝트 분리 표시**: 설정 화면에서 팀 기본 설정과 프로젝트 설정을 구분 표시
+- **스킬 참조 추적 강화**: IntentDetector + load_skill 두 경로로 정확한 스킬 참조 표시
+
+### 보안
+
+- **하드코딩 차단 명령어** (`PreToolUseValidator`): 11개 위험 명령어 기본 차단 (rm -rf /, chmod 777, curl|sh 등)
+- **보호 파일 체크** (`ConversationManager`): 같은 턴 read+update 시 민감 파일(.env 등) 수정 차단
+
+### 개선
+
+- **Ollama max output** (`OllamaApi`): `num_predict: 16384`로 일관된 최대 출력 토큰 설정
+- **RAG 유사도 임계값**: 80% → 75%로 조정 (검색 결과 0건 방지)
 
 ---
 

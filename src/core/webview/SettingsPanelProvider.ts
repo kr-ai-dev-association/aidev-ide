@@ -2826,6 +2826,21 @@ export function openSettingsPanel(
               command: 'serverSettingsLoaded',
               settings: sm.getAllServerSettings(),
             });
+            // 프로젝트 목록도 갱신
+            try {
+              const userInfo = context.globalState.get<any>('codepilot.userInfo');
+              const orgId = userInfo?.organization_id;
+              if (orgId) {
+                const { CodePilotApiClient } = await import("../../services/api/CodePilotApiClient");
+                const api = CodePilotApiClient.getInstance();
+                const raw: any = await api.get(`/organizations/${orgId}/projects/`);
+                const projects = Array.isArray(raw) ? raw : (raw?.data || raw?.results || []);
+                safePostMessage(panel, {
+                  command: 'projectListUpdated',
+                  projects,
+                });
+              }
+            } catch { /* ignore */ }
           } catch { /* ignore */ }
           break;
         }
