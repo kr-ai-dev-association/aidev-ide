@@ -1,13 +1,13 @@
 /**
  * SubAgentLoop
- * 경량 에이전트 루프 — ConversationManager의 핵심 루프만 추출
+ * Lightweight agent loop — extracts only the core loop from ConversationManager
  *
- * 설계 원칙:
- * - LLMManager.getInstance() 공유 (HTTP 호출만 하므로 안전)
- * - ToolExecutor 독립 인스턴스 (각 에이전트별)
+ * Design principles:
+ * - Shares LLMManager.getInstance() (safe since it only makes HTTP calls)
+ * - Independent ToolExecutor instance (per agent)
  * - NO FSM, NO session management, NO user approval
- * - 스트리밍 모드 지원 (useStreaming=true 시 타임아웃 없이 스트리밍)
- * - 단순 while 루프: LLM 호출 → 도구 파싱 → 도구 실행 → 결과 축적
+ * - Streaming mode support (no timeout when useStreaming=true, streams continuously)
+ * - Simple while loop: LLM call -> tool parsing -> tool execution -> accumulate results
  */
 
 import { LLMManager, LLMMessagePart } from '../managers/model/LLMManager';
@@ -29,7 +29,7 @@ import * as path from 'path';
 
 const MAX_TURNS = 25;
 const MAX_CONSECUTIVE_FAILURES = 3;
-const MAX_READONLY_CONSECUTIVE_TURNS = 4; // read-only 도구만 연속 N턴이면 write 유도
+const MAX_READONLY_CONSECUTIVE_TURNS = 4; // If only read-only tools are used for N consecutive turns, nudge write
 
 export class SubAgentLoop {
     private llmManager: LLMManager;
@@ -75,7 +75,7 @@ export class SubAgentLoop {
 
     async run(): Promise<AgentLoopResult> {
         const startTime = Date.now();
-        let pausedDuration = 0; // 사용자 승인 대기 시간 (타임아웃에서 제외)
+        let pausedDuration = 0; // User approval wait time (excluded from timeout)
         const createdFiles: string[] = [];
         const modifiedFiles: string[] = [];
         const deletedFiles: string[] = [];
@@ -90,45 +90,45 @@ export class SubAgentLoop {
         let hasExecutedTools = false;
         let hasExecutedWriteTools = false;
         let consecutiveReadOnlyTurns = 0;
-        // update_file 실패 추적 — __done__ 수락 전 재시도 강제용
+        // Track update_file failures — force retry before accepting __done__
         let failedUpdateFilePaths: string[] = [];
-        // v1.0.25: createdFilesInSession 제거 — diagnostics 에러 수정을 위한 update_file 허용
-        // 이 에이전트의 대화 컨텍스트
+        // v1.0.25: Removed createdFilesInSession — allow update_file for diagnostics error fixes
+        // Conversation context for this agent
         const conversationParts: LLMMessagePart[] = [
             { text: `Task: ${this.subtask.title}\n\n${this.subtask.description}` }
         ];
 
-        // 턴 간 중복 read_file 방지: 이미 읽은 경로 추적
+        // Prevent duplicate read_file across turns: track already-read paths
         const alreadyReadFiles = new Set<string>();
-        // 턴 간 중복 stat_file 방지: 이미 stat한 경로 추적
+        // Prevent duplicate stat_file across turns: track already-statted paths
         const alreadyStattedFiles = new Set<string>();
 
-        // Native tool calling 설정 (루프 전 1회 계산)
+        // Native tool calling configuration (computed once before loop)
         const adminConfig = this.llmManager.getAdminModelConfig();
         const isNativeAdmin = this.llmManager.getCurrentModel() === AiModelType.ADMIN
             && (adminConfig?.nativeToolCallingSupported === true || String(adminConfig?.nativeToolCallingSupported) === 'true');
 
         const systemPrompt = this.buildSystemPrompt(isNativeAdmin);
 
-        // 스트리밍 즉시 파일 생성 설정 (루프 전 1회 읽기)
+        // Streaming immediate file creation setting (read once before loop)
         const isAutoToolEnabled = await SettingsManager.getInstance().isAutoToolExecutionEnabled();
         const isAutoUpdateEnabled = await SettingsManager.getInstance().isAutoUpdateEnabled();
         const allowedTools = this.getAllowedTools();
         const nativeTools = isNativeAdmin ? ToolSpecBuilder.buildOpenAIToolsConfig(allowedTools, true) : undefined;
-        // thinkingEnabled=false → 항상 비활성화; true → native admin 여부에 따라 결정
+        // thinkingEnabled=false -> always disabled; true -> depends on native admin
         const disableThinking = !this.thinkingEnabled ? true : !isNativeAdmin;
 
         while (turnCount < MAX_TURNS) {
             if (this.abortSignal?.aborted) {
-                errors.push('사용자에 의해 중단됨');
+                errors.push('Aborted by user');
                 break;
             }
 
-            // 서브에이전트 대화 압축: 컨텍스트가 커지면 오래된 도구 결과 축소
+            // Sub-agent conversation compaction: shrink old tool results when context grows large
             if (turnCount > 0 && conversationParts.length > 10) {
                 const totalChars = conversationParts.reduce((sum, p) => sum + (p.text?.length || 0), 0);
                 if (totalChars > 30000) {
-                    // 첫 번째(태스크 설명)와 마지막 4개는 유지, 중간 도구 결과를 요약
+                    // Keep first (task description) and last 4, summarize middle tool results
                     const keepFirst = 1;
                     const keepLast = 4;
                     if (conversationParts.length > keepFirst + keepLast + 2) {
@@ -139,30 +139,30 @@ export class SubAgentLoop {
                             const fileMatches = text.match(/(?:read_file|create_file|update_file|remove_file)[:\s]+([^\n\]]+)/g);
                             if (fileMatches) fileMatches.forEach(m => middleFiles.add(m.substring(0, 60)));
                         }
-                        const summary = `[이전 턴 요약] ${middle.length}개 메시지 압축됨. 작업한 파일: ${[...middleFiles].join(', ') || '(도구 호출 없음)'}`;
+                        const summary = `[Previous turns summary] ${middle.length} messages compacted. Files worked on: ${[...middleFiles].join(', ') || '(no tool calls)'}`;
                         conversationParts.splice(keepFirst, middle.length, { text: summary });
                         console.log(`[SubAgentLoop:${this.subtask.id}] Context compacted: ${middle.length} messages → 1 summary (${totalChars} → ${conversationParts.reduce((s, p) => s + (p.text?.length || 0), 0)} chars)`);
                     }
                 }
             }
 
-            // 전체 루프 타임아웃 체크 (사용자 승인 대기 시간 제외)
+            // Total loop timeout check (excluding user approval wait time)
             if (Date.now() - startTime - pausedDuration > AgentConfig.SUB_AGENT_TOTAL_TIMEOUT) {
-                errors.push(`전체 실행 시간 초과 (${AgentConfig.SUB_AGENT_TOTAL_TIMEOUT / 1000}초)`);
+                errors.push(`Total execution time exceeded (${AgentConfig.SUB_AGENT_TOTAL_TIMEOUT / 1000}s)`);
                 break;
             }
 
             turnCount++;
 
             try {
-                // 1. LLM 호출
+                // 1. LLM call
                 let response: string;
-                // Fix 8: 스트리밍 중 완성된 create_file 즉시 실행 추적
+                // Fix 8: Track create_file executed immediately during streaming
                 let streamingCreatedPaths = new Set<string>();
-                let streamingHandledPaths = new Set<string>(); // pending 처리됨 (승인 무관)
+                let streamingHandledPaths = new Set<string>(); // pending handled (regardless of approval)
                 try {
                     if (this.useStreaming) {
-                        // 스트리밍 모드: 개별 호출 타임아웃 불필요 (데이터가 계속 들어옴), 전체 타임아웃만 적용
+                        // Streaming mode: no per-call timeout needed (data keeps flowing), only total timeout applies
                         let streamBuffer = '';
                         let lastReportedTool = '';
                         let lastScanPos = 0;
@@ -170,8 +170,8 @@ export class SubAgentLoop {
                         let streamLastFileContentPos = 0;
                         let streamingCreatePromise: Promise<void> = Promise.resolve();
 
-                        // 스트리밍 즉시 파일 생성 공통 실행 함수
-                        // needsApproval=true: 실행 전 onToolApprovalRequired 콜백으로 승인 요청
+                        // Common execution function for streaming immediate file creation
+                        // needsApproval=true: request approval via onToolApprovalRequired callback before execution
                         const executeStreamingCreate = (path: string, capturedCall: ToolUse, needsApproval: boolean = false) => {
                             if (needsApproval) {
                                 streamingHandledPaths.add(path);
@@ -200,11 +200,11 @@ export class SubAgentLoop {
                             });
                         };
 
-                        // 네이티브 tool_call 완성 시 콜백
-                        // ON+ON: 즉시 실행 / ON+파일OFF 또는 도구OFF: 즉시 pending
+                        // Callback when native tool_call completes
+                        // ON+ON: execute immediately / ON+fileOFF or toolOFF: immediate pending
                         const onNativeToolComplete = (toolName: string, args: Record<string, any>) => {
                             if (toolName !== 'create_file' || !args.path) { return; }
-                            // read-only 권한에서는 스트리밍 중 create_file 차단
+                            // Block create_file during streaming in read-only permission
                             if (this.subtask.toolPermission !== 'full') { return; }
                             const p = args.path as string;
                             if (streamingCreatedPaths.has(p) || streamingHandledPaths.has(p)) { return; }
@@ -216,16 +216,16 @@ export class SubAgentLoop {
                         const onChunk = (chunk: string) => {
                             streamBuffer += chunk;
 
-                            // read-only 권한에서는 스트리밍 중 create_file 완전 차단
+                            // In read-only permission, completely block create_file during streaming
                             if (this.subtask.toolPermission !== 'full') {
-                                // 스트리밍 위치만 업데이트 (실행 없음)
+                                // Only update streaming position (no execution)
                                 let endIdx = streamBuffer.indexOf(FILE_END_MARKER, streamLastFileContentPos);
                                 while (endIdx !== -1) {
                                     streamLastFileContentPos = endIdx + FILE_END_MARKER.length;
                                     endIdx = streamBuffer.indexOf(FILE_END_MARKER, streamLastFileContentPos);
                                 }
                             } else if (isAutoToolEnabled && isAutoUpdateEnabled) {
-                                // ON+ON: </file_content> 감지 즉시 실행
+                                // ON+ON: execute immediately upon </file_content> detection
                                 let endIdx = streamBuffer.indexOf(FILE_END_MARKER, streamLastFileContentPos);
                                 while (endIdx !== -1) {
                                     const segmentEnd = endIdx + FILE_END_MARKER.length;
@@ -240,7 +240,7 @@ export class SubAgentLoop {
                                     endIdx = streamBuffer.indexOf(FILE_END_MARKER, streamLastFileContentPos);
                                 }
                             } else {
-                                // 도구OFF 또는 파일OFF: </file_content> 감지 즉시 pending
+                                // toolOFF or fileOFF: immediate pending upon </file_content> detection
                                 let endIdx = streamBuffer.indexOf(FILE_END_MARKER, streamLastFileContentPos);
                                 while (endIdx !== -1) {
                                     const segmentEnd = endIdx + FILE_END_MARKER.length;
@@ -260,7 +260,7 @@ export class SubAgentLoop {
 
                             if (!this.callbacks?.onStreamingStatus) { return; }
 
-                            // 새로 추가된 부분만 스캔 (이전 매치 재감지 방지)
+                            // Scan only newly added portion (prevent re-detecting previous matches)
                             const newContent = streamBuffer.substring(lastScanPos);
                             const toolStatus = this.parseStreamingToolStatus(newContent);
                             if (toolStatus && toolStatus !== lastReportedTool) {
@@ -270,7 +270,7 @@ export class SubAgentLoop {
                                 return;
                             }
 
-                            // 툴 미감지 시 토큰 카운트 표시 (500자마다 업데이트)
+                            // When no tool detected, show token count (update every 500 chars)
                             if (!lastReportedTool && streamBuffer.length % 500 < chunk.length) {
                                 const tokens = estimateTokens(streamBuffer);
                                 this.callbacks.onStreamingStatus(`응답 생성 중 (${tokens.toLocaleString()} 토큰...)`);
@@ -283,10 +283,10 @@ export class SubAgentLoop {
                             : await this.llmManager.sendMessageWithSystemPromptStreaming(
                                 systemPrompt, conversationParts, onChunk,
                                 { signal: this.abortSignal, disableThinking, nativeTools, onNativeToolComplete });
-                        // 스트리밍 중 시작된 create_file 모두 완료 대기
+                        // Wait for all create_file operations started during streaming to complete
                         await streamingCreatePromise;
                     } else {
-                        // 비스트리밍 모드: 개별 호출 타임아웃 적용
+                        // Non-streaming mode: per-call timeout applies
                         const timeoutController = new AbortController();
                         const timeoutId = setTimeout(() => timeoutController.abort(), AgentConfig.SUB_AGENT_LLM_CALL_TIMEOUT);
                         const signals = [timeoutController.signal];
@@ -304,9 +304,9 @@ export class SubAgentLoop {
                             if (timeoutController.signal.aborted) {
                                 clearTimeout(timeoutId);
                                 consecutiveFailures++;
-                                errors.push(`LLM 호출 타임아웃 (${AgentConfig.SUB_AGENT_LLM_CALL_TIMEOUT / 1000}초)`);
+                                errors.push(`LLM call timeout (${AgentConfig.SUB_AGENT_LLM_CALL_TIMEOUT / 1000}s)`);
                                 if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-                                    errors.push('연속 실패 횟수 초과, 에이전트를 중단합니다');
+                                    errors.push('Consecutive failure limit exceeded, aborting agent');
                                     break;
                                 }
                                 conversationParts.push({ text: this.buildRecoveryNudge(consecutiveFailures) });
@@ -319,12 +319,12 @@ export class SubAgentLoop {
                     }
                 } catch (streamErr: any) {
                     if (this.abortSignal?.aborted) {
-                        throw streamErr; // 외부 중단 시그널은 그대로 전파
+                        throw streamErr; // Propagate external abort signal as-is
                     }
                     consecutiveFailures++;
-                    errors.push(`LLM 호출 실패: ${streamErr?.message || streamErr}`);
+                    errors.push(`LLM call failed: ${streamErr?.message || streamErr}`);
                     if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-                        errors.push('연속 실패 횟수 초과, 에이전트를 중단합니다');
+                        errors.push('Consecutive failure limit exceeded, aborting agent');
                         break;
                     }
                     conversationParts.push({ text: this.buildRecoveryNudge(consecutiveFailures) });
@@ -333,14 +333,14 @@ export class SubAgentLoop {
 
                 tokenEstimate += estimateTokens(response);
 
-                // 1.5a. max_tokens 감지 — 응답이 잘린 경우 다음 턴에 계속 요청
+                // 1.5a. Detect max_tokens — if response was truncated, request continuation on next turn
                 const maxTokensReached = response.includes('[MAX_TOKENS_REACHED]');
                 if (maxTokensReached) {
                     response = response.replace('[MAX_TOKENS_REACHED]', '').trim();
-                    console.warn(`[SubAgentLoop:${this.subtask.id}] ⚠️ MAX_TOKENS detected — will inject continuation prompt`);
+                    console.warn(`[SubAgentLoop:${this.subtask.id}] MAX_TOKENS detected — will inject continuation prompt`);
                 }
 
-                // 1.5. thinking 내용 UI 전송 + 빈 응답 감지
+                // 1.5. Send thinking content to UI + detect empty responses
                 const thinkingMatch = response.match(/<think>([\s\S]*?)<\/think>/);
                 if (thinkingMatch && this.callbacks?.onThinking) {
                     const thinkingText = thinkingMatch[1].trim();
@@ -354,51 +354,51 @@ export class SubAgentLoop {
                     consecutiveFailures++;
                     console.warn(`[SubAgentLoop:${this.subtask.id}] Empty/thinking-only response (${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES})`);
                     if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-                        errors.push('LLM이 사고(thinking)만 반복하고 도구 호출이나 텍스트 응답을 생성하지 못했습니다. 모델이 작업 지시를 이해하지 못했을 수 있습니다.');
+                        errors.push('The LLM only repeated thinking without producing any tool calls or text responses. The model may not have understood the task instructions.');
                         break;
                     }
-                    // thinking 내용을 컨텍스트에 보존 → 다음 턴에서 활용 가능
+                    // Preserve thinking content in context -> can be utilized in next turn
                     conversationParts.push({ text: response });
                     conversationParts.push({
                         text: this.buildRecoveryNudge(consecutiveFailures)
                     });
                     continue;
                 }
-                // 2. 도구 파싱 (<think> 블록 제거 후 파싱 — think 내부 JSON이 tool call로 실행되는 것 방지)
+                // 2. Tool parsing (parse after removing <think> blocks -- prevent JSON inside think from being executed as tool calls)
                 const parseWarnings: string[] = [];
                 const strippedForParse = response.replace(THINKING_TAG_REGEX, '').trim();
                 const toolCalls = ToolParser.parseCodeBlockFormat(strippedForParse, parseWarnings);
 
-                // lastResponse 업데이트: tool call이 없고 JSON만 있는 응답(approve 등)은 무시
+                // Update lastResponse: ignore responses that contain only raw JSON without tool calls (approve, etc.)
                 if (toolCalls.length > 0 || !this.isRawJsonOnly(response)) {
                     lastResponse = response;
                 }
 
-                // 2.5. __done__ 가상 도구 분리 — 다른 도구 실행 후 처리
+                // 2.5. Separate __done__ virtual tool — process after other tools execute
                 const doneCall = toolCalls.find(tc => tc.name === '__done__');
                 const executableCalls = toolCalls.filter(tc => tc.name !== '__done__');
 
-                // __done__만 단독 호출 (다른 도구 없음) → 즉시 완료
+                // __done__ called alone (no other tools) -> complete immediately
                 if (executableCalls.length === 0 && doneCall) {
                     const status = doneCall.params.status || 'completed';
                     const summary = doneCall.params.summary || '';
 
-                    // update_file 실패 기록이 있고 파일 쓰기 성공 없음 → __done__ 거부, 재시도 유도
-                    // repair 에이전트는 already_done도 차단 (포기 탈출 방지)
+                    // If there are update_file failure records and no successful file writes -> reject __done__, nudge retry
+                    // Repair agent also blocks already_done (prevent escape by giving up)
                     const blockDone = failedUpdateFilePaths.length > 0 && !hasExecutedWriteTools
                         && (status !== 'already_done' || this.isRepairAgent);
                     if (blockDone) {
                         const paths = failedUpdateFilePaths.join(', ');
                         console.warn(`[SubAgentLoop:${this.subtask.id}] Standalone __done__ rejected: unresolved update_file failures for: ${paths}`);
                         conversationParts.push({
-                            text: `[시스템] 이전에 update_file이 실패했으므로 __done__을 수락할 수 없습니다 (실패 파일: ${paths}).\n파일을 수정하지 않고 완료로 선언하는 것은 허용되지 않습니다.\nread_file로 해당 파일의 현재 내용을 다시 읽은 후, 정확한 SEARCH 블록으로 update_file을 재시도하세요.`,
+                            text: `[System] Cannot accept __done__ because update_file failed previously (failed files: ${paths}).\nDeclaring completion without modifying files is not allowed.\nRe-read the current content of those files with read_file, then retry update_file with accurate SEARCH blocks.`,
                         });
                         continue;
                     }
 
                     console.log(`[SubAgentLoop:${this.subtask.id}] __done__ signal: status=${status}, summary=${summary.substring(0, 100)}`);
                     if (this.subtask.toolPermission === 'full' && !hasExecutedWriteTools && status !== 'already_done') {
-                        warnings.push(`파일 수정 없이 완료됨 — 모델이 __done__(${status})으로 작업 완료를 선언했습니다.`);
+                        warnings.push(`Completed without file modifications -- the model declared task completion with __done__(${status}).`);
                     }
                     lastResponse = summary || response;
                     completedNormally = true;
@@ -406,40 +406,40 @@ export class SubAgentLoop {
                     break;
                 }
 
-                // 도구 없음 (+ __done__도 없음): 실제 완료인지 판단
+                // No tools (and no __done__): determine if actually complete
                 if (executableCalls.length === 0) {
-                    // ⚡ 알 수 없는 도구 이름 → 재프롬프트 (루프 종료 방지)
+                    // Unknown tool name -> re-prompt (prevent loop termination)
                     const unknownToolWarnings = parseWarnings.filter(w => w.startsWith('알 수 없는 도구:'));
                     if (unknownToolWarnings.length > 0) {
                         const unknownNames = unknownToolWarnings.map(w => w.replace('알 수 없는 도구: ', '')).join(', ');
                         const availableTools = [
                             'read_file', 'update_file', 'create_file', 'remove_file',
                             'run_command', 'ripgrep_search', 'list_files', 'glob_search',
-                            'expand_around_line', 'list_imports', 'stat_file', 'fetch_url', 'lsp',
+                            'list_imports', 'stat_file', 'fetch_url', 'lsp',
                         ].join(', ');
                         console.warn(`[SubAgentLoop:${this.subtask.id}] Unknown tool names: ${unknownNames}. Re-prompting.`);
                         conversationParts.push({ text: response });
                         conversationParts.push({
-                            text: `[시스템] 알 수 없는 도구를 호출했습니다: ${unknownNames}. 이 도구들은 존재하지 않습니다. 반드시 다음 도구 목록만 사용하세요: ${availableTools}. 도구 호출 형식: {"tool": "도구이름", ...파라미터}`,
+                            text: `[System] You called unknown tools: ${unknownNames}. These tools do not exist. You must only use the following tools: ${availableTools}. Tool call format: {"tool": "tool_name", ...parameters}`,
                         });
                         continue;
                     }
 
                     const needsWrite = this.subtask.toolPermission === 'full';
 
-                    // Fallback 1: write 도구 실행 완료 → 정상 완료
+                    // Fallback 1: write tool execution completed -> normal completion
                     if (hasExecutedWriteTools) {
                         completedNormally = true;
                         break;
                     }
 
-                    // Fallback 2: read-only 권한에서 읽기 도구 실행 완료 → 정상 완료
+                    // Fallback 2: read-only permission and read tools executed -> normal completion
                     if (!needsWrite && hasExecutedTools) {
                         completedNormally = true;
                         break;
                     }
 
-                    // Fail: 아무 도구도 실행 안 했고 __done__도 없음 → 실패
+                    // Fail: no tools executed and no __done__ -> failure
                     consecutiveFailures++;
                     const reason = needsWrite && hasExecutedTools
                         ? 'read-only tools only, no write operations'
@@ -447,8 +447,8 @@ export class SubAgentLoop {
                     console.warn(`[SubAgentLoop:${this.subtask.id}] No tool calls (${reason}) — treating as failure (${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES})`);
                     if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
                         errors.push(needsWrite && hasExecutedTools
-                            ? 'LLM이 파일 읽기만 수행하고 파일 생성/수정을 하지 않았습니다. 도구 호출 형식(```json)을 따르지 못한 것일 수 있습니다.'
-                            : 'LLM이 도구 호출을 생성하지 못했습니다. 응답에 ```json 코드블록 형식의 도구 호출이 포함되지 않았습니다.');
+                            ? 'The LLM only performed file reads without creating/modifying any files. It may have failed to follow the tool call format (```json).'
+                            : 'The LLM failed to generate tool calls. The response did not contain tool calls in ```json code block format.');
                         break;
                     }
                     conversationParts.push({ text: response });
@@ -458,19 +458,19 @@ export class SubAgentLoop {
                     continue;
                 }
 
-                // 3. 권한별 필터링
+                // 3. Permission-based filtering
                 const allowedCalls = this.filterByPermission(executableCalls);
 
                 if (allowedCalls.length === 0) {
                     conversationParts.push({ text: response });
                     conversationParts.push({
-                        text: '[시스템] 요청한 모든 도구가 권한 정책에 의해 차단되었습니다. 다른 방법을 시도하거나 도구 없이 응답하세요.'
+                        text: '[System] All requested tools were blocked by the permission policy. Try a different approach or respond without using tools.'
                     });
                     continue;
                 }
 
-                // 3.5. 같은 턴 내 동일 도구+경로 중복 제거 (e.g. read_file 같은 파일 2번)
-                // Pre-scan: read_file/create_file 경로 사전 수집 (순서와 무관하게 차단)
+                // 3.5. Deduplicate same tool+path within the same turn (e.g. read_file same file twice)
+                // Pre-scan: collect read_file/create_file paths upfront (block regardless of order)
                 const readFilesInTurn = new Set<string>();
                 const createFilesInTurn = new Set<string>();
                 for (const call of allowedCalls) {
@@ -496,14 +496,14 @@ export class SubAgentLoop {
 
                     if (call.name === 'create_file' && call.params.path &&
                         (streamingCreatedPaths.has(call.params.path) || streamingHandledPaths.has(call.params.path))) {
-                        // Fix 8: 스트리밍 중 이미 실행/pending 처리된 create_file — 재실행 방지
+                        // Fix 8: create_file already executed/pending during streaming -- prevent re-execution
                         console.log(`[SubAgentLoop:${this.subtask.id}] Skipping streaming-pre-executed create_file: ${call.params.path}`);
                         return false;
                     }
 
                     if (call.name === 'read_file' && call.params.path) {
-                        // 이미 이전 턴에서 읽은 파일 스킵 (할루시네이션 반복 방지)
-                        // repair 에이전트는 비활성화 — 수정 후 현재 상태를 다시 읽어야 할 수 있음
+                        // Skip files already read in previous turns (prevent hallucination loops)
+                        // Disabled for repair agent -- may need to re-read current state after modifications
                         if (!this.disableReadDedup && alreadyReadFiles.has(call.params.path)) {
                             console.log(`[SubAgentLoop:${this.subtask.id}] Cross-turn duplicate read skipped: ${call.params.path}`);
                             skippedReadFiles.push(call.params.path);
@@ -512,7 +512,7 @@ export class SubAgentLoop {
                     }
 
                     if (call.name === 'stat_file' && call.params.path) {
-                        // 이미 이전 턴에서 stat한 파일 스킵 (중복 조회 방지)
+                        // Skip files already statted in previous turns (prevent duplicate lookups)
                         if (alreadyStattedFiles.has(call.params.path)) {
                             console.log(`[SubAgentLoop:${this.subtask.id}] Cross-turn duplicate stat skipped: ${call.params.path}`);
                             skippedStatFiles.push(call.params.path);
@@ -521,20 +521,20 @@ export class SubAgentLoop {
                     }
 
                     if (call.name === 'update_file' && call.params.path) {
-                        // create_file 직후 같은 턴 update_file → 스킵 (다음 턴은 허용)
+                        // create_file followed by update_file in same turn -> skip (allow in next turn)
                         if (createFilesInTurn.has(call.params.path)) {
                             console.log(`[SubAgentLoop:${this.subtask.id}] Skipped update_file after create_file in same turn: ${call.params.path}`);
                             skippedUpdateFiles.push({ path: call.params.path, reason: 'create' });
                             return false;
                         }
-                        // read_file + update_file 동턴: 보호 파일만 차단
-                        // (일반 파일은 LLM이 context에서 이미 내용을 알고 있으므로 허용)
+                        // read_file + update_file same turn: block only protected files
+                        // (for regular files, LLM already knows the content from context, so allow)
                     }
 
                     return true;
                 });
 
-                // 4. 사용자 승인 필터링 (onToolApprovalRequired 콜백 제공 시)
+                // 4. User approval filtering (when onToolApprovalRequired callback is provided)
                 const rejectedCalls: ToolUse[] = [];
                 let callsToExecute = uniqueCalls;
                 if (this.callbacks?.onToolApprovalRequired && uniqueCalls.length > 0) {
@@ -551,7 +551,7 @@ export class SubAgentLoop {
                     }
                 }
 
-                // 5. 도구 실행 (UI 콜백 연결)
+                // 5. Execute tools (connect UI callbacks)
                 const results = callsToExecute.length > 0
                     ? await this.toolExecutor.executeTools(
                         callsToExecute,
@@ -562,64 +562,64 @@ export class SubAgentLoop {
                     )
                     : [];
 
-                // 거부된 도구 synthetic 피드백 (LLM 컨텍스트에 포함)
+                // Synthetic feedback for rejected tools (included in LLM context)
                 for (const call of rejectedCalls) {
                     uniqueCalls.push(call);
                     results.push({
                         success: false,
-                        message: `[거부됨] 사용자가 ${call.name}(${call.params.path || call.params.command || ''}) 실행을 거부했습니다.`,
+                        message: `[Rejected] The user rejected execution of ${call.name}(${call.params.path || call.params.command || ''}).`,
                     });
                 }
 
-                // 5.1. 성공한 read_file은 alreadyReadFiles에 기록 (턴 간 중복 방지)
+                // 5.1. Record successful read_file in alreadyReadFiles (prevent cross-turn duplicates)
                 for (const call of callsToExecute) {
                     if (call.name === 'read_file' && call.params.path) {
                         alreadyReadFiles.add(call.params.path);
                     }
                 }
-                // 5.2. 성공한 stat_file은 alreadyStattedFiles에 기록 (턴 간 중복 방지)
+                // 5.2. Record successful stat_file in alreadyStattedFiles (prevent cross-turn duplicates)
                 for (const call of callsToExecute) {
                     if (call.name === 'stat_file' && call.params.path) {
                         alreadyStattedFiles.add(call.params.path);
                     }
                 }
 
-                // 4.4. Fix 8: 스트리밍 중 실행된 create_file에 대한 synthetic 피드백 추가
+                // 4.4. Fix 8: Add synthetic feedback for create_file executed during streaming
                 for (const path of streamingCreatedPaths) {
                     if (allowedCalls.some(c => c.name === 'create_file' && c.params.path === path)) {
                         uniqueCalls.push({ name: 'create_file', params: { path } } as ToolUse);
-                        results.push({ success: true, message: `[스트리밍 중 생성됨] ${path} 파일이 스트리밍 중 즉시 생성되었습니다.` });
+                        results.push({ success: true, message: `[Created during streaming] File ${path} was created immediately during streaming.` });
                     }
                 }
 
-                // 4.5a. 크로스턴 중복 read_file 스킵에 대한 synthetic 피드백 추가 (캐시된 내용 포함)
+                // 4.5a. Add synthetic feedback for cross-turn duplicate read_file skips (including cached content)
                 for (const skippedPath of skippedReadFiles) {
                     uniqueCalls.push({ name: 'read_file', params: { path: skippedPath } } as ToolUse);
-                    // 캐시된 파일 내용을 포함하여 LLM이 다음 단계로 진행 가능하도록
+                    // Include cached file content so LLM can proceed to next step
                     let cachedContent = '';
                     try {
                         const absPath = path.resolve(this.toolContext.workspaceRoot || this.toolContext.projectRoot, skippedPath);
                         cachedContent = await fs.readFile(absPath, 'utf-8');
                     } catch { /* ignore */ }
                     const contentPreview = cachedContent
-                        ? `\n\n현재 파일 내용:\n\`\`\`\n${cachedContent.substring(0, 5000)}${cachedContent.length > 5000 ? '\n... (생략)' : ''}\n\`\`\``
+                        ? `\n\nCurrent file content:\n\`\`\`\n${cachedContent.substring(0, 5000)}${cachedContent.length > 5000 ? '\n... (truncated)' : ''}\n\`\`\``
                         : '';
                     results.push({
                         success: true,
-                        message: `[이미 읽음] ${skippedPath}는 이전 턴에서 이미 읽었습니다. 아래 내용을 사용하세요. 다시 read_file을 호출하지 마세요.${contentPreview}`,
+                        message: `[Already read] ${skippedPath} was already read in a previous turn. Use the content below. Do not call read_file again.${contentPreview}`,
                     });
                 }
 
-                // 4.5b. 크로스턴 중복 stat_file 스킵에 대한 synthetic 피드백 추가
+                // 4.5b. Add synthetic feedback for cross-turn duplicate stat_file skips
                 for (const path of skippedStatFiles) {
                     uniqueCalls.push({ name: 'stat_file', params: { path } } as ToolUse);
                     results.push({
                         success: true,
-                        message: `[이미 조회됨] ${path}는 이전 턴에서 이미 stat_file로 조회했습니다. 이전 결과를 그대로 사용하세요. 다시 stat_file을 호출하지 마세요.`,
+                        message: `[Already queried] ${path} was already queried with stat_file in a previous turn. Use the previous result as-is. Do not call stat_file again.`,
                     });
                 }
 
-                // 4.5. skip된 update_file에 대한 synthetic 피드백 추가
+                // 4.5. Add synthetic feedback for skipped update_file
                 for (const skipped of skippedUpdateFiles) {
                     uniqueCalls.push({
                         name: 'update_file',
@@ -628,20 +628,20 @@ export class SubAgentLoop {
                     if (skipped.reason === 'create') {
                         results.push({
                             success: true,
-                            message: `[스킵됨] ${skipped.path}는 이번 세션에서 create_file로 생성된 파일입니다. update_file이 자동 생략되었습니다. 파일 내용을 수정하려면 read_file로 현재 내용을 먼저 확인한 후 update_file을 사용하세요.`,
+                            message: `[Skipped] ${skipped.path} was created with create_file in this session. update_file was automatically skipped. To modify the file content, first check the current content with read_file, then use update_file.`,
                         });
                     } else {
                         results.push({
                             success: true,
-                            message: `[스킵됨] read_file(${skipped.path})과 update_file(${skipped.path})을 같은 턴에 실행할 수 없습니다. update_file은 자동 생략됩니다. 다음 턴에서 방금 read_file로 읽은 파일의 실제 내용을 기반으로 SEARCH 블록을 재생성하여 update_file만 실행하세요.`,
+                            message: `[Skipped] Cannot execute read_file(${skipped.path}) and update_file(${skipped.path}) in the same turn. update_file is automatically skipped. In the next turn, regenerate the SEARCH block based on the actual content just read with read_file, and execute only update_file.`,
                         });
                     }
                 }
 
-                // 도구가 실행됐으므로 실패 카운터 리셋
+                // Reset failure counter since tools were executed
                 consecutiveFailures = 0;
 
-                // 도구 성공 플래그 설정
+                // Set tool success flags
                 let hasWriteToolInThisTurn = false;
                 for (let i = 0; i < uniqueCalls.length; i++) {
                     const callResult = results[i];
@@ -651,14 +651,14 @@ export class SubAgentLoop {
                         if (!READ_ONLY_TOOLS.has(callItem.name)) {
                             hasExecutedWriteTools = true;
                             hasWriteToolInThisTurn = true;
-                            // update_file 성공 시 실패 추적 목록에서 제거
+                            // Remove from failure tracking list on successful update_file
                             if (callItem.name === 'update_file' && callItem.params.path) {
                                 failedUpdateFilePaths = failedUpdateFilePaths.filter(p => p !== callItem.params.path);
                             }
                         }
-                        // create_file 경로는 createFilesInTurn에서 같은 턴 내에서만 추적
+                        // create_file paths tracked in createFilesInTurn only within the same turn
                     } else if (!callResult?.success && callItem.name === 'update_file' && callItem.params.path) {
-                        // update_file 실패 추적
+                        // Track update_file failures
                         if (!failedUpdateFilePaths.includes(callItem.params.path)) {
                             failedUpdateFilePaths.push(callItem.params.path);
                         }
@@ -666,7 +666,7 @@ export class SubAgentLoop {
                     }
                 }
 
-                // 경량 상태 관리: full 권한인데 read-only 도구만 연속 사용 시 write 유도
+                // Lightweight state management: nudge write when only read-only tools used consecutively with full permission
                 if (this.subtask.toolPermission === 'full') {
                     if (hasWriteToolInThisTurn) {
                         consecutiveReadOnlyTurns = 0;
@@ -678,20 +678,20 @@ export class SubAgentLoop {
                             const toolResultsText = this.formatToolResults(uniqueCalls, results);
                             conversationParts.push({ text: toolResultsText });
                             conversationParts.push({
-                                text: `[시스템] 조사 단계가 충분합니다 (${consecutiveReadOnlyTurns}턴 연속 읽기 전용). 지금 바로 create_file 또는 update_file을 사용하여 파일을 생성/수정하세요. 추가 파일 읽기 없이 코드를 작성하세요.`
+                                text: `[System] Investigation phase is sufficient (${consecutiveReadOnlyTurns} consecutive read-only turns). Now use create_file or update_file to create/modify files immediately. Write code without additional file reads.`
                             });
-                            consecutiveReadOnlyTurns = 0; // 리셋 후 1회 기회
+                            consecutiveReadOnlyTurns = 0; // Reset and give one more chance
                             continue;
                         }
                     }
                 }
 
-                // 5. 파일 변경 추적 (ToolResponse.filePath 기반 — 도구 이름 하드코딩 없음)
+                // 5. Track file changes (based on ToolResponse.filePath -- no hardcoded tool names)
                 for (let i = 0; i < uniqueCalls.length; i++) {
                     const call = uniqueCalls[i];
                     const result = results[i];
                     if (result?.success && result.filePath) {
-                        // remove_file: fileContent 없이 filePath만 반환
+                        // remove_file: returns only filePath without fileContent
                         if (call.name === 'remove_file') {
                             if (!deletedFiles.includes(result.filePath)) {
                                 deletedFiles.push(result.filePath);
@@ -708,13 +708,13 @@ export class SubAgentLoop {
                     }
                 }
 
-                // 5.5. 🔥 v1.0.24: write 도구 실행 후 즉시 LSP diagnostics 검사
-                // SubAgentLoop도 ConversationManager와 동일하게 에러를 즉시 피드백
+                // 5.5. v1.0.24: Check LSP diagnostics immediately after write tool execution
+                // SubAgentLoop also provides immediate error feedback like ConversationManager
                 if (hasWriteToolInThisTurn && (createdFiles.length > 0 || modifiedFiles.length > 0)) {
                     try {
                         const { TestRunner } = await import('../managers/conversation/handlers/TestRunner');
                         const workspaceRoot = this.toolContext.workspaceRoot || this.toolContext.projectRoot || '';
-                        // LSP가 변경사항을 처리할 시간을 약간 대기
+                        // Wait briefly for LSP to process the changes
                         await new Promise(resolve => setTimeout(resolve, 800));
                         const diagnosticErrors = await TestRunner.checkDiagnostics(
                             createdFiles,
@@ -725,7 +725,7 @@ export class SubAgentLoop {
                             const errorLines = diagnosticErrors.slice(0, 10).map(
                                 (e) => `  - ${e.file}:${e.line} [${e.source}/${e.code}] ${e.message}`
                             );
-                            const diagMsg = `[System] ⚠️ LSP Diagnostics: ${diagnosticErrors.length}개 에러 감지\n${errorLines.join('\n')}${diagnosticErrors.length > 10 ? `\n  ... 외 ${diagnosticErrors.length - 10}개` : ''}\n\n위 에러를 수정해주세요. 현재 파일 내용을 read_file로 확인한 후 update_file로 수정하세요.`;
+                            const diagMsg = `[System] LSP Diagnostics: ${diagnosticErrors.length} errors detected\n${errorLines.join('\n')}${diagnosticErrors.length > 10 ? `\n  ... and ${diagnosticErrors.length - 10} more` : ''}\n\nPlease fix the above errors. Check the current file content with read_file, then fix with update_file.`;
                             conversationParts.push({ text: diagMsg });
                             console.log(`[SubAgentLoop:${this.subtask.id}] Inline diagnostics: ${diagnosticErrors.length} errors detected`);
                         }
@@ -734,12 +734,12 @@ export class SubAgentLoop {
                     }
                 }
 
-                // 6. 도구 결과를 다음 턴 컨텍스트에 추가
+                // 6. Add tool results to next turn context
                 const toolResultsText = this.formatToolResults(uniqueCalls, results);
                 conversationParts.push({ text: response });
                 conversationParts.push({ text: toolResultsText });
 
-                // 6.1. update_file 실패 시 현재 파일 내용 자동 주입 — SEARCH 재생성 지원
+                // 6.1. Auto-inject current file content on update_file failure -- support SEARCH block regeneration
                 const updateFailedPaths = uniqueCalls
                     .map((call, i) => ({ call, result: results[i] }))
                     .filter(({ call, result }) => call.name === 'update_file' && !result?.success)
@@ -754,32 +754,32 @@ export class SubAgentLoop {
                                 ? filePath
                                 : path.join(wsRoot, filePath);
                             const content = await fs.readFile(absPath, 'utf-8');
-                            contentParts.push(`--- ${filePath} (현재 실제 파일 내용) ---\n${content}\n---`);
-                        } catch { /* 읽기 실패 무시 */ }
+                            contentParts.push(`--- ${filePath} (current actual file content) ---\n${content}\n---`);
+                        } catch { /* ignore read failure */ }
                     }
                     if (contentParts.length > 0) {
                         conversationParts.push({
-                            text: `[시스템] update_file SEARCH 패턴이 파일의 실제 내용과 일치하지 않습니다.\n아래 현재 파일 내용을 확인하고, 실제 존재하는 텍스트로 SEARCH 블록을 재생성하여 update_file을 다시 시도하세요.\n⚠️ 파일 내용이 이미 아래에 제공되었으므로 read_file을 다시 호출하지 마세요. 바로 update_file을 사용하세요:\n\n${contentParts.join('\n\n')}`,
+                            text: `[System] The update_file SEARCH pattern does not match the actual file content.\nCheck the current file content below, then retry update_file with SEARCH blocks containing the actual existing text.\nThe file content is already provided below, so do NOT call read_file again. Use update_file directly:\n\n${contentParts.join('\n\n')}`,
                         });
                         console.log(`[SubAgentLoop:${this.subtask.id}] Auto-injected current content for ${updateFailedPaths.length} failed update_file(s)`);
                     }
                 }
                 if (maxTokensReached) {
-                    conversationParts.push({ text: '[시스템] 이전 응답이 max_tokens로 인해 중간에 잘렸습니다. 잘린 도구 호출이나 파일 내용이 있다면 처음부터 다시 완전하게 출력하세요. 작업을 계속 진행하세요.' });
+                    conversationParts.push({ text: '[System] The previous response was truncated due to max_tokens. If there are any truncated tool calls or file content, output them again completely from the beginning. Continue with the task.' });
                 }
 
-                // 7. __done__ 처리 (도구 실행 후 — 같은 턴의 다른 도구가 먼저 실행됨)
+                // 7. Process __done__ (after tool execution -- other tools in the same turn execute first)
                 if (doneCall) {
                     const status = doneCall.params.status || 'completed';
                     const summary = doneCall.params.summary || '';
 
-                    // 같은 턴 update_file 실패 OR 누적 미해결 실패가 있으면 __done__ 거부
-                    // repair 에이전트는 already_done도 차단 (이미 standalone __done__에서 처리하지만 post-tool도 동일하게)
+                    // If same-turn update_file failed OR accumulated unresolved failures exist, reject __done__
+                    // Repair agent also blocks already_done (handled in standalone __done__ but apply same logic for post-tool)
                     if (status !== 'already_done' || this.isRepairAgent) {
                         const currentTurnUpdateFailures = uniqueCalls
                             .map((call, i) => ({ call, result: results[i] }))
                             .filter(({ call, result }) => call.name === 'update_file' && !result?.success);
-                        // 이전 턴에서 실패했고 아직 write 성공이 없는 경우도 거부
+                        // Also reject if there are failures from previous turns with no write success yet
                         const hasAccumulatedFailures = failedUpdateFilePaths.length > 0 && !hasExecutedWriteTools;
                         if (currentTurnUpdateFailures.length > 0 || hasAccumulatedFailures) {
                             const failedPaths = currentTurnUpdateFailures.length > 0
@@ -787,7 +787,7 @@ export class SubAgentLoop {
                                 : failedUpdateFilePaths.join(', ');
                             console.warn(`[SubAgentLoop:${this.subtask.id}] __done__ rejected: unresolved update_file failures for: ${failedPaths}`);
                             conversationParts.push({
-                                text: `[시스템] update_file이 실패했으므로 __done__을 수락할 수 없습니다 (실패 파일: ${failedPaths}).\n파일 내용은 이미 위에 제공되었습니다. read_file을 다시 호출하지 말고, 제공된 파일 내용을 기반으로 바로 update_file을 사용하여 정확한 SEARCH 블록으로 수정을 완료하세요.`,
+                                text: `[System] Cannot accept __done__ because update_file failed (failed files: ${failedPaths}).\nThe file content is already provided above. Do NOT call read_file again. Use the provided file content to retry update_file with accurate SEARCH blocks to complete the modification.`,
                             });
                             continue;
                         }
@@ -795,7 +795,7 @@ export class SubAgentLoop {
 
                     console.log(`[SubAgentLoop:${this.subtask.id}] __done__ signal: status=${status}, summary=${summary.substring(0, 100)}`);
                     if (this.subtask.toolPermission === 'full' && !hasExecutedWriteTools && status !== 'already_done') {
-                        warnings.push(`파일 수정 없이 완료됨 — 모델이 __done__(${status})으로 작업 완료를 선언했습니다.`);
+                        warnings.push(`Completed without file modifications -- the model declared task completion with __done__(${status}).`);
                     }
                     lastResponse = summary || response;
                     completedNormally = true;
@@ -806,15 +806,15 @@ export class SubAgentLoop {
             } catch (error) {
                 const msg = error instanceof Error ? error.message : String(error);
                 if (error instanceof Error && error.name === 'AbortError') {
-                    errors.push('사용자에 의해 중단됨');
+                    errors.push('Aborted by user');
                     break;
                 }
 
                 consecutiveFailures++;
-                errors.push(`${turnCount}턴: ${msg}`);
+                errors.push(`Turn ${turnCount}: ${msg}`);
 
                 if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-                    errors.push('연속 실패 횟수 초과, 에이전트를 중단합니다');
+                    errors.push('Consecutive failure limit exceeded, aborting agent');
                     break;
                 }
 
@@ -824,16 +824,17 @@ export class SubAgentLoop {
             }
         }
 
-        // 파일 작성을 했으면 성공으로 처리 (검증은 TestRunner 담당)
-        // 정상 종료가 아닌 경우(MAX_TURNS 도달, 검증 커맨드 실패 등)는 warnings로 기록
+        // If files were written, treat as success (verification is handled by TestRunner)
+        // If not terminated normally (MAX_TURNS reached, verification command failure, etc.), record as warnings
         const hasWrittenFiles = hasExecutedWriteTools;
         const effectiveSuccess = completedNormally || hasWrittenFiles;
 
         if (!completedNormally && hasWrittenFiles) {
-            warnings.push(`에이전트가 정상 종료되지 않았으나 파일 작성은 완료됨 (${createdFiles.length}개 생성, ${modifiedFiles.length}개 수정). 시스템 검증으로 대체합니다.`);
-            // 기존 errors 중 자체 검증 관련은 warnings로 이동
+            warnings.push(`Agent did not terminate normally but file writing was completed (${createdFiles.length} created, ${modifiedFiles.length} modified). Falling back to system verification.`);
+            // Move self-verification related errors to warnings
             const verificationErrors = errors.filter(e =>
-                e.includes('타임아웃') || e.includes('중단') || e.includes('초과')
+                e.includes('timeout') || e.includes('abort') || e.includes('exceeded') ||
+                e.includes('Aborted') || e.includes('Consecutive')
             );
             for (const ve of verificationErrors) {
                 warnings.push(ve);
@@ -845,15 +846,15 @@ export class SubAgentLoop {
         const dedupModified = [...new Set(modifiedFiles)];
         const dedupDeleted = [...new Set(deletedFiles)];
 
-        // completionSummary: 모든 완료 경로에서 통일된 구조화 요약
+        // completionSummary: unified structured summary across all completion paths
         const completionSummary = [
-            doneStatus ? `상태: ${doneStatus}` : '상태: fallback 완료',
-            dedupCreated.length > 0 ? `생성: ${dedupCreated.join(', ')}` : null,
-            dedupModified.length > 0 ? `수정: ${dedupModified.join(', ')}` : null,
-            dedupDeleted.length > 0 ? `삭제: ${dedupDeleted.join(', ')}` : null,
-            warnings.length > 0 ? `경고: ${warnings.join('; ')}` : null,
-            errors.length > 0 ? `오류: ${errors.join('; ')}` : null,
-            lastResponse ? `요약: ${SubAgentLoop.extractHeadTail(lastResponse.replace(THINKING_TAG_REGEX, '').trim(), 800, 400)}` : null,
+            doneStatus ? `Status: ${doneStatus}` : 'Status: fallback completion',
+            dedupCreated.length > 0 ? `Created: ${dedupCreated.join(', ')}` : null,
+            dedupModified.length > 0 ? `Modified: ${dedupModified.join(', ')}` : null,
+            dedupDeleted.length > 0 ? `Deleted: ${dedupDeleted.join(', ')}` : null,
+            warnings.length > 0 ? `Warnings: ${warnings.join('; ')}` : null,
+            errors.length > 0 ? `Errors: ${errors.join('; ')}` : null,
+            lastResponse ? `Summary: ${SubAgentLoop.extractHeadTail(lastResponse.replace(THINKING_TAG_REGEX, '').trim(), 800, 400)}` : null,
         ].filter(Boolean).join('\n');
 
         return {
@@ -874,71 +875,71 @@ export class SubAgentLoop {
     }
 
     private buildSystemPrompt(nativeMode?: boolean): string {
-        // 권한에 따라 허용할 도구 필터링
+        // Filter allowed tools based on permission
         const allowedTools = this.getAllowedTools();
         const toolSpecs = ToolSpecBuilder.buildToolSpecs(allowedTools);
         const toolSection = buildToolPromptSection(toolSpecs, nativeMode);
 
         const projectSection = this.projectContext
-            ? `\n## 프로젝트 구조\n${this.projectContext}\n`
+            ? `\n## Project Structure\n${this.projectContext}\n`
             : '';
 
         const rulesSection = this.rulesContext
             ? `\n${this.rulesContext}\n`
             : '';
 
-        return `당신은 특정 서브태스크를 수행하는 코딩 어시스턴트입니다.
+        return `You are a coding assistant that performs a specific subtask.
 ${rulesSection}
-## 작업
+## Task
 ${this.subtask.title}
 
-## 상세 지시사항
+## Detailed Instructions
 ${this.subtask.description}
 ${projectSection}
-## 규칙
-- 이 작업에만 집중하세요
-- 작업이 완료되면 __done__ 도구를 호출하세요
-- 이미 구현되어 있어 추가 작업이 불필요한 경우에도 확인 후 __done__ 도구를 호출하세요
-- 할당된 범위 밖의 작업은 시도하지 마세요
-- 파일 구조가 제공된 경우 list_files 없이 바로 작업을 시작하세요
-- 파일/코드를 찾을 때는 list_files 대신 glob_search(파일명) 또는 ripgrep_search(내용)를 사용하세요. list_files는 특정 디렉토리 구조를 확인할 때만 사용하세요
-- node_modules, .git, __pycache__, env, .venv, dist, build 디렉토리는 탐색하지 마세요
-- 컨텍스트에 "참고 문서 (RAG)" 섹션이 있으면 이를 우선 활용하세요. 이미 확보된 내용을 다시 검색하지 마세요. 부족한 정보만 추가로 탐색하세요
-- 모든 응답은 한국어로 작성하세요
-- 다른 에이전트가 생성할 파일에 의존하지 마세요. read_file 실패 시 해당 파일을 직접 create_file로 작성하세요
-- 같은 도구를 동일한 파라미터로 반복 호출하지 마세요. 이미 성공한 도구 호출은 다시 실행할 필요가 없습니다
-- update_file의 SEARCH 블록에는 반드시 파일의 실제 코드를 그대로 작성하세요. "... (생략됨)", "// ...", "..." 등 생략 표현은 절대 사용 금지입니다. 생략 표현이 포함된 SEARCH 블록은 즉시 오류로 처리됩니다
-- __done__ summary에는 조사한 구체적 수치(파일 경로, 크기, 줄 번호 등)를 반드시 포함하세요. 집계 태스크가 이 데이터를 활용합니다.
-${this.subtask.dependencies.length > 0 ? '- 이 작업은 선행 태스크의 결과를 집계합니다. 선행 태스크 요약에 이미 포함된 정보(파일 크기, 경로, 줄 번호, 심볼 목록 등)를 도구로 재조회하지 마세요. 요약에 있는 데이터를 그대로 사용하여 분석하세요.' : ''}
+## Rules
+- Focus only on this task
+- Call the __done__ tool when the task is complete
+- Even if the task is already implemented and no additional work is needed, call the __done__ tool after verification
+- Do not attempt work outside your assigned scope
+- If a file structure is provided, start working immediately without using list_files
+- When searching for files/code, use glob_search (for filenames) or ripgrep_search (for content) instead of list_files. Only use list_files when you need to check a specific directory structure
+- Do not explore node_modules, .git, __pycache__, env, .venv, dist, build directories
+- If there is a "Reference Documents (RAG)" section in the context, use it first. Do not re-search for information already available. Only search for additional information that is missing
+- Write all responses in Korean
+- Do not depend on files that other agents will create. If read_file fails, create the file yourself with create_file
+- Do not call the same tool with identical parameters repeatedly. There is no need to re-execute a tool call that already succeeded
+- The SEARCH block in update_file must contain the exact actual code from the file. Abbreviations like "... (omitted)", "// ...", "..." are strictly forbidden. SEARCH blocks containing abbreviations will be immediately treated as errors
+- The __done__ summary must include specific figures from your investigation (file paths, sizes, line numbers, etc.). The aggregation task will use this data.
+${this.subtask.dependencies.length > 0 ? '- This task aggregates results from prerequisite tasks. Do not re-query information already included in prerequisite task summaries (file sizes, paths, line numbers, symbol lists, etc.) using tools. Use the data from the summaries as-is for your analysis.' : ''}
 
-- 프로젝트 초기화 시 create-vite, create-react-app, create-next-app 등 스캐폴딩 도구를 사용하지 마세요. package.json, tsconfig.json 등 설정 파일과 소스 코드를 create_file로 직접 생성하고, npm install로 의존성을 설치하세요
+- When initializing a project, do not use scaffolding tools like create-vite, create-react-app, create-next-app, etc. Directly create configuration files (package.json, tsconfig.json, etc.) and source code with create_file, then install dependencies with npm install
 
 ${toolSection}
 
-${nativeMode ? `## 도구 호출 예시 (API Function Call 형식)
+${nativeMode ? `## Tool Call Examples (API Function Call format)
 
-- 파일 읽기: read_file 함수 호출 (path 파라미터)
-- 파일 생성: create_file 함수 호출 (path, content 파라미터) — content에 파일 전체 내용 직접 전달
-- 파일 수정: update_file 함수 호출 (path, diff 파라미터) — SEARCH/REPLACE 블록
-- 파일 목록: list_files 함수 호출 (path, recursive 파라미터) — 특정 디렉토리 구조 확인 시만 사용
-- 파일 검색: glob_search 함수 호출 (pattern 파라미터) — 파일명/확장자로 찾을 때 사용
-- 코드 검색: ripgrep_search 함수 호출 (query, path 파라미터) — 내용/키워드로 찾을 때 사용
-- 작업 완료: __done__ 함수 호출 (status="completed", summary 파라미터)
-- 이미 완료: __done__ 함수 호출 (status="already_done", summary 파라미터)
+- Read file: call read_file function (path parameter)
+- Create file: call create_file function (path, content parameters) -- pass the entire file content directly in content
+- Modify file: call update_file function (path, diff parameters) -- SEARCH/REPLACE blocks
+- List files: call list_files function (path, recursive parameters) -- use only when checking a specific directory structure
+- Search files: call glob_search function (pattern parameter) -- use when searching by filename/extension
+- Search code: call ripgrep_search function (query, path parameters) -- use when searching by content/keywords
+- Task complete: call __done__ function (status="completed", summary parameter)
+- Already done: call __done__ function (status="already_done", summary parameter)
 
-**중요: API function call로만 도구를 호출하세요. 텍스트에 { "tool": ... } JSON을 출력하지 마세요. 작업이 끝나면 반드시 __done__을 호출하세요.**` : `## 도구 호출 예시 (반드시 이 형식을 따르세요)
+**Important: Only call tools via API function calls. Do not output { "tool": ... } JSON in text. Always call __done__ when the task is finished.**` : `## Tool Call Examples (you must follow this format)
 
-파일 읽기:
+Read file:
 { "tool": "read_file", "path": "src/App.tsx" }
 
-파일 생성:
+Create file:
 { "tool": "create_file", "path": "src/components/MyComponent.tsx" }
 <file_content>
 const MyComponent = () => <div>Hello</div>;
 export default MyComponent;
 </file_content>
 
-파일 수정 (SEARCH/REPLACE):
+Modify file (SEARCH/REPLACE):
 { "tool": "update_file", "path": "src/App.tsx" }
 <file_changes>
 <<<< SEARCH
@@ -949,22 +950,22 @@ const App = () => <div><MyComponent /></div>;
 >>>> REPLACE
 </file_changes>
 
-파일명으로 검색:
+Search by filename:
 { "tool": "glob_search", "pattern": "src/**/*.ts" }
 
-코드 내용 검색:
+Search code content:
 { "tool": "ripgrep_search", "query": "function handleLogin", "path": "src" }
 
-파일 목록 (특정 디렉토리 구조 확인 시만):
+List files (only for checking specific directory structure):
 { "tool": "list_files", "path": "src", "recursive": "true" }
 
-작업 완료 선언:
-{ "tool": "__done__", "status": "completed", "summary": "수행한 내용 요약" }
+Declare task completion:
+{ "tool": "__done__", "status": "completed", "summary": "Summary of what was done" }
 
-이미 구현되어 추가 작업 불필요:
-{ "tool": "__done__", "status": "already_done", "summary": "확인 결과 요약" }
+Already implemented, no additional work needed:
+{ "tool": "__done__", "status": "already_done", "summary": "Summary of verification results" }
 
-**중요: 도구를 사용하려면 위 JSON 형식을 response에 직접 출력하세요. 설명 텍스트 없이 JSON만 출력하세요. thinking에 도구 호출을 넣지 마세요. 작업이 끝나면 반드시 __done__ 도구를 호출하세요.**`}`;
+**Important: To use a tool, output the JSON format above directly in your response. Output only JSON without explanatory text. Do not put tool calls inside thinking. Always call the __done__ tool when the task is finished.**`}`;
     }
 
     private getAllowedTools(): Tool[] {
@@ -992,7 +993,7 @@ const App = () => <div><MyComponent /></div>;
             if (READ_ONLY_TOOLS.has(call.name)) {
                 return true;
             }
-            // MCP 도구는 모든 권한 수준에서 허용 (자체 승인 메커니즘 보유)
+            // MCP tools are allowed at all permission levels (they have their own approval mechanism)
             if (registry.isMCPTool(call.name)) {
                 return true;
             }
@@ -1016,7 +1017,7 @@ const App = () => <div><MyComponent /></div>;
             const isMCP = ToolRegistry.getInstance().isMCPTool(call.name);
             const maxLen = (isReadOnly || isMCP) ? 8000 : 1000;
 
-            // message + data 모두 포함 (data에 실제 내용이 있음)
+            // Include both message + data (data contains the actual content)
             let body = result.message || '';
             if (result.data) {
                 body += '\n' + this.serializeToolData(result.data);
@@ -1032,8 +1033,8 @@ const App = () => <div><MyComponent /></div>;
     }
 
     /**
-     * 도구 결과 데이터를 LLM이 읽을 수 있는 문자열로 변환
-     * 특정 도구에 의존하지 않는 범용 직렬화
+     * Convert tool result data to a string readable by LLM
+     * Generic serialization not dependent on specific tools
      */
     private serializeToolData(data: any): string {
         if (data === null || data === undefined) { return ''; }
@@ -1046,27 +1047,27 @@ const App = () => <div><MyComponent /></div>;
     }
 
     /**
-     * 연속 실패 횟수에 따라 점점 더 구체적인 복구 프롬프트 생성
+     * Generate progressively more specific recovery prompts based on consecutive failure count
      */
     /**
-     * 응답이 tool call 없이 raw JSON만 포함하는지 판별 (approve/reject 등 LLM이 자체 생성한 JSON)
+     * Determine if response contains only raw JSON without tool calls (approve/reject etc. self-generated by LLM)
      */
     private isRawJsonOnly(response: string): boolean {
         const trimmed = response.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-        // 짧은 텍스트 + JSON 객체로만 구성된 경우
+        // Short text + composed only of JSON objects
         if (trimmed.length > 2000) { return false; }
-        // "We need to approve." 같은 서두 제거 후 JSON만 남는지 확인
+        // Remove preamble like "We need to approve." and check if only JSON remains
         const withoutPreamble = trimmed.replace(/^[^{]*/, '').trim();
         if (!withoutPreamble.startsWith('{')) { return false; }
         try {
-            // 연속 JSON 객체들 ({"filePath":...}{"filePath":...}) 도 포함
+            // Include consecutive JSON objects ({"filePath":...}{"filePath":...})
             const jsonPattern = /\{[^{}]*\}/g;
             const matches = withoutPreamble.match(jsonPattern);
             if (!matches || matches.length === 0) { return false; }
             return matches.every(m => {
                 try {
                     const obj = JSON.parse(m);
-                    // filePath+action 또는 유사한 비-tool 패턴
+                    // filePath+action or similar non-tool patterns
                     return obj.action || obj.approve || obj.status;
                 } catch { return false; }
             });
@@ -1074,31 +1075,31 @@ const App = () => <div><MyComponent /></div>;
     }
 
     /**
-     * 스트리밍 버퍼에서 마지막 툴콜 패턴을 감지하여 상태 메시지 반환
-     * 실제 tool call JSON만 감지 (텍스트 내 파일 참조는 무시)
+     * Detect the last tool call pattern in the streaming buffer and return a status message
+     * Only detect actual tool call JSON (ignore file references in text)
      */
     /**
-     * 텍스트의 앞 head자 + 뒤 tail자를 추출 (중간 생략)
-     * 전체 길이가 head+tail 이하면 그대로 반환
+     * Extract the first `head` chars + last `tail` chars of text (omit middle)
+     * Return as-is if total length is less than or equal to head+tail
      */
     private static extractHeadTail(text: string, head: number, tail: number): string {
         if (text.length <= head + tail) { return text; }
-        return text.substring(0, head) + '\n...(중략)...\n' + text.substring(text.length - tail);
+        return text.substring(0, head) + '\n...(omitted)...\n' + text.substring(text.length - tail);
     }
 
     private parseStreamingToolStatus(content: string): string | null {
         const toolLabels: Record<string, string> = {
             create_file: '파일 생성 중',
             update_file: '파일 수정 중',
-            read_file: '파일 읽는 중',
+            read_file: '파일 읽기 중',
             delete_file: '파일 삭제 중',
             run_command: '명령 준비 중',
             glob_search: '파일 검색 중',
-            list_files: '파일 목록 중',
+            list_files: '파일 목록 조회 중',
         };
 
-        // 호출 측에서 새로 추가된 부분만 전달하므로 전체/tail 스캔 불필요
-        // 줄의 시작이 { 인 경우만 감지 (텍스트 내 인라인 참조 제외)
+        // Caller passes only newly added portion, so no need for full/tail scan
+        // Only detect lines starting with { (exclude inline references in text)
         let lastMatch: { tool: string; file: string } | null = null;
         const jsonPattern = /^\s*\{\s*"tool"\s*:\s*"(\w+)"[^}]*"(?:path|filePath)"\s*:\s*"([^"]+)"/gm;
         let m: RegExpExecArray | null;
@@ -1111,7 +1112,7 @@ const App = () => <div><MyComponent /></div>;
             return `${toolLabels[lastMatch.tool]}: ${fileName}...`;
         }
 
-        // run_command: "command" 키로 감지
+        // run_command: detect by "command" key
         const cmdPattern = /^\s*\{\s*"tool"\s*:\s*"run_command"[^}]*"command"\s*:\s*"([^"]+)"/gm;
         let cmdMatch: RegExpExecArray | null;
         while ((cmdMatch = cmdPattern.exec(content)) !== null) {
@@ -1119,7 +1120,7 @@ const App = () => <div><MyComponent /></div>;
         }
         if (lastMatch && lastMatch.tool === 'run_command') {
             const cmd = lastMatch.file.length > 30 ? lastMatch.file.substring(0, 30) + '...' : lastMatch.file;
-            return `명령 준비 중: ${cmd}`;
+            return `Preparing command: ${cmd}`;
         }
 
         return null;
@@ -1127,19 +1128,19 @@ const App = () => <div><MyComponent /></div>;
 
     private buildRecoveryNudge(failureCount: number): string {
         if (failureCount <= 1) {
-            return '[시스템] 이전 응답이 비어있거나 사고(thinking)만 포함되어 있습니다. 반드시 도구 호출 또는 일반 텍스트 최종 요약을 출력하세요.';
+            return '[System] The previous response was empty or contained only thinking. You must output either a tool call or a plain text final summary.';
         }
 
-        // 2회 이상 실패 시 구체적인 도구 호출 예시 제공
+        // Provide specific tool call examples after 2+ failures
         const allowedTools = this.getAllowedTools();
         const exampleTool = allowedTools[0] || 'list_files';
-        return `[시스템] 경고: ${failureCount}회 연속 실패. 반드시 다음 중 하나를 출력하세요:\n` +
-            `1. 다음 형식의 도구 호출:\n` +
+        return `[System] Warning: ${failureCount} consecutive failures. You must output one of the following:\n` +
+            `1. A tool call in the following format:\n` +
             '```json\n' +
             `{ "tool": "${exampleTool}", "params": {} }\n` +
             '```\n' +
-            `2. 또는 완료된 작업의 일반 텍스트 요약 (도구 호출 없음 = 작업 완료).\n` +
-            `<think> 태그만 출력하지 마세요. 지금 바로 가시적인 출력을 생성하세요.`;
+            `2. Or a plain text summary of completed work (no tool call = task complete).\n` +
+            `Do not output only <think> tags. Generate visible output now.`;
     }
 
 

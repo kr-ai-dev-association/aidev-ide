@@ -1,6 +1,6 @@
 /**
  * Memory Delete Tool Handler
- * 영속적 메모리 삭제 도구 핸들러
+ * Persistent memory delete tool handler
  */
 
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
@@ -16,7 +16,7 @@ export class MemoryDeleteToolHandler implements IToolHandler {
         if (!name) {
             return {
                 success: false,
-                message: 'name 파라미터가 필요합니다.',
+                message: 'name parameter is required.',
                 error: { code: 'INVALID_PARAMS', message: 'Missing name parameter' },
             };
         }
@@ -26,18 +26,18 @@ export class MemoryDeleteToolHandler implements IToolHandler {
             await manager.remove(name);
             return {
                 success: true,
-                message: `메모리 삭제 완료: ${name}`,
+                message: `Memory deleted: ${name}`,
             };
         } catch (error) {
             return {
                 success: false,
-                message: `메모리 삭제 실패: ${error}`,
+                message: `Memory delete failed: ${error}`,
                 error: { code: 'DELETE_FAILED', message: String(error) },
             };
         }
     }
 
     getDescription(_toolUse: ToolUse): string {
-        return `메모리 삭제: ${_toolUse.params.name || ''}`;
+        return `Delete memory: ${_toolUse.params.name || ''}`;
     }
 }

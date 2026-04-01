@@ -1,11 +1,11 @@
 /**
  * PreToolUseValidator
- * 도구 실행 전 위험 명령 차단 및 경로 검증
+ * Pre-tool-execution dangerous command blocking and path validation
  *
- * 검증 항목:
- * - 위험한 터미널 명령어 차단 (rm -rf /, sudo 등)
- * - 프로젝트 외부 경로 접근 차단
- * - 민감한 파일 수정 방지 (.git, .env 등)
+ * Validation items:
+ * - Block dangerous terminal commands (rm -rf /, sudo, etc.)
+ * - Block access to paths outside the project
+ * - Prevent modification of sensitive files (.git, .env, etc.)
  */
 
 import * as path from 'path';
@@ -20,7 +20,7 @@ export interface ValidationResult {
 }
 
 /**
- * 기본 규칙 항목 (UI 표시용)
+ * Default rule item (for UI display)
  */
 export interface DefaultRule {
     id: string;
@@ -29,35 +29,35 @@ export interface DefaultRule {
 }
 
 /**
- * 기본 차단 명령어 목록
+ * Default blocked command list
  */
 export const DEFAULT_BLOCKED_COMMANDS: DefaultRule[] = [
-    { id: 'rm_rf', pattern: 'rm\\s+-rf\\s+/', description: '루트 경로 삭제 (rm -rf /)' },
-    { id: 'rm_recursive', pattern: 'rm\\s+(-[a-zA-Z]*r[a-zA-Z]*|--recursive)\\s+(\\/|~|\\.\\.\\/)', description: '상위/홈/루트 재귀 삭제' },
-    { id: 'chmod_777', pattern: 'chmod\\s+(-R\\s+)?777\\s+/', description: '루트 경로 전체 권한 부여' },
-    { id: 'mkfs', pattern: 'mkfs|format\\s+[cCdD]:', description: '디스크 포맷' },
-    { id: 'dd_disk', pattern: 'dd\\s+.*of=\\/dev\\/', description: '디스크 직접 쓰기 (dd)' },
-    { id: 'curl_pipe_sh', pattern: 'curl\\s+.*\\|\\s*(sudo\\s+)?(ba)?sh', description: 'URL에서 스크립트 다운로드 실행' },
-    { id: 'wget_pipe_sh', pattern: 'wget\\s+.*\\|\\s*(sudo\\s+)?(ba)?sh', description: 'URL에서 스크립트 다운로드 실행' },
-    { id: 'eval_remote', pattern: 'eval\\s+"?\\$\\(curl', description: '원격 코드 eval 실행' },
-    { id: 'shutdown', pattern: '(shutdown|reboot|halt|poweroff)\\s', description: '시스템 종료/재시작' },
-    { id: 'fdisk', pattern: '\\b(fdisk|parted)\\b', description: '파티션 변경' },
-    { id: 'sudo_rm', pattern: 'sudo\\s+rm\\s', description: 'sudo 권한 파일 삭제' },
+    { id: 'rm_rf', pattern: 'rm\\s+-rf\\s+/', description: 'Root path deletion (rm -rf /)' },
+    { id: 'rm_recursive', pattern: 'rm\\s+(-[a-zA-Z]*r[a-zA-Z]*|--recursive)\\s+(\\/|~|\\.\\.\\/)', description: 'Recursive deletion of parent/home/root' },
+    { id: 'chmod_777', pattern: 'chmod\\s+(-R\\s+)?777\\s+/', description: 'Full permissions on root path' },
+    { id: 'mkfs', pattern: 'mkfs|format\\s+[cCdD]:', description: 'Disk format' },
+    { id: 'dd_disk', pattern: 'dd\\s+.*of=\\/dev\\/', description: 'Direct disk write (dd)' },
+    { id: 'curl_pipe_sh', pattern: 'curl\\s+.*\\|\\s*(sudo\\s+)?(ba)?sh', description: 'Download and execute script from URL' },
+    { id: 'wget_pipe_sh', pattern: 'wget\\s+.*\\|\\s*(sudo\\s+)?(ba)?sh', description: 'Download and execute script from URL' },
+    { id: 'eval_remote', pattern: 'eval\\s+"?\\$\\(curl', description: 'Remote code eval execution' },
+    { id: 'shutdown', pattern: '(shutdown|reboot|halt|poweroff)\\s', description: 'System shutdown/restart' },
+    { id: 'fdisk', pattern: '\\b(fdisk|parted)\\b', description: 'Partition modification' },
+    { id: 'sudo_rm', pattern: 'sudo\\s+rm\\s', description: 'File deletion with sudo privileges' },
 ];
 
 /**
- * 기본 보호 파일 목록
+ * Default protected file list
  */
 export const DEFAULT_PROTECTED_FILES: DefaultRule[] = [];
 
-// 커스텀 규칙 캐시
+// Custom rule cache
 let customBlockedCommands: string[] = [];
 let customProtectedFiles: string[] = [];
 let customHiddenFiles: string[] = [];
 let disabledBlockedCommands: string[] = [];
 let disabledProtectedFiles: string[] = [];
 
-// 서버 보안 규칙 캐시
+// Server security rule cache
 let _serverBlockedCommands: { pattern: string; description: string }[] = [];
 let _serverRecommendedCommands: { pattern: string; description: string }[] = [];
 let _serverProtectedFiles: { pattern: string; description: string; enforcement: string }[] = [];
@@ -65,7 +65,7 @@ let _serverHiddenFiles: { pattern: string; description: string; enforcement: str
 let _serverSecurityRulesLoaded = false;
 
 /**
- * 커스텀 차단 명령어 캐시 업데이트
+ * Update custom blocked commands cache
  */
 export function updateCustomBlockedCommands(patterns: string[]): void {
     customBlockedCommands = patterns;
@@ -73,7 +73,7 @@ export function updateCustomBlockedCommands(patterns: string[]): void {
 }
 
 /**
- * 커스텀 보호 파일 캐시 업데이트
+ * Update custom protected files cache
  */
 export function updateCustomProtectedFiles(patterns: string[]): void {
     customProtectedFiles = patterns;
@@ -81,7 +81,7 @@ export function updateCustomProtectedFiles(patterns: string[]): void {
 }
 
 /**
- * 커스텀 은닉 파일 캐시 업데이트
+ * Update custom hidden files cache
  */
 export function updateCustomHiddenFiles(patterns: string[]): void {
     customHiddenFiles = patterns;
@@ -92,7 +92,7 @@ export function updateCustomHiddenFiles(patterns: string[]): void {
 }
 
 /**
- * 비활성화된 차단 명령어 캐시 업데이트
+ * Update disabled blocked commands cache
  */
 export function updateDisabledBlockedCommands(ids: string[]): void {
     disabledBlockedCommands = ids;
@@ -100,7 +100,7 @@ export function updateDisabledBlockedCommands(ids: string[]): void {
 }
 
 /**
- * 비활성화된 보호 파일 캐시 업데이트
+ * Update disabled protected files cache
  */
 export function updateDisabledProtectedFiles(ids: string[]): void {
     disabledProtectedFiles = ids;
@@ -108,9 +108,9 @@ export function updateDisabledProtectedFiles(ids: string[]): void {
 }
 
 /**
- * 서버 보안 규칙 로드
- * SettingsManager에서 서버 보안 규칙을 가져와 캐시에 저장합니다.
- * required 규칙은 항상 강제 적용되고, recommended 규칙은 사용자가 비활성화 가능합니다.
+ * Load server security rules
+ * Fetches server security rules from SettingsManager and stores them in cache.
+ * Required rules are always enforced; recommended rules can be disabled by the user.
  */
 export function loadServerSecurityRules(): void {
     try {
@@ -128,12 +128,12 @@ export function loadServerSecurityRules(): void {
             return;
         }
 
-        // type별 분리: blocked_command / protected_file / hidden_file
+        // Separate by type: blocked_command / protected_file / hidden_file
         const commandRules = rules.filter((r: { type: string }) => r.type === 'blocked_command' || (!r.type));
         const protectedRules = rules.filter((r: { type: string }) => r.type === 'protected_file');
         const hiddenRules = rules.filter((r: { type: string }) => r.type === 'hidden_file');
 
-        // 차단 명령어: required (항상 강제) / recommended (비활성화 가능)
+        // Blocked commands: required (always enforced) / recommended (can be disabled)
         _serverBlockedCommands = commandRules
             .filter((r: { enforcement: string }) => r.enforcement === 'required')
             .map((r: { pattern: string; description: string }) => ({
@@ -148,7 +148,7 @@ export function loadServerSecurityRules(): void {
                 description: r.description
             }));
 
-        // 보호 파일 (수정/삭제 차단)
+        // Protected files (block modification/deletion)
         _serverProtectedFiles = protectedRules
             .map((r: { pattern: string; description: string; enforcement: string }) => ({
                 pattern: r.pattern,
@@ -156,7 +156,7 @@ export function loadServerSecurityRules(): void {
                 enforcement: r.enforcement
             }));
 
-        // 은닉 파일 (읽기/수정/삭제 모두 차단)
+        // Hidden files (block read/modify/delete)
         _serverHiddenFiles = hiddenRules
             .map((r: { pattern: string; description: string; enforcement: string }) => ({
                 pattern: r.pattern,
@@ -168,7 +168,7 @@ export function loadServerSecurityRules(): void {
         PreToolUseValidator.invalidateCache();
         console.log(`[PreToolUseValidator] Server security rules loaded: ${_serverBlockedCommands.length} blocked(required), ${_serverRecommendedCommands.length} blocked(recommended), ${_serverProtectedFiles.length} protected, ${_serverHiddenFiles.length} hidden`);
     } catch (error) {
-        // SettingsManager 로드 실패 - 서버 규칙 없이 진행
+        // SettingsManager load failed - proceed without server rules
         _serverBlockedCommands = [];
         _serverRecommendedCommands = [];
         _serverProtectedFiles = [];
@@ -178,14 +178,14 @@ export function loadServerSecurityRules(): void {
 }
 
 export class PreToolUseValidator {
-    // 캐시된 regex 배열 (invalidateCache()로 초기화)
+    // Cached regex arrays (reset via invalidateCache())
     private static _cachedDangerousCommands: RegExp[] | null = null;
     private static _cachedSensitiveFiles: RegExp[] | null = null;
     private static _cachedReadOnlyFiles: RegExp[] | null = null;
     private static _cachedHiddenFilePatterns: RegExp[] | null = null;
 
     /**
-     * 파일이 민감한 파일(보호/은닉)인지 체크
+     * Check if file is a sensitive file (protected/hidden)
      */
     static isSensitiveFile(filePath: string): boolean {
         for (const pattern of this.SENSITIVE_FILES) {
@@ -195,7 +195,7 @@ export class PreToolUseValidator {
     }
 
     /**
-     * 캐시 무효화 — 규칙 변경 시 호출
+     * Invalidate cache - called when rules change
      */
     static invalidateCache(): void {
         PreToolUseValidator._cachedDangerousCommands = null;
@@ -205,7 +205,7 @@ export class PreToolUseValidator {
     }
 
     /**
-     * 패턴 문자열 배열로부터 중복 제거된 RegExp 배열 생성
+     * Build deduplicated RegExp array from pattern string sources
      */
     private static buildRegexPatterns(sources: Array<{ pattern: string; skip?: boolean }>): RegExp[] {
         const patterns: RegExp[] = [];
@@ -226,41 +226,41 @@ export class PreToolUseValidator {
         return patterns;
     }
 
-    // v9.4.0: 셸 메타문자 패턴 (명령어 우회 방지)
+    // v9.4.0: Shell metacharacter patterns (prevent command bypass)
     private static readonly SHELL_METACHAR_PATTERNS: RegExp[] = [
-        /\$\([^)]+\)/,           // $() 서브셸
-        /`[^`]+`/,               // ` ` 백틱 서브셸
-        /\$\{[^}]+\}/,           // ${} 변수 확장
-        /\$[A-Za-z_][A-Za-z0-9_]*/,  // $VAR 변수 참조
+        /\$\([^)]+\)/,           // $() subshell
+        /`[^`]+`/,               // ` ` backtick subshell
+        /\$\{[^}]+\}/,           // ${} variable expansion
+        /\$[A-Za-z_][A-Za-z0-9_]*/,  // $VAR variable reference
     ];
 
-    // v9.4.0: 위험한 경로 패턴 (rm과 조합 시 차단)
+    // v9.4.0: Dangerous path patterns (blocked in combination with rm)
     private static readonly DANGEROUS_PATH_PATTERNS: RegExp[] = [
-        /^\s*\/\s*$/,            // 루트 디렉토리
-        /^\s*~\s*$/,             // 홈 디렉토리
-        /^\s*\/etc/i,            // 시스템 설정
-        /^\s*\/usr/i,            // 시스템 바이너리
-        /^\s*\/var/i,            // 시스템 데이터
-        /^\s*\/boot/i,           // 부트 파티션
-        /^\s*\/dev/i,            // 디바이스
-        /^\s*\/sys/i,            // 시스템 정보
-        /^\s*\/proc/i,           // 프로세스 정보
+        /^\s*\/\s*$/,            // Root directory
+        /^\s*~\s*$/,             // Home directory
+        /^\s*\/etc/i,            // System configuration
+        /^\s*\/usr/i,            // System binaries
+        /^\s*\/var/i,            // System data
+        /^\s*\/boot/i,           // Boot partition
+        /^\s*\/dev/i,            // Device files
+        /^\s*\/sys/i,            // System info
+        /^\s*\/proc/i,           // Process info
     ];
 
-    // 위험한 명령어 패턴 (절대 실행 금지) - 기본값 기반으로 동적 생성 (중복 제거, 캐싱)
+    // Dangerous command patterns (never execute) - dynamically generated from defaults (deduplicated, cached)
     private static get DANGEROUS_COMMANDS(): RegExp[] {
         if (this._cachedDangerousCommands) return this._cachedDangerousCommands;
 
         if (!_serverSecurityRulesLoaded) loadServerSecurityRules();
 
         const sources: Array<{ pattern: string; skip?: boolean }> = [
-            // 기본 규칙 중 비활성화되지 않은 것들
+            // Default rules that are not disabled
             ...DEFAULT_BLOCKED_COMMANDS.map(r => ({ pattern: r.pattern, skip: disabledBlockedCommands.includes(r.id) })),
-            // 커스텀 규칙
+            // Custom rules
             ...customBlockedCommands.map(p => ({ pattern: p })),
-            // 서버 필수(required) 차단 규칙
+            // Server required blocking rules
             ..._serverBlockedCommands.map(r => ({ pattern: r.pattern })),
-            // 서버 권장(recommended) 차단 규칙 (비활성화되지 않은 것만)
+            // Server recommended blocking rules (only those not disabled)
             ..._serverRecommendedCommands.map(r => ({ pattern: r.pattern, skip: disabledBlockedCommands.includes(`server:${r.description}`) })),
         ];
 
@@ -268,16 +268,16 @@ export class PreToolUseValidator {
         return this._cachedDangerousCommands;
     }
 
-    // 주의 필요 명령어 패턴 (경고 후 허용)
+    // Caution-required command patterns (warn then allow)
     private static readonly CAUTION_COMMANDS: RegExp[] = [
-        /\brm\s+(-[rf]+\s+)/i,                       // rm -rf (일반)
-        /\bgit\s+(push\s+--force|reset\s+--hard)/i,  // 위험한 git 명령
-        /\bnpm\s+publish/i,                          // npm 배포
-        /\bdocker\s+rm/i,                            // 도커 삭제
-        /\bkill\s+-9/i,                              // 강제 종료
+        /\brm\s+(-[rf]+\s+)/i,                       // rm -rf (general)
+        /\bgit\s+(push\s+--force|reset\s+--hard)/i,  // dangerous git commands
+        /\bnpm\s+publish/i,                          // npm publish
+        /\bdocker\s+rm/i,                            // docker remove
+        /\bkill\s+-9/i,                              // force kill
     ];
 
-    // 민감한 파일 패턴 (수정 차단) - 동적 생성 (캐싱)
+    // Sensitive file patterns (block modification) - dynamically generated (cached)
     private static get SENSITIVE_FILES(): RegExp[] {
         if (this._cachedSensitiveFiles) return this._cachedSensitiveFiles;
 
@@ -285,18 +285,18 @@ export class PreToolUseValidator {
 
         const readOnlyIds = ['package_lock', 'yarn_lock', 'pnpm_lock'];
         const sources: Array<{ pattern: string; skip?: boolean }> = [
-            // 기본 규칙 중 비활성화되지 않은 것들 (읽기 전용 제외)
+            // Default rules that are not disabled (excluding read-only)
             ...DEFAULT_PROTECTED_FILES.map(r => ({
                 pattern: r.pattern,
                 skip: disabledProtectedFiles.includes(r.id) || readOnlyIds.includes(r.id),
             })),
-            // 커스텀 보호 파일
+            // Custom protected files
             ...customProtectedFiles.map(p => ({ pattern: p })),
-            // 서버 보호 파일
+            // Server protected files
             ..._serverProtectedFiles.map(r => ({ pattern: r.pattern })),
-            // 서버 은닉 파일 (수정/삭제도 차단)
+            // Server hidden files (also block modification/deletion)
             ..._serverHiddenFiles.map(r => ({ pattern: r.pattern })),
-            // 커스텀 은닉 파일 (수정/삭제도 차단)
+            // Custom hidden files (also block modification/deletion)
             ...customHiddenFiles.map(p => ({ pattern: p })),
         ];
 
@@ -304,7 +304,7 @@ export class PreToolUseValidator {
         return this._cachedSensitiveFiles;
     }
 
-    // 읽기 허용되지만 수정 차단되는 파일 - 동적 생성 (캐싱)
+    // Files that allow reading but block modification - dynamically generated (cached)
     private static get READ_ONLY_FILES(): RegExp[] {
         if (this._cachedReadOnlyFiles) return this._cachedReadOnlyFiles;
 
@@ -318,7 +318,7 @@ export class PreToolUseValidator {
         return this._cachedReadOnlyFiles;
     }
 
-    // 은닉 파일 패턴 (읽기 차단용) - 캐싱
+    // Hidden file patterns (for blocking reads) - cached
     private static get HIDDEN_FILE_PATTERNS(): RegExp[] {
         if (this._cachedHiddenFilePatterns) return this._cachedHiddenFilePatterns;
 
@@ -334,7 +334,7 @@ export class PreToolUseValidator {
     }
 
     /**
-     * 은닉 파일 여부 확인 (검색 결과 필터링용)
+     * Check if file is hidden (for search result filtering)
      */
     static isHiddenFile(filePath: string, projectRoot: string): boolean {
         const patterns = this.HIDDEN_FILE_PATTERNS;
@@ -354,7 +354,7 @@ export class PreToolUseValidator {
     }
 
     /**
-     * 도구 사용 전 검증
+     * Validate before tool use
      */
     static async validate(toolUse: ToolUse, projectRoot: string): Promise<ValidationResult> {
         switch (toolUse.name) {
@@ -366,7 +366,6 @@ export class PreToolUseValidator {
                 return this.validateFileWrite(toolUse.params.path || '', projectRoot);
 
             case Tool.READ_FILE:
-            case Tool.EXPAND_AROUND_LINE:
             case Tool.LIST_IMPORTS:
             case Tool.STAT_FILE:
                 return this.validateFileRead(toolUse.params.path || '', projectRoot);
@@ -380,43 +379,43 @@ export class PreToolUseValidator {
     }
 
     /**
-     * 명령어 검증
-     * v9.4.0: 셸 메타문자 및 변수 확장 패턴 감지 강화
+     * Command validation
+     * v9.4.0: Enhanced shell metacharacter and variable expansion pattern detection
      */
     private static validateCommand(command: string): ValidationResult {
-        // 위험한 명령어 차단
+        // Block dangerous commands
         for (const pattern of this.DANGEROUS_COMMANDS) {
             if (pattern.test(command)) {
                 return {
                     allowed: false,
-                    reason: `위험한 명령어 차단: ${command.substring(0, 50)}...`,
+                    reason: `Dangerous command blocked: ${command.substring(0, 50)}...`,
                     severity: 'error'
                 };
             }
         }
 
-        // v9.4.0: rm 명령어 + 셸 메타문자 조합 차단
+        // v9.4.0: Block rm command + shell metacharacter combinations
         const hasRmCommand = /\brm\s+(-[rRfF]+\s+)*/.test(command);
         if (hasRmCommand) {
-            // 셸 메타문자가 포함되어 있으면 차단 (변수/서브셸을 통한 우회 방지)
+            // Block if shell metacharacters are present (prevent bypass via variables/subshells)
             for (const metaPattern of this.SHELL_METACHAR_PATTERNS) {
                 if (metaPattern.test(command)) {
                     return {
                         allowed: false,
-                        reason: `위험한 명령어 우회 시도 차단: rm과 셸 메타문자 조합 불허`,
+                        reason: `Dangerous command bypass attempt blocked: rm + shell metacharacter combination not allowed`,
                         severity: 'error'
                     };
                 }
             }
 
-            // 세미콜론, 파이프, && 를 통한 명령어 연결 + rm 조합 차단
+            // Block rm combined with command chaining via semicolons, pipes, &&
             if (/[;|]/.test(command) || /&&/.test(command) || /\|\|/.test(command)) {
-                // rm 뒤에 위험한 경로가 있는지 추가 검사
+                // Additional check for dangerous paths after rm
                 for (const pathPattern of this.DANGEROUS_PATH_PATTERNS) {
                     if (pathPattern.test(command)) {
                         return {
                             allowed: false,
-                            reason: `위험한 경로 삭제 차단: 시스템 디렉토리 보호`,
+                            reason: `Dangerous path deletion blocked: system directory protection`,
                             severity: 'error'
                         };
                     }
@@ -424,15 +423,15 @@ export class PreToolUseValidator {
             }
         }
 
-        // v9.4.0: sudo + 위험 명령어 조합 차단
+        // v9.4.0: Block sudo + dangerous command combinations
         if (/\bsudo\b/.test(command)) {
-            // sudo와 함께 위험한 패턴 감지
+            // Detect dangerous patterns with sudo
             if (/\brm\b/.test(command) || /\bchmod\b/.test(command) || /\bchown\b/.test(command)) {
                 for (const pathPattern of this.DANGEROUS_PATH_PATTERNS) {
                     if (pathPattern.test(command)) {
                         return {
                             allowed: false,
-                            reason: `sudo 권한 상승 + 시스템 경로 접근 차단`,
+                            reason: `sudo privilege escalation + system path access blocked`,
                             severity: 'error'
                         };
                     }
@@ -440,13 +439,13 @@ export class PreToolUseValidator {
             }
         }
 
-        // 주의 필요 명령어 경고 (허용은 함)
+        // Caution-required command warning (still allowed)
         for (const pattern of this.CAUTION_COMMANDS) {
             if (pattern.test(command)) {
-                console.warn(`[PreToolUseValidator] 주의 필요 명령어: ${command}`);
+                console.warn(`[PreToolUseValidator] Caution-required command: ${command}`);
                 return {
                     allowed: true,
-                    reason: `주의 필요 명령어: ${command.substring(0, 50)}`,
+                    reason: `Caution-required command: ${command.substring(0, 50)}`,
                     severity: 'warning'
                 };
             }
@@ -456,8 +455,8 @@ export class PreToolUseValidator {
     }
 
     /**
-     * 경로 정규화 (심볼릭 링크 해결)
-     * v9.4.0: 심볼릭 링크 우회 방지
+     * Path normalization (resolve symbolic links)
+     * v9.4.0: Prevent symbolic link bypass
      */
     private static async resolveRealPath(p: string): Promise<string> {
         try {
@@ -469,17 +468,17 @@ export class PreToolUseValidator {
 
     private static async normalizePath(filePath: string, projectRoot: string): Promise<{ absolutePath: string; error?: string }> {
         try {
-            // 절대 경로 변환
+            // Convert to absolute path
             let absolutePath = path.isAbsolute(filePath)
                 ? filePath
                 : path.resolve(projectRoot, filePath);
 
-            // 심볼릭 링크 해결 (실제 경로 반환)
-            // 파일이 존재하면 realpath로 정규화
+            // Resolve symbolic links (return actual path)
+            // Normalize via realpath if file exists
             if (fs.existsSync(absolutePath)) {
                 absolutePath = await this.resolveRealPath(absolutePath);
             } else {
-                // 파일이 없으면 부모 디렉토리로 검사
+                // If file doesn't exist, check parent directory
                 const parentDir = path.dirname(absolutePath);
                 if (fs.existsSync(parentDir)) {
                     const realParent = await this.resolveRealPath(parentDir);
@@ -487,7 +486,7 @@ export class PreToolUseValidator {
                 }
             }
 
-            // 경로 정규화 (.. 등 제거)
+            // Normalize path (remove .. etc.)
             absolutePath = path.normalize(absolutePath);
 
             return { absolutePath };
@@ -500,18 +499,18 @@ export class PreToolUseValidator {
     }
 
     /**
-     * 파일 쓰기 경로 검증
-     * v9.4.0: 심볼릭 링크 정규화 추가
+     * File write path validation
+     * v9.4.0: Added symbolic link normalization
      */
     private static async validateFileWrite(filePath: string, projectRoot: string): Promise<ValidationResult> {
-        // v9.4.0: 심볼릭 링크를 해결한 실제 경로 사용
+        // v9.4.0: Use actual path with symbolic links resolved
         const { absolutePath, error } = await this.normalizePath(filePath, projectRoot);
 
         if (error) {
             console.warn(`[PreToolUseValidator] Path normalization warning: ${error}`);
         }
 
-        // 프로젝트 외부 접근 차단 (정규화된 경로로 검사)
+        // Block access outside project (check with normalized path)
         const normalizedProjectRoot = fs.existsSync(projectRoot)
             ? await this.resolveRealPath(projectRoot)
             : projectRoot;
@@ -519,31 +518,31 @@ export class PreToolUseValidator {
         if (!absolutePath.startsWith(normalizedProjectRoot)) {
             return {
                 allowed: false,
-                reason: `프로젝트 외부 파일 수정 차단: ${filePath}`,
+                reason: `File modification outside project blocked: ${filePath}`,
                 severity: 'error'
             };
         }
 
-        // 상대 경로로 변환하여 패턴 매칭
+        // Convert to relative path for pattern matching
         const relativePath = path.relative(normalizedProjectRoot, absolutePath);
 
-        // 민감한 파일 차단
+        // Block sensitive files
         for (const pattern of this.SENSITIVE_FILES) {
             if (pattern.test(relativePath) || pattern.test(filePath)) {
                 return {
                     allowed: false,
-                    reason: `민감한 파일 수정 차단: ${filePath}`,
+                    reason: `Sensitive file modification blocked: ${filePath}`,
                     severity: 'error'
                 };
             }
         }
 
-        // 읽기 전용 파일 차단
+        // Block read-only files
         for (const pattern of this.READ_ONLY_FILES) {
             if (pattern.test(relativePath) || pattern.test(filePath)) {
                 return {
                     allowed: false,
-                    reason: `읽기 전용 파일 수정 차단: ${filePath}`,
+                    reason: `Read-only file modification blocked: ${filePath}`,
                     severity: 'error'
                 };
             }
@@ -553,14 +552,14 @@ export class PreToolUseValidator {
     }
 
     /**
-     * 파일 읽기 경로 검증
-     * v9.4.0: 심볼릭 링크 정규화 추가
+     * File read path validation
+     * v9.4.0: Added symbolic link normalization
      */
     private static async validateFileRead(filePath: string, projectRoot: string): Promise<ValidationResult> {
-        // v9.4.0: 심볼릭 링크를 해결한 실제 경로 사용
+        // v9.4.0: Use actual path with symbolic links resolved
         const { absolutePath } = await this.normalizePath(filePath, projectRoot);
 
-        // 프로젝트 외부 접근 차단 (정규화된 경로로 검사)
+        // Block access outside project (check with normalized path)
         const normalizedProjectRoot = fs.existsSync(projectRoot)
             ? await this.resolveRealPath(projectRoot)
             : projectRoot;
@@ -568,19 +567,19 @@ export class PreToolUseValidator {
         if (!absolutePath.startsWith(normalizedProjectRoot)) {
             return {
                 allowed: false,
-                reason: `프로젝트 외부 파일 읽기 차단: ${filePath}`,
+                reason: `File read outside project blocked: ${filePath}`,
                 severity: 'error'
             };
         }
 
-        // 은닉 파일 읽기 차단 (캐싱된 패턴 사용)
+        // Block hidden file reads (using cached patterns)
         const relativePath = absolutePath.replace(normalizedProjectRoot + '/', '');
         for (const pattern of this.HIDDEN_FILE_PATTERNS) {
             if (pattern.test(relativePath) || pattern.test(filePath) || pattern.test(path.basename(filePath))) {
                 console.log(`[PreToolUseValidator] Hidden file match: pattern="${pattern}", file="${filePath}", relativePath="${relativePath}"`);
                 return {
                     allowed: false,
-                    reason: `은닉 파일 읽기 차단: ${filePath}`,
+                    reason: `Hidden file read blocked: ${filePath}`,
                     severity: 'error'
                 };
             }
@@ -590,14 +589,14 @@ export class PreToolUseValidator {
     }
 
     /**
-     * 파일 삭제 경로 검증
-     * v9.4.0: 심볼릭 링크 정규화 및 READ_ONLY_FILES 삭제 차단 추가
+     * File deletion path validation
+     * v9.4.0: Added symbolic link normalization and READ_ONLY_FILES deletion blocking
      */
     private static async validateFileRemove(filePath: string, projectRoot: string): Promise<ValidationResult> {
-        // v9.4.0: 심볼릭 링크를 해결한 실제 경로 사용
+        // v9.4.0: Use actual path with symbolic links resolved
         const { absolutePath } = await this.normalizePath(filePath, projectRoot);
 
-        // 프로젝트 외부 삭제 차단 (정규화된 경로로 검사)
+        // Block deletion outside project (check with normalized path)
         const normalizedProjectRoot = fs.existsSync(projectRoot)
             ? await this.resolveRealPath(projectRoot)
             : projectRoot;
@@ -605,7 +604,7 @@ export class PreToolUseValidator {
         if (!absolutePath.startsWith(normalizedProjectRoot)) {
             return {
                 allowed: false,
-                reason: `프로젝트 외부 파일 삭제 차단: ${filePath}`,
+                reason: `File deletion outside project blocked: ${filePath}`,
                 severity: 'error'
             };
         }
@@ -613,23 +612,23 @@ export class PreToolUseValidator {
         // 상대 경로로 변환
         const relativePath = path.relative(normalizedProjectRoot, absolutePath);
 
-        // 민감한 파일 삭제 차단
+        // Block sensitive file deletion
         for (const pattern of this.SENSITIVE_FILES) {
             if (pattern.test(relativePath) || pattern.test(filePath)) {
                 return {
                     allowed: false,
-                    reason: `민감한 파일 삭제 차단: ${filePath}`,
+                    reason: `Sensitive file deletion blocked: ${filePath}`,
                     severity: 'error'
                 };
             }
         }
 
-        // v9.4.0: 읽기 전용 파일 삭제도 차단 (package-lock.json 등)
+        // v9.4.0: Also block read-only file deletion (package-lock.json, etc.)
         for (const pattern of this.READ_ONLY_FILES) {
             if (pattern.test(relativePath) || pattern.test(filePath)) {
                 return {
                     allowed: false,
-                    reason: `읽기 전용 파일 삭제 차단: ${filePath}`,
+                    reason: `Read-only file deletion blocked: ${filePath}`,
                     severity: 'error'
                 };
             }
@@ -639,8 +638,8 @@ export class PreToolUseValidator {
     }
 
     /**
-     * 여러 도구에 대해 일괄 검증
-     * @returns 차단된 도구들의 인덱스와 이유
+     * Batch validate multiple tools
+     * @returns Indices and reasons for blocked tools
      */
     static async validateAll(toolUses: ToolUse[], projectRoot: string): Promise<Map<number, ValidationResult>> {
         const blocked = new Map<number, ValidationResult>();

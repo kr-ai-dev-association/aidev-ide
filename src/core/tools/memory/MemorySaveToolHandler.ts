@@ -1,6 +1,6 @@
 /**
  * Memory Save Tool Handler
- * 영속적 메모리 저장 도구 핸들러
+ * Persistent memory save tool handler
  */
 
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
@@ -18,7 +18,7 @@ export class MemorySaveToolHandler implements IToolHandler {
         if (!name || !description || !type || !content) {
             return {
                 success: false,
-                message: 'name, description, type, content 파라미터가 모두 필요합니다.',
+                message: 'All parameters (name, description, type, content) are required.',
                 error: { code: 'INVALID_PARAMS', message: 'Missing required parameters' },
             };
         }
@@ -27,7 +27,7 @@ export class MemorySaveToolHandler implements IToolHandler {
         if (!VALID_TYPES.includes(memType)) {
             return {
                 success: false,
-                message: `유효하지 않은 type: ${type}. 허용값: ${VALID_TYPES.join(', ')}`,
+                message: `Invalid type: ${type}. Allowed values: ${VALID_TYPES.join(', ')}`,
                 error: { code: 'INVALID_TYPE', message: `Invalid memory type: ${type}` },
             };
         }
@@ -37,18 +37,18 @@ export class MemorySaveToolHandler implements IToolHandler {
             await manager.save({ name, description, type: memType, content });
             return {
                 success: true,
-                message: `메모리 저장 완료: ${name}`,
+                message: `Memory saved: ${name}`,
             };
         } catch (error) {
             return {
                 success: false,
-                message: `메모리 저장 실패: ${error}`,
+                message: `Memory save failed: ${error}`,
                 error: { code: 'SAVE_FAILED', message: String(error) },
             };
         }
     }
 
     getDescription(_toolUse: ToolUse): string {
-        return `메모리 저장: ${_toolUse.params.name || ''}`;
+        return `Save memory: ${_toolUse.params.name || ''}`;
     }
 }

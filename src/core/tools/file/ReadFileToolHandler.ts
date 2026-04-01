@@ -1,9 +1,8 @@
 /**
  * Read File Tool Handler
- * 파일 읽기 툴 핸들러
- * - 전체 파일 읽기 (작은 파일)
- * - 자동 truncate (큰 파일) - 시스템 강제
- * - 부분 읽기 (startLine, endLine 지원)
+ * - Full file read (small files)
+ * - Auto truncate (large files) - system enforced
+ * - Partial read (startLine, endLine support)
  */
 
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
@@ -217,12 +216,12 @@ export class ReadFileToolHandler implements IToolHandler {
                 return {
                     success: false,
                     message: isNotFound
-                        ? `파일이 존재하지 않습니다: ${result.path}`
+                        ? `File does not exist: ${result.path}`
                         : `Failed to read file: ${result.path}`,
                     error: {
                         code: isNotFound ? 'FILE_NOT_FOUND' : 'READ_ERROR',
                         message: isNotFound
-                            ? `파일이 존재하지 않습니다: ${result.path}. ⚠️ 경로가 틀렸을 수 있습니다. 반드시 glob_search로 "**/${fileName}" 패턴을 검색하여 실제 위치를 찾으세요. 파일이 프로젝트에 없다면 사용자에게 알려주세요. 절대로 create_file로 파일을 생성하지 마세요.`
+                            ? `File does not exist: ${result.path}. The path may be incorrect. You MUST use glob_search with "**/${fileName}" pattern to find the actual location. If the file does not exist in the project, inform the user. NEVER create the file with create_file.`
                             : result.error
                     }
                 };

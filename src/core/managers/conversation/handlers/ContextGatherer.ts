@@ -66,7 +66,7 @@ export class ContextGatherer {
                 .filter((s) => s.enabled && s.customPrompt?.trim())
                 .map((s) => `**[MCP: ${s.name}]**\n${s.customPrompt!.trim()}`);
             if (mcpPromptParts.length > 0) {
-                return `## MCP 도구 사용 지침\n\n${mcpPromptParts.join('\n\n')}`;
+                return `## MCP Tool Usage Instructions\n\n${mcpPromptParts.join('\n\n')}`;
             }
         } catch (error) {
             console.warn('[ContextGatherer] Failed to collect MCP custom prompts:', error);
@@ -129,7 +129,7 @@ export class ContextGatherer {
 
         // 에디터에서 선택된 코드 스니펫 포함
         if (options.selectedCode) {
-            const codeBlock = `=== 에디터 선택 코드 ===\n${options.selectedCode}\n`;
+            const codeBlock = `=== Editor Selected Code ===\n${options.selectedCode}\n`;
             selectedFilesContent = selectedFilesContent
                 ? `${selectedFilesContent}\n\n${codeBlock}`
                 : codeBlock;
@@ -250,9 +250,9 @@ export class ContextGatherer {
                                 const doc = r.document_name || r.document || '';
                                 const sim =
                                     r.similarity != null
-                                        ? ` (유사도: ${(r.similarity * 100).toFixed(0)}%)`
+                                        ? ` (similarity: ${(r.similarity * 100).toFixed(0)}%)`
                                         : '';
-                                return `[문서 ${i + 1}] ${source} > ${doc}${sim}\n${r.content}`;
+                                return `[Document ${i + 1}] ${source} > ${doc}${sim}\n${r.content}`;
                             })
                             .join('\n\n---\n\n');
                         // RAG 참조 추적
@@ -291,11 +291,11 @@ export class ContextGatherer {
                 const branch = branchResult.stdout.trim();
                 const remote = remoteResult.stdout.trim();
                 if (branch) {
-                    gitContext = `\n## Git 리포지토리 정보\n- **현재 브랜치**: ${branch}\n`;
+                    gitContext = `\n## Git Repository Info\n- **Current branch**: ${branch}\n`;
                     if (remote) {
-                        gitContext += `- **원격 저장소**: ${remote}\n`;
+                        gitContext += `- **Remote**: ${remote}\n`;
                     }
-                    gitContext += `\nGit 관련 작업 시 위 정보를 참고하세요.\n`;
+                    gitContext += `\nRefer to this information when performing Git-related tasks.\n`;
                 }
             }
         } catch {
@@ -337,7 +337,7 @@ export class ContextGatherer {
             profileContext: contextData.project?.structure,
             intentContext: JSON.stringify(intent),
             gitContext,
-            languageInstruction: '반드시 한국어로 답변하세요.',
+            languageInstruction: 'Always respond in Korean.',
             selectedFilesContent,
             terminalContextContent,
             diagnosticsContextContent,

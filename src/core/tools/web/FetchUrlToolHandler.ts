@@ -1,7 +1,7 @@
 /**
  * Fetch URL Tool Handler
- * URL 내용 가져오기 (웹페이지, API 문서 등)
- * cheerio 기반 HTML → Markdown 변환
+ * Fetch URL content (web pages, API docs, etc.)
+ * cheerio-based HTML to Markdown conversion
  */
 
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
@@ -14,12 +14,12 @@ export class FetchUrlToolHandler implements IToolHandler {
     readonly name = Tool.FETCH_URL;
 
     private static readonly MAX_LENGTH = 50000;
-    /** URL 자동 감지용 축소 한도 */
+    /** Reduced limit for URL auto-detection */
     private static readonly AUTO_FETCH_MAX_LENGTH = 30000;
 
     getDescription(toolUse: ToolUse): string {
         const url = toolUse.params?.url || '';
-        return url ? `URL 가져오기: ${url}` : 'URL 가져오기';
+        return url ? `Fetch URL: ${url}` : 'Fetch URL';
     }
 
     async execute(toolUse: ToolUse, context: ToolExecutionContext): Promise<ToolResponse> {
@@ -34,13 +34,13 @@ export class FetchUrlToolHandler implements IToolHandler {
         }
 
         try {
-            // URL 파싱 검증
+            // URL parsing validation
             new URL(url);
 
-            // HTTP(S) 요청
+            // HTTP(S) request
             const content = await FetchUrlToolHandler.fetchContent(url);
 
-            // HTML 감지 → Markdown 변환 → truncation (순서 수정: 원본에서 추출 후 자르기)
+            // HTML detection -> Markdown conversion -> truncation (extract from original then truncate)
             let result: string;
             let truncated = false;
 
@@ -76,15 +76,15 @@ export class FetchUrlToolHandler implements IToolHandler {
         }
     }
 
-    // ─── Static public methods (A1 URL 자동 감지에서 재사용) ───
+    // --- Static public methods (reused in A1 URL auto-detection) ---
 
     /**
-     * URL에서 원본 콘텐츠를 가져옴
+     * Fetches raw content from URL
      */
     public static fetchContent(url: string): Promise<string> {
         return new Promise((resolve, reject) => {
             const protocol = url.startsWith('https') ? https : http;
-            const timeout = 10000; // 10초 타임아웃
+            const timeout = 10000; // 10 second timeout
 
             const req = protocol.get(url, {
                 headers: {
@@ -93,7 +93,7 @@ export class FetchUrlToolHandler implements IToolHandler {
                 },
                 timeout: timeout
             }, (res) => {
-                // 리다이렉트 처리
+                // Handle redirects
                 if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                     FetchUrlToolHandler.fetchContent(res.headers.location).then(resolve).catch(reject);
                     return;
@@ -119,7 +119,7 @@ export class FetchUrlToolHandler implements IToolHandler {
     }
 
     /**
-     * URL fetch + HTML 감지 + Markdown 변환 + truncation (URL 자동 감지용)
+     * URL fetch + HTML detection + Markdown conversion + truncation (for URL auto-detection)
      */
     public static async fetchAndExtract(url: string): Promise<{ content: string; truncated: boolean }> {
         const raw = await FetchUrlToolHandler.fetchContent(url);
@@ -141,18 +141,18 @@ export class FetchUrlToolHandler implements IToolHandler {
         return { content, truncated };
     }
 
-    // ─── cheerio 기반 HTML → Markdown 변환 ───
+    // --- cheerio-based HTML to Markdown conversion ---
 
     /**
-     * HTML을 cheerio로 파싱하여 Markdown 형태의 텍스트로 변환
+     * Parses HTML with cheerio and converts to Markdown-style text
      */
     public static extractTextFromHtml(html: string): string {
         const $ = cheerio.load(html);
 
-        // 불필요한 요소 제거
+        // Remove unnecessary elements
         $('script, style, nav, header, footer, aside, iframe, noscript, svg, form, button, [role="navigation"], [role="banner"], [role="contentinfo"]').remove();
 
-        // pre/code 블록을 마커로 치환 (내부 내용 보존)
+        // Replace pre/code blocks with markers (preserve internal content)
         const codeBlocks: string[] = [];
         $('pre').each((_i, el) => {
             const $el = $(el);
@@ -196,7 +196,7 @@ export class FetchUrlToolHandler implements IToolHandler {
             const $el = $(el);
             const alt = $el.attr('alt')?.trim();
             if (alt) {
-                $el.replaceWith(`[이미지: ${alt}]`);
+                $el.replaceWith(`[Image: ${alt}]`);
             } else {
                 $el.remove();
             }
@@ -232,7 +232,7 @@ export class FetchUrlToolHandler implements IToolHandler {
             });
 
             if (rows.length > 0) {
-                // 첫 행 다음에 구분선 추가 (header row)
+                // Add separator line after first row (header row)
                 const headerSep = rows.length > 1
                     ? `\n| ${rows[0].split('|').filter(c => c.trim()).map(() => '---').join(' | ')} |`
                     : '';
@@ -261,15 +261,15 @@ export class FetchUrlToolHandler implements IToolHandler {
             $(el).replaceWith('\n---\n');
         });
 
-        // 나머지 태그 제거 → 텍스트만 추출
+        // Remove remaining tags -> extract text only
         let text = $('body').text() || $.root().text();
 
-        // 코드 블록 마커 복원
+        // Restore code block markers
         for (let i = 0; i < codeBlocks.length; i++) {
             text = text.replace(`__CODE_BLOCK_${i}__`, codeBlocks[i]);
         }
 
-        // HTML 엔티티 정리 (cheerio가 대부분 처리하지만 잔여분)
+        // Clean up HTML entities (cheerio handles most, but some remain)
         text = text
             .replace(/&nbsp;/g, ' ')
             .replace(/&amp;/g, '&')
@@ -278,12 +278,12 @@ export class FetchUrlToolHandler implements IToolHandler {
             .replace(/&quot;/g, '"')
             .replace(/&#39;/g, "'");
 
-        // 과도한 줄바꿈/공백 정리
+        // Clean up excessive newlines/whitespace
         text = text
-            .replace(/[ \t]+/g, ' ')           // 연속 공백 → 단일 공백
-            .replace(/ \n/g, '\n')             // 줄바꿈 앞 공백 제거
-            .replace(/\n /g, '\n')             // 줄바꿈 뒤 공백 제거
-            .replace(/\n{4,}/g, '\n\n\n')      // 3줄 이상 빈 줄 → 2줄
+            .replace(/[ \t]+/g, ' ')           // Consecutive spaces -> single space
+            .replace(/ \n/g, '\n')             // Remove space before newline
+            .replace(/\n /g, '\n')             // Remove space after newline
+            .replace(/\n{4,}/g, '\n\n\n')      // 3+ blank lines -> 2 lines
             .trim();
 
         return text;

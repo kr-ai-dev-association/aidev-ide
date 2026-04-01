@@ -1,6 +1,6 @@
 /**
  * Create File Tool Handler
- * 파일 생성 툴 핸들러
+ * Creates files with content
  */
 
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
@@ -37,7 +37,7 @@ export class CreateFileToolHandler implements IToolHandler {
             };
         }
 
-        // 플레이스홀더/의미 없는 콘텐츠 차단 (빈 파일이 정상인 케이스 예외)
+        // Block placeholder/meaningless content (except cases where empty file is valid)
         const trimmedContent = (content || '').trim();
         const fileName = path.basename(filePath);
         const allowEmpty = fileName === '__init__.py' || fileName === '.gitkeep' || fileName === '.keep';
@@ -54,31 +54,31 @@ export class CreateFileToolHandler implements IToolHandler {
             console.warn(`[CreateFileToolHandler] Placeholder content rejected for ${filePath} (${trimmedContent.length} chars)`);
             return {
                 success: false,
-                message: `파일 내용이 플레이스홀더입니다. 실제 코드를 작성해주세요: "${trimmedContent.substring(0, 30)}"`,
+                message: `File content is a placeholder. Please write actual code: "${trimmedContent.substring(0, 30)}"`,
                 error: { code: 'PLACEHOLDER_CONTENT', message: 'Content is a placeholder, not actual code' }
             };
         }
 
-        // HTML 엔티티 처리 (AI 모델이 잘못 이스케이프한 경우 수정)
+        // Fix HTML entities (correct incorrect escaping by AI models)
         let cleanedContent = fixModelHtmlEscaping(content);
-        // CDATA 섹션 제거 (LLM이 JSON 등을 CDATA로 감싸는 경우 처리)
+        // Remove CDATA sections (handle cases where LLM wraps JSON etc. in CDATA)
         cleanedContent = removeCDataSections(cleanedContent);
 
         const absolutePath = path.isAbsolute(filePath) 
             ? filePath 
             : path.join(context.projectRoot, filePath);
 
-        // InlineDiffManager를 통해 diff 표시
+        // Show diff via InlineDiffManager
         const diffModule = await import('../../managers/diff/InlineDiffManager');
         const inlineDiffManager = diffModule.InlineDiffManager.getInstance();
 
-        // 원본 내용 (새 파일이므로 빈 문자열)
+        // Original content (empty string since this is a new file)
         const originalContent = '';
         
-        // diff 표시
+        // Show diff
         await inlineDiffManager.showInlineDiff(absolutePath, originalContent, cleanedContent, context.conversationTurnId);
 
-        // ✅ 디버깅: fileContent 반환 확인
+        // Debug: verify fileContent return
         console.log(`[CreateFileToolHandler] Returning response with fileContent: ${filePath} (${cleanedContent?.length || 0} chars)`);
 
         return {
@@ -96,16 +96,16 @@ export class CreateFileToolHandler implements IToolHandler {
     }
 
     /**
-     * 플레이스홀더/의미 없는 콘텐츠 감지
-     * LLM이 실제 코드 대신 "...", "...code..." 등을 출력하는 케이스 차단
+     * Detect placeholder/meaningless content
+     * Block cases where LLM outputs "...", "...code..." etc. instead of actual code
      */
     private isPlaceholderContent(content: string): boolean {
         if (content.length === 0) return true;
-        // 극단적으로 짧은 콘텐츠 (주석 1줄 정도는 허용)
+        // Extremely short content (allow approximately 1 line of comments)
         if (content.length <= 10) {
             return /^\.{2,}$|^(code|todo|implement|placeholder|content)/i.test(content);
         }
-        // 전형적인 LLM 플레이스홀더 패턴
+        // Typical LLM placeholder patterns
         const placeholderPatterns = [
             /^\.\.\.$/, /^\.\.\.code\.\.\.$/i, /^\.\.\.\s*code\s*\.\.\.$/i,
             /^#\s*(todo|implement|placeholder)/i,

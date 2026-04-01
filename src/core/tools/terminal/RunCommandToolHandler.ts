@@ -1,6 +1,6 @@
 /**
  * Run Command Tool Handler
- * 터미널 명령어 실행 툴 핸들러
+ * Terminal command execution tool handler
  */
 
 import * as vscode from 'vscode';
@@ -11,8 +11,8 @@ import { ToolUse, ToolResponse, Tool } from '../types';
 import { HotLoadManager } from '../../managers/hotload/HotLoadManager';
 
 /**
- * 명령어 접두사 → 매니페스트 파일 매핑
- * 워크스페이스 루트에 매니페스트가 없으면 서브 디렉토리에서 자동 탐색
+ * Command prefix -> manifest file mapping
+ * If manifest is not at workspace root, auto-search in subdirectories
  */
 const COMMAND_MANIFEST_MAP: Record<string, string[]> = {
     // ── JavaScript / TypeScript ──
@@ -109,7 +109,7 @@ function truncateOutput(output: string | undefined): string | undefined {
     const head = output.slice(0, HEAD_CHARS);
     const tail = output.slice(-TAIL_CHARS);
     const dropped = output.length - HEAD_CHARS - TAIL_CHARS;
-    return `${head}\n\n... [출력 잘림: ${dropped.toLocaleString()}자 생략 — 앞 ${HEAD_CHARS.toLocaleString()}자 + 뒤 ${TAIL_CHARS.toLocaleString()}자만 표시] ...\n\n${tail}`;
+    return `${head}\n\n... [output truncated: ${dropped.toLocaleString()} chars omitted - showing first ${HEAD_CHARS.toLocaleString()} + last ${TAIL_CHARS.toLocaleString()} chars] ...\n\n${tail}`;
 }
 
 export class RunCommandToolHandler implements IToolHandler {
@@ -126,21 +126,45 @@ export class RunCommandToolHandler implements IToolHandler {
             };
         }
 
-        // HotLoad 매칭 확인 - 완료 조건/재시도가 설정된 항목이면 executeWithRetry 사용
+        // Check HotLoad matching - use executeWithRetry if completion condition/retries are configured
         const hotLoadResult = await this.tryHotLoadExecution(command, context);
         if (hotLoadResult) {
             return hotLoadResult;
         }
 
         const timeoutSeconds = toolUse.params.timeout ? parseInt(toolUse.params.timeout) : undefined;
+        const isBackground = String(toolUse.params.is_background) === 'true';
 
-        // ── 서브 프로젝트 자동 감지: 매니페스트 없으면 하위 디렉토리 탐색 ──
+        // -- Sub-project auto-detection: search subdirectories if no manifest --
         const effectiveCwd = this.resolveCommandCwd(command, context.projectRoot);
 
-        // ── 출력 기반 명령어 분류 (패턴 매칭 없이 동작) ──────────────
-        // 1단계: 짧은 타임아웃으로 실행하여 출력 확인
-        const INITIAL_TIMEOUT = 15000; // 15초 대기 (npm install 등 패키지 설치 명령의 초기 타임아웃 방지)
-        const MAX_COMPLETION_TIMEOUT = 120000; // 완료 대기 상한 120초
+        // Phase 0: LLM explicitly requested background execution
+        if (isBackground) {
+            console.log(`[RunCommandToolHandler] Background mode requested: ${command}`);
+            const bgResult = await context.executionManager.executeCommand(command, {
+                cwd: effectiveCwd,
+                timeout: 5000, // Short wait to capture initial output
+                killOnTimeout: false,
+            });
+            const pid = bgResult.pid || context.executionManager.getRunningProcesses()
+                .find(p => p.command === command)?.pid;
+            if (pid) {
+                context.executionManager.continueProcess(pid);
+            }
+            return {
+                success: true,
+                message: `Background command started: ${command}${pid ? ` (PID: ${pid})` : ''}`,
+                data: {
+                    output: truncateOutput(bgResult.stdout) || `Process started in background${pid ? ` (PID: ${pid})` : ''}.`,
+                    llmNote: 'This command is running in the background. Do not re-execute the same command. Proceed with the next task.',
+                    error: truncateOutput(bgResult.stderr),
+                    exitCode: bgResult.exitCode,
+                }
+            };
+        }
+
+        // Phase 1: Execute with timeout to check output
+        const INITIAL_TIMEOUT = 30000; // 30s wait
 
         const initialResult = await context.executionManager.executeCommand(command, {
             cwd: effectiveCwd,
@@ -148,8 +172,7 @@ export class RunCommandToolHandler implements IToolHandler {
             killOnTimeout: false,
         });
 
-        // 2단계: 초기 실행에서 완료된 경우 → exit code로 판단
-        // exitCode가 있으면 프로세스가 종료된 것이므로 즉시 반환 (성공/실패 무관)
+        // Phase 2: If completed in initial execution -> judge by exit code
         if (initialResult.exitCode !== undefined) {
             console.log(`[RunCommandToolHandler] Command completed: ${command} (exit=${initialResult.exitCode})`);
             return {
@@ -165,62 +188,33 @@ export class RunCommandToolHandler implements IToolHandler {
             };
         }
 
-        // 3단계: 타임아웃 발생 → 출력 기반으로 장기 실행 여부 판단
+        // Phase 3: Timeout occurred -> process still running, switch to background immediately
+        // No need to wait 120s — the process continues in background regardless
         const pid = initialResult.pid || context.executionManager.getRunningProcesses()
             .find(p => p.command === command)?.pid;
 
-        let isLongRunning = false;
         if (pid) {
-            isLongRunning = context.executionManager.isLongRunningCommand(pid);
-        }
-
-        // stdout에 서버/워처 마커가 있으면 → 백그라운드 전환
-        if (isLongRunning) {
-            if (pid) {
-                context.executionManager.continueProcess(pid);
-                console.log(`[RunCommandToolHandler] Long-running detected (output-based): ${command} (PID: ${pid})`);
-                return {
-                    success: true,
-                    message: `Long-running command started: ${command} (PID: ${pid})`,
-                    data: {
-                        output: truncateOutput(initialResult.stdout) || `서버가 백그라운드에서 시작되었습니다 (PID: ${pid}).`,
-                        llmNote: '이 명령어는 장기 실행 프로세스입니다. 이미 백그라운드에서 실행 중이므로 동일 명령어를 다시 실행하지 마세요.',
-                        error: truncateOutput(initialResult.stderr),
-                        exitCode: undefined,
-                    }
-                };
-            }
-        }
-
-        // 서버 마커 없음 → 아직 실행 중인 일반 명령어 (npm install 등)
-        // 완료까지 대기 (상한 120초)
-        if (pid) {
-            console.log(`[RunCommandToolHandler] Waiting for completion (max ${MAX_COMPLETION_TIMEOUT}ms): ${command}`);
-            const finalResult = await context.executionManager.executeCommand(command, {
-                cwd: effectiveCwd,
-                timeout: MAX_COMPLETION_TIMEOUT,
-                killOnTimeout: true,
-            });
+            context.executionManager.continueProcess(pid);
+            console.log(`[RunCommandToolHandler] Timeout reached, moving to background: ${command} (PID: ${pid})`);
             return {
-                success: finalResult.success,
-                message: finalResult.success
-                    ? `Command executed: ${command}`
-                    : `Command failed: ${command}`,
+                success: true,
+                message: `Command running in background: ${command} (PID: ${pid})`,
                 data: {
-                    output: truncateOutput(finalResult.stdout),
-                    error: truncateOutput(finalResult.stderr),
-                    exitCode: finalResult.exitCode,
+                    output: truncateOutput(initialResult.stdout) || `Process started in background (PID: ${pid}).`,
+                    llmNote: 'This command did not finish within the initial timeout. It is now running in the background. Do not re-execute the same command. Proceed with the next task.',
+                    error: truncateOutput(initialResult.stderr),
+                    exitCode: undefined,
                 }
             };
         }
 
-        // pid 없이 타임아웃 → 에러 반환
+        // Timeout without pid -> return error
         return {
             success: false,
             message: `Command timed out: ${command}`,
             data: {
-                output: initialResult.stdout,
-                error: initialResult.stderr || 'Command timed out without producing a process ID',
+                output: truncateOutput(initialResult.stdout),
+                error: truncateOutput(initialResult.stderr) || 'Command timed out without producing a process ID',
                 exitCode: undefined,
             }
         };
@@ -230,7 +224,7 @@ export class RunCommandToolHandler implements IToolHandler {
         return `[run_command: ${toolUse.params.command}]`;
     }
 
-    /** 탐색 제외 디렉토리 */
+    /** Directories to exclude from search */
     private static readonly SKIP_DIRS = new Set([
         'node_modules', '.git', '.svn', '.hg', 'dist', 'build', 'out',
         '.next', '.nuxt', '.output', '__pycache__', '.venv', 'venv',
@@ -238,13 +232,13 @@ export class RunCommandToolHandler implements IToolHandler {
     ]);
 
     /**
-     * 매니페스트 이름이 glob 패턴(*.csproj 등)인지 검사하고,
-     * 해당 디렉토리에 매칭되는 파일이 있는지 확인
+     * Check if manifest name is a glob pattern (*.csproj, etc.)
+     * and verify if matching files exist in the directory
      */
     private hasManifestIn(dir: string, manifests: string[]): boolean {
         return manifests.some(m => {
             if (m.startsWith('*')) {
-                // glob 패턴: 확장자 매칭
+                // glob pattern: extension matching
                 const ext = m.slice(1); // "*.csproj" → ".csproj"
                 try {
                     return fs.readdirSync(dir).some((f: string) => f.endsWith(ext));
@@ -255,13 +249,13 @@ export class RunCommandToolHandler implements IToolHandler {
     }
 
     /**
-     * 하위 디렉토리를 maxDepth까지 탐색하여 매니페스트가 있는 가장 가까운 디렉토리 반환
-     * BFS로 탐색하여 depth가 낮은(가까운) 결과 우선
+     * Search subdirectories up to maxDepth and return the nearest directory with manifest
+     * BFS search, prioritizing results with lower (closer) depth
      */
     private findManifestDir(root: string, manifests: string[], maxDepth: number): string | null {
         const queue: { dir: string; depth: number }[] = [];
 
-        // 1-depth 자식 디렉토리를 큐에 추가
+        // Add 1-depth child directories to queue
         try {
             const entries = fs.readdirSync(root, { withFileTypes: true });
             for (const entry of entries) {
@@ -277,7 +271,7 @@ export class RunCommandToolHandler implements IToolHandler {
                 return dir;
             }
 
-            // 아직 maxDepth에 도달하지 않았으면 하위 탐색
+            // Continue searching subdirectories if maxDepth not yet reached
             if (depth < maxDepth) {
                 try {
                     const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -293,19 +287,19 @@ export class RunCommandToolHandler implements IToolHandler {
     }
 
     /**
-     * 명령어의 패키지 매니저를 감지하여 적절한 cwd를 결정합니다.
-     * 워크스페이스 루트에 매니페스트 파일이 없으면 하위 디렉토리에서 자동 탐색합니다.
-     * BFS 2-depth 탐색: packages/api/, apps/web/, services/auth/ 등 모노레포 지원
+     * Detect the command's package manager and determine the appropriate cwd.
+     * If manifest file is not at workspace root, auto-search in subdirectories.
+     * BFS 2-depth search: supports monorepos like packages/api/, apps/web/, services/auth/
      */
     private resolveCommandCwd(command: string, projectRoot: string): string {
         const cmdPrefix = command.trim().split(/\s+/)[0];
         const manifests = COMMAND_MANIFEST_MAP[cmdPrefix];
         if (!manifests) return projectRoot;
 
-        // 루트에 매니페스트가 있으면 그대로 사용
+        // Use as-is if manifest exists at root
         if (this.hasManifestIn(projectRoot, manifests)) return projectRoot;
 
-        // BFS로 최대 2-depth까지 탐색
+        // BFS search up to 2-depth
         const found = this.findManifestDir(projectRoot, manifests, 2);
         if (found) {
             console.log(`[RunCommandToolHandler] Auto-resolved cwd to sub-project: ${found}`);
@@ -316,8 +310,8 @@ export class RunCommandToolHandler implements IToolHandler {
     }
 
     /**
-     * HotLoad 항목과 명령어 매칭 확인 후 executeWithRetry 실행
-     * 매칭되고 completionCondition/maxRetries가 있으면 HotLoad 방식으로 실행
+     * Check command match with HotLoad items and execute with retry
+     * If matched and completionCondition/maxRetries exist, execute in HotLoad mode
      */
     private async tryHotLoadExecution(
         command: string,
@@ -327,24 +321,24 @@ export class RunCommandToolHandler implements IToolHandler {
             const hotLoadManager = HotLoadManager.getInstance();
             const items = await hotLoadManager.getAllHotLoads();
 
-            // 명령어가 정확히 일치하는 HotLoad 항목 찾기
+            // Find HotLoad item with exact command match
             const matchedItem = items.find(item =>
                 item.command.trim() === command.trim()
             );
 
             if (!matchedItem) {
-                return null; // 매칭 없음 → 일반 실행으로 진행
+                return null; // No match -> proceed with normal execution
             }
 
-            // completionCondition 또는 maxRetries가 있어야 HotLoad 실행 의미가 있음
+            // completionCondition or maxRetries must exist for HotLoad execution to be meaningful
             if (!matchedItem.completionCondition && (!matchedItem.maxRetries || matchedItem.maxRetries === 0)) {
                 console.log(`[RunCommandToolHandler] HotLoad matched but no conditions/retries: ${command}`);
-                return null; // 일반 실행으로 진행
+                return null; // Proceed with normal execution
             }
 
             console.log(`[RunCommandToolHandler] HotLoad executeWithRetry: ${command}`);
 
-            // context에서 webview 가져오기 (없으면 더미 생성)
+            // Get webview from context (create dummy if unavailable)
             const webview = context.webview || this.createDummyWebview();
 
             const result = await hotLoadManager.executeWithRetry(
@@ -353,7 +347,7 @@ export class RunCommandToolHandler implements IToolHandler {
                 webview
             );
 
-            // 결과 처리
+            // Process result
             if (result.success) {
                 return {
                     success: true,
@@ -367,7 +361,7 @@ export class RunCommandToolHandler implements IToolHandler {
                 };
             }
 
-            // 실패 시 failureAction에 따라 처리
+            // Handle failure based on failureAction
             const response: ToolResponse = {
                 success: false,
                 message: `HotLoad command failed: ${command} (${result.attempts} attempt(s))`,
@@ -380,23 +374,23 @@ export class RunCommandToolHandler implements IToolHandler {
                 }
             };
 
-            // pass_to_llm인 경우 error 필드에 상세 정보 추가
+            // If pass_to_llm, add detailed info to error field
             if (result.failureAction === 'pass_to_llm') {
                 response.error = {
                     code: 'HOTLOAD_FAILED',
-                    message: `HotLoad 실패 (${result.attempts}회 시도): ${result.output}`
+                    message: `HotLoad failed (${result.attempts} attempts): ${result.output}`
                 };
             }
 
             return response;
         } catch (error) {
             console.warn('[RunCommandToolHandler] HotLoad check failed:', error);
-            return null; // 에러 시 일반 실행으로 진행
+            return null; // Proceed with normal execution on error
         }
     }
 
     /**
-     * webview가 없을 때 사용할 더미 객체
+     * Dummy object to use when webview is unavailable
      */
     private createDummyWebview(): vscode.Webview {
         return {

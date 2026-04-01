@@ -1,9 +1,9 @@
 /**
  * MCP Tool Handler
- * MCP 도구를 기존 Tool 시스템에 통합
+ * Integrates MCP tools into the existing Tool system
  *
- * v9.2.3: 원래 도구 이름 사용 (mcp_ 프리픽스 제거)
- * 충돌 해결은 ToolRegistry.registerMCP()에서 처리
+ * v9.2.3: Uses original tool names (removed mcp_ prefix)
+ * Conflict resolution is handled by ToolRegistry.registerMCP()
  */
 
 import * as vscode from 'vscode';
@@ -12,7 +12,7 @@ import { ToolUse, ToolResponse, Tool } from '../types';
 import { MCPManager, MCPToolInfo } from '../../mcp';
 
 /**
- * MCP 도구를 IToolHandler로 래핑
+ * Wraps MCP tools as IToolHandler
  */
 export class MCPToolHandler implements IToolHandler {
     name: string;
@@ -23,7 +23,7 @@ export class MCPToolHandler implements IToolHandler {
     private mcpManager: MCPManager;
 
     constructor(serverId: string, serverName: string, toolInfo: MCPToolInfo) {
-        // 원래 도구 이름 사용 — 충돌 해결은 ToolRegistry가 담당
+        // Use original tool name -- conflict resolution is handled by ToolRegistry
         this.name = toolInfo.name;
         this.serverId = serverId;
         this.serverName = serverName;
@@ -33,52 +33,52 @@ export class MCPToolHandler implements IToolHandler {
     }
 
     /**
-     * 충돌로 disambiguate된 경우 Registry가 호출하여 이름 업데이트
+     * Called by Registry to update the name when disambiguated due to conflict
      */
     setRegisteredName(name: string): void {
         this.name = name;
     }
 
     /**
-     * 도구 설명 반환
+     * Returns tool description
      */
     getDescription(toolUse: ToolUse): string {
         return `[MCP:${this.serverName}] ${this.toolInfo.description || this.mcpToolName}`;
     }
 
     /**
-     * 도구 실행
+     * Executes tool
      */
     async execute(toolUse: ToolUse, context: ToolExecutionContext): Promise<ToolResponse> {
         console.log(`[MCPToolHandler] Executing MCP tool: ${this.mcpToolName}`);
 
-        // MCP 도구 자동 실행 설정 확인
+        // Check MCP tool auto-execution setting
         const { SettingsManager } = await import('../../managers/state/SettingsManager');
         const isAutoMcpEnabled = await SettingsManager.getInstance().isAutoMcpToolExecutionEnabled();
 
-        // 자동 실행 OFF이고 미승인 도구면 사용자 확인 요청
+        // If auto-execution is OFF and tool is not approved, request user confirmation
         if (!isAutoMcpEnabled && !this.mcpManager.isToolApproved(this.serverId, this.mcpToolName)) {
             const approved = await this.requestApproval(context.webview);
             if (!approved) {
                 return {
                     success: false,
-                    message: `MCP 도구 실행이 사용자에 의해 거부되었습니다: ${this.mcpToolName}`,
+                    message: `MCP tool execution denied by user: ${this.mcpToolName}`,
                     error: { code: 'USER_DENIED', message: 'Tool execution denied by user' }
                 };
             }
-            // 승인 저장
+            // Save approval
             await this.mcpManager.approveTool(this.serverId, this.mcpToolName);
         }
 
-        // 파라미터 추출
+        // Extract parameters
         const args = this.extractArguments(toolUse.params);
         console.log(`[MCPToolHandler] Tool: ${this.mcpToolName}, serverId: ${this.serverId}, args:`, JSON.stringify(args));
 
-        // MCP 도구 호출
+        // Call MCP tool
         const result = await this.mcpManager.callTool(this.serverId, this.mcpToolName, args);
 
         if (!result.success) {
-            // 에러 content가 있으면 포함하여 더 상세한 메시지 제공
+            // Include error content for more detailed message if available
             const errorDetail = result.error || 'Unknown error';
             const contentText = result.content?.length > 0
                 ? this.formatResult(result.content)
@@ -90,12 +90,12 @@ export class MCPToolHandler implements IToolHandler {
             console.error(`[MCPToolHandler] Tool ${this.mcpToolName} failed: ${errorDetail}`);
             return {
                 success: false,
-                message: `MCP 도구 실행 실패 (${this.mcpToolName}): ${fullError}`,
+                message: `MCP tool execution failed (${this.mcpToolName}): ${fullError}`,
                 error: { code: 'MCP_ERROR', message: errorDetail }
             };
         }
 
-        // 결과 포맷팅
+        // Format result
         const message = this.formatResult(result.content);
 
         return {
@@ -110,23 +110,23 @@ export class MCPToolHandler implements IToolHandler {
     }
 
     /**
-     * 사용자 승인 요청
+     * Request user approval
      */
     private async requestApproval(webview?: vscode.Webview): Promise<boolean> {
-        const message = `MCP 도구 "${this.mcpToolName}" 실행을 허용하시겠습니까?\n\n설명: ${this.toolInfo.description || '(설명 없음)'}`;
+        const message = `Allow execution of MCP tool "${this.mcpToolName}"?\n\nDescription: ${this.toolInfo.description || '(no description)'}`;
 
         const result = await vscode.window.showWarningMessage(
             message,
             { modal: true },
-            '허용 (이후 자동 실행)',
-            '이번만 허용',
-            '거부'
+            'Allow (auto-execute later)',
+            'Allow this time only',
+            'Deny'
         );
 
-        if (result === '허용 (이후 자동 실행)') {
+        if (result === 'Allow (auto-execute later)') {
             return true;
-        } else if (result === '이번만 허용') {
-            // 일시적 허용 (저장하지 않음)
+        } else if (result === 'Allow this time only') {
+            // Temporary approval (not saved)
             return true;
         }
 
@@ -134,13 +134,13 @@ export class MCPToolHandler implements IToolHandler {
     }
 
     /**
-     * 파라미터 추출
+     * Extract parameters
      */
     private extractArguments(params: Record<string, string>): Record<string, any> {
         const args: Record<string, any> = {};
 
-        // params에서 'args_'로 시작하는 키들을 추출하거나
-        // inputSchema의 properties를 기반으로 추출
+        // Extract keys starting with 'args_' from params
+        // or extract based on inputSchema properties
         for (const [key, value] of Object.entries(params)) {
             if (key.startsWith('args_')) {
                 args[key.substring(5)] = this.parseValue(value);
@@ -153,20 +153,20 @@ export class MCPToolHandler implements IToolHandler {
     }
 
     /**
-     * 값 파싱 (문자열 → 적절한 타입)
+     * Parse value (string to appropriate type)
      */
     private parseValue(value: string): any {
-        // JSON 파싱 시도
+        // Try JSON parsing
         try {
             return JSON.parse(value);
         } catch {
-            // 문자열 그대로 반환
+            // Return as string
             return value;
         }
     }
 
     /**
-     * 결과 포맷팅
+     * Format result
      */
     private formatResult(content: { type: string; text?: string; data?: string }[]): string {
         const parts: string[] = [];
@@ -185,7 +185,7 @@ export class MCPToolHandler implements IToolHandler {
     }
 
     /**
-     * 도구 스펙 생성 (ToolSpecBuilder용)
+     * Generate tool spec (for ToolSpecBuilder)
      */
     toToolSpec(): { name: string; description: string; parameters: any[] } {
         const parameters: any[] = [];

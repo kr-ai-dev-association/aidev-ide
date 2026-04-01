@@ -232,8 +232,8 @@ export class PromptComposer {
 
             console.log(`[PromptComposer] 글로벌 Rules 로드: ${rules.length}개`);
             return {
-                text: `# ⚠️ 글로벌 Skills (모든 프로젝트 공통 필수 규칙)
-아래 Skills는 모든 프로젝트에 공통으로 적용되는 개발 규칙입니다. 프로젝트와 무관하게 **항상 반드시 반영**해야 합니다.
+                text: `# Global Skills (Mandatory Rules for All Projects)
+The following skills are development rules that apply universally across all projects. They **must always be followed** regardless of the project.
 
 ${rules.join('\n\n---\n\n')}`,
                 ruleKeys,
@@ -266,11 +266,11 @@ ${rules.join('\n\n---\n\n')}`,
             }
 
             const ruleCategories = [
-                { dir: 'stable-version', legacyFile: 'stable-version.md', title: '버전 관리 규칙' },
-                { dir: 'coding-style', legacyFile: 'coding-style.md', title: '코딩 스타일 규칙' },
-                { dir: 'project-architecture', legacyFile: 'project-architecture.md', title: '프로젝트 아키텍처 규칙' },
-                { dir: 'dependency-policy', legacyFile: 'dependency-policy.md', title: '의존성 정책 규칙' },
-                { dir: 'db-policy', legacyFile: 'db-policy.md', title: '데이터베이스 정책 규칙' }
+                { dir: 'stable-version', legacyFile: 'stable-version.md', title: 'Version Management Rules' },
+                { dir: 'coding-style', legacyFile: 'coding-style.md', title: 'Coding Style Rules' },
+                { dir: 'project-architecture', legacyFile: 'project-architecture.md', title: 'Project Architecture Rules' },
+                { dir: 'dependency-policy', legacyFile: 'dependency-policy.md', title: 'Dependency Policy Rules' },
+                { dir: 'db-policy', legacyFile: 'db-policy.md', title: 'Database Policy Rules' }
             ];
 
             const rules: string[] = [];
@@ -348,7 +348,7 @@ ${rules.join('\n\n---\n\n')}`,
 
                 // 카테고리에 Rule(항상 주입)이 있으면 추가 (디렉토리명은 ruleKeys에 넣지 않음)
                 if (categoryRules.length > 0) {
-                    rules.push(`**${category.title} (강제 규칙):**\n${categoryRules.join('\n\n')}`);
+                    rules.push(`**${category.title} (Enforced Rules):**\n${categoryRules.join('\n\n')}`);
                 }
             }
 
@@ -370,12 +370,12 @@ ${rules.join('\n\n---\n\n')}`,
             console.log(`[PromptComposer] 로컬 Rules 로드: ${rules.length}개 카테고리, 키: [${[...ruleKeys].join(', ')}]`);
 
             return {
-                text: `# ⚠️ Skills (필수 적용 강제 규칙)
-아래 Skills는 프로젝트에 등록된 개발 규칙으로, 코드 생성·파일 작성·아키텍처 설계 등 **모든 작업의 결과물에 반드시 반영**해야 합니다.
-- 디자인 시스템 규칙이 있으면: 생성하는 **모든 UI 코드**에 해당 색상 토큰, 타이포그래피, 간격, 컴포넌트 명세를 적용하세요.
-- 아키텍처 규칙이 있으면: 생성하는 **모든 코드의 구조**(계층, 디렉토리, 의존성 방향)가 해당 규칙을 따라야 합니다.
-- 코딩 컨벤션이 있으면: 생성하는 **모든 코드**가 해당 네이밍·스타일·금지사항을 따라야 합니다.
-**이 규칙들을 무시하거나 위반하는 코드를 절대 생성하지 마세요.**
+                text: `# Skills (Mandatory Enforced Rules)
+The following skills are development rules registered for this project and **must be applied to all outputs** including code generation, file creation, and architecture design.
+- If design system rules exist: Apply the specified color tokens, typography, spacing, and component specs to **all generated UI code**.
+- If architecture rules exist: Ensure the **structure of all generated code** (layers, directories, dependency directions) follows those rules.
+- If coding conventions exist: Ensure **all generated code** follows the specified naming, style, and restrictions.
+**Never generate code that ignores or violates these rules.**
 
 ${rules.join('\n\n---\n\n')}`,
                 ruleKeys,
@@ -470,12 +470,12 @@ ${rules.join('\n\n---\n\n')}`,
 
             const formattedRules = filteredRules.map((r: { key: string; content: string; enforcement: string; title?: string }) => {
                 const name = r.title || r.key;
-                return `[필수] **${name}**:\n${r.content}`;
+                return `[Required] **${name}**:\n${r.content}`;
             }).join('\n\n');
 
-            const wrappedText = `## 관리자 등록 Skills (필수 적용 강제 규칙)
-아래는 조직 관리자가 등록한 개발 규칙입니다.
-**모든 코드 생성·파일 작성·UI 구현 시 아래 규칙을 반드시 적용하세요. 이 규칙을 무시하거나 위반하는 코드를 절대 생성하지 마세요.**
+            const wrappedText = `## Admin-Registered Skills (Mandatory Enforced Rules)
+The following are development rules registered by the organization administrator.
+**You must apply the rules below to all code generation, file creation, and UI implementation. Never generate code that ignores or violates these rules.**
 
 ${formattedRules}`;
 
@@ -493,10 +493,10 @@ ${formattedRules}`;
 
         // OS 정보 가져오기 (OSAdapter 사용)
         const osDetectionResult = OSAdapterFactory.detect();
-        const osContextInfo = `**실행 환경:**
+        const osContextInfo = `**Execution Environment:**
 - OS: ${osDetectionResult.osName} (${osDetectionResult.osType})
-- 셸: ${osDetectionResult.shellType}
-- 아키텍처: ${osDetectionResult.architecture}
+- Shell: ${osDetectionResult.shellType}
+- Architecture: ${osDetectionResult.architecture}
 `;
 
         // 베이스 프롬프트 조합
@@ -522,26 +522,26 @@ ${formattedRules}`;
         const terminalCommandRules = taskType === 'execution_work' ? base.getTerminalCommandRules() : '';
 
         // 코드베이스 컨텍스트 (관련 파일 내용)
-        const codebaseSection = codebaseContext ? `**코드베이스 컨텍스트:**
-다음 파일들의 내용을 참고하여 작업을 수행하세요. 이 파일들은 사용자 요청과 관련된 중요한 정보를 포함하고 있습니다.
+        const codebaseSection = codebaseContext ? `**Codebase Context:**
+Refer to the following file contents to perform your task. These files contain important information relevant to the user's request.
 
 ${codebaseContext}` : '';
 
         // 사용자가 선택한 파일들의 내용 - 강한 지시 (ASK 모드와 동일)
         const selectedFilesSection = selectedFilesContent ? `
-## ⚠️ 중요: 사용자가 첨부한 파일
-**아래 파일들은 사용자가 @파일로 명시적으로 첨부한 파일입니다.**
-**반드시 아래 파일 내용을 기반으로 작업을 수행하세요.**
-**다른 파일을 먼저 읽거나 프로젝트 탐색을 하지 마세요 - 첨부된 파일이 최우선입니다.**
+## Important: User-Attached Files
+**The files below were explicitly attached by the user via @file.**
+**You must perform your task based on these file contents.**
+**Do not read other files or explore the project first - the attached files take highest priority.**
 
 ${selectedFilesContent}
 ` : '';
 
         // 사용자가 선택한 터미널 히스토리
         const terminalContextSection = terminalContextContent ? `
-## ⚠️ 중요: 사용자가 첨부한 터미널 출력
-**아래는 사용자가 @terminal로 명시적으로 첨부한 실제 터미널 화면 내용입니다.**
-**반드시 아래 터미널 출력의 실제 데이터를 분석하여 답변하세요. 일반적인 설명이 아닌 실제 값을 기반으로 답변해야 합니다.**
+## Important: User-Attached Terminal Output
+**The following is actual terminal screen content explicitly attached by the user via @terminal.**
+**You must analyze the actual data in the terminal output below for your response. Provide answers based on actual values, not general explanations.**
 
 \`\`\`
 ${terminalContextContent}
@@ -550,9 +550,9 @@ ${terminalContextContent}
 
         // 사용자가 선택한 Diagnostics (에러/경고) - 강한 지시
         const diagnosticsContextSection = diagnosticsContextContent ? `
-## ⚠️ 중요: 사용자가 첨부한 Diagnostics
-**아래는 현재 워크스페이스에서 사용자가 명시적으로 분석을 요청한 에러/경고입니다.**
-**반드시 아래 Diagnostics 내용을 기반으로 답변하세요.**
+## Important: User-Attached Diagnostics
+**The following are errors/warnings from the current workspace that the user has explicitly requested analysis for.**
+**You must provide your response based on the diagnostics content below.**
 
 ${diagnosticsContextContent}
 ` : '';
@@ -562,10 +562,10 @@ ${diagnosticsContextContent}
 
         // 첨부 컨텍스트가 있을 때 최상단에 강조
         const attachedContextWarning = hasAttachedContext ? `
-# ⚠️ 최우선 지시사항
-사용자가 아래에 파일/터미널/Diagnostics를 첨부했습니다.
-**반드시 첨부된 내용을 최우선으로 분석하고 작업을 수행하세요.**
-다른 파일을 먼저 읽거나 프로젝트 탐색을 하지 마세요.
+# Top Priority Instructions
+The user has attached files/terminal output/diagnostics below.
+**You must prioritize analyzing the attached content and perform your task accordingly.**
+Do not read other files or explore the project first.
 ` : '';
 
         // 글로벌 규칙 로드 (globalStorageUri/rules/global-rules/) — 프로젝트 무관 공통 적용
@@ -583,7 +583,7 @@ ${diagnosticsContextContent}
             for (const key of overrideKeys) {
                 // "**카테고리 제목 (강제 규칙):**" 블록을 제거
                 const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const sectionRegex = new RegExp(`\\*\\*[^*]*${escapedKey}[^*]*\\(강제 규칙\\):\\*\\*[\\s\\S]*?(?=\\n---\\n|$)`, 'gi');
+                const sectionRegex = new RegExp(`\\*\\*[^*]*${escapedKey}[^*]*\\(Enforced Rules\\):\\*\\*[\\s\\S]*?(?=\\n---\\n|$)`, 'gi');
                 agentRules = agentRules.replace(sectionRegex, '').trim();
             }
             // 남은 구분선 정리
@@ -624,9 +624,9 @@ ${diagnosticsContextContent}
         const frameworkRulesSection = frameworkRulesPrompt || '';
 
         // RAG 문서 섹션
-        const ragSection = ragContext ? `## 참고 문서 (RAG) — 우선 활용
-아래는 사용자 질문과 관련하여 조직 내부 문서에서 검색된 내용입니다.
-**중요**: 아래 RAG 문서의 내용을 최우선으로 활용하여 작업하세요. 문서에 포함된 정보를 우선 사용하고, 문서에 없는 내용은 일반 지식을 바탕으로 보충하세요.
+        const ragSection = ragContext ? `## Reference Documents (RAG) - Use with Priority
+The following content was retrieved from internal organization documents relevant to the user's question.
+**Important**: Use the RAG documents below as your primary source. Prioritize information from these documents, and supplement with general knowledge only for information not covered in the documents.
 
 ${ragContext}` : '';
 
@@ -641,8 +641,8 @@ ${ragContext}` : '';
                 }
             }
             if (activeParts.length > 0) {
-                activeSkillsSection = `## 활성 스킬 (조건부 적용 규칙)
-다음 스킬은 현재 작업과 관련하여 활성화되었습니다. 반드시 준수하세요.
+                activeSkillsSection = `## Active Skills (Conditionally Applied Rules)
+The following skills have been activated for the current task. You must comply with them.
 
 ${activeParts.join('\n\n---\n\n')}`;
             }
@@ -651,19 +651,19 @@ ${activeParts.join('\n\n---\n\n')}`;
         // 스킬 description 목록 (LLM이 참고할 수 있도록 항상 포함)
         const skillDescriptions = PromptComposer.getSkillDescriptions();
         const skillDescriptionSection = skillDescriptions.length > 0
-            ? `## 사용 가능한 스킬 (필요시 참조됨)
+            ? `## Available Skills (Referenced When Needed)
 ${skillDescriptions.map(s => `- ${s.key}: ${s.description}`).join('\n')}`
             : '';
 
         // Skills 존재 여부에 따른 끝부분 리마인더
         const hasSkills = !!(agentRules || serverPromptTemplates || activeSkillsSection);
         const skillsReminder = hasSkills
-            ? `# ⚠️ 리마인더: Skills 규칙 준수
-위 시스템 프롬프트에 등록된 **Skills(개발 규칙)**을 반드시 따르세요.
-- 디자인 시스템이 등록되어 있으면 모든 UI 코드에 해당 토큰·컴포넌트 명세를 적용하세요.
-- 아키텍처 규칙이 등록되어 있으면 코드 구조·계층·디렉토리를 해당 규칙대로 생성하세요.
-- 코딩 컨벤션이 등록되어 있으면 네이밍·스타일·금지사항을 모두 준수하세요.
-**Skills를 무시한 코드는 허용되지 않습니다.**`
+            ? `# Reminder: Comply with Skills Rules
+You must follow the **Skills (development rules)** registered in the system prompt above.
+- If a design system is registered, apply the specified tokens and component specs to all UI code.
+- If architecture rules are registered, generate code structure, layers, and directories according to those rules.
+- If coding conventions are registered, comply with all naming, style, and restrictions.
+**Code that ignores Skills is not allowed.**`
             : '';
 
         // XML 태그로 감싸는 헬퍼
@@ -683,7 +683,7 @@ ${skillDescriptions.map(s => `- ${s.key}: ${s.description}`).join('\n')}`
             wrapXml('active_skills', activeSkillsSection),
             wrapXml('user_info', osContextInfo),
             wrapXml('project_structure', subProjectStructure),
-            wrapXml('repo_map', repoMap ? `프로젝트의 파일 경로와 주요 심볼(함수/클래스/인터페이스 등) 목록입니다.\n파일 경로를 추측하지 말고, 이 맵을 참고하여 정확한 경로를 사용하세요.\n파일이 맵에 없으면 glob_search로 검색하세요.\n\n${repoMap}` : undefined),
+            wrapXml('repo_map', repoMap ? `This is a list of file paths and key symbols (functions/classes/interfaces, etc.) in the project.\nDo not guess file paths - refer to this map and use accurate paths.\nIf a file is not in the map, search for it using glob_search.\n\n${repoMap}` : undefined),
             wrapXml('identity_and_rules', basePrompt),
             wrapXml('mcp_tools', mcpCustomPrompts),
             wrapXml('framework_rules', frameworkRulesSection),
@@ -734,4 +734,3 @@ ${skillDescriptions.map(s => `- ${s.key}: ${s.description}`).join('\n')}`
         }
     }
 }
-

@@ -3,7 +3,7 @@ exports.id = 2;
 exports.ids = [2];
 exports.modules = {
 
-/***/ 792:
+/***/ 791:
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -143,7 +143,7 @@ class CodePilotApiClient {
     static getAgent() {
         if (!CodePilotApiClient._agent) {
             try {
-                const { Agent } = __webpack_require__(793);
+                const { Agent } = __webpack_require__(792);
                 CodePilotApiClient._agent = new Agent({
                     connect: { timeout: CodePilotApiClient.TIMEOUT_MS },
                 });

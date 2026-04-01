@@ -1,6 +1,6 @@
 /**
  * Update File Tool Handler
- * 파일 수정 툴 핸들러 (부분 수정 지원)
+ * File modification tool handler (supports partial edits)
  */
 
 import { IToolHandler, ToolExecutionContext } from "../IToolHandler";
@@ -22,7 +22,7 @@ const UpdateFileParamsSchema = z.object({
 
 export class UpdateFileToolHandler implements IToolHandler {
   readonly name = Tool.UPDATE_FILE;
-  /** 파일별 실패한 SEARCH 패턴 추적 (같은 패턴 반복 감지용) */
+  /** Track failed SEARCH patterns per file (for detecting repeated pattern failures) */
   private _failedSearchPatterns: Map<string, { pattern: string; count: number }[]> = new Map();
 
   async execute(
@@ -37,15 +37,15 @@ export class UpdateFileToolHandler implements IToolHandler {
     const filePath = parseResult.data.path;
     let diff = parseResult.data.diff;
 
-    // LLM이 diff 대신 content를 보낸 경우 처리
+    // Handle case where LLM sent content instead of diff
     if (!diff && parseResult.data.content) {
       const content = parseResult.data.content;
-      // content에 SEARCH/REPLACE 마커가 있으면 diff로 재처리
+      // If content contains SEARCH/REPLACE markers, re-route as diff
       if (/^<{4,}\s*SEARCH/m.test(content) || /^-{3,}\s*SEARCH/m.test(content)) {
-        console.log(`[UpdateFileToolHandler] ⚠️ LLM sent SEARCH/REPLACE diff in 'content' param. Re-routing as diff for ${filePath}`);
+        console.log(`[UpdateFileToolHandler] LLM sent SEARCH/REPLACE diff in 'content' param. Re-routing as diff for ${filePath}`);
         diff = content;
       } else {
-        console.log(`[UpdateFileToolHandler] ⚠️ LLM sent 'content' instead of 'diff'. Using create_file fallback for ${filePath}`);
+        console.log(`[UpdateFileToolHandler] LLM sent 'content' instead of 'diff'. Using create_file fallback for ${filePath}`);
         const { CreateFileToolHandler } = await import('./CreateFileToolHandler');
         const createHandler = new CreateFileToolHandler();
         return createHandler.execute({
@@ -69,12 +69,12 @@ export class UpdateFileToolHandler implements IToolHandler {
 
     const mutationManager = FileMutationManager.getInstance();
 
-    // HTML 엔티티 처리 (AI 모델이 잘못 이스케이프한 경우 수정)
+    // Handle HTML entities (fix incorrect escaping by AI models)
     let cleanedDiff = fixModelHtmlEscaping(diff);
-    // CDATA 섹션 제거 (LLM이 JSON 등을 CDATA로 감싸는 경우 처리)
+    // Remove CDATA sections (handle cases where LLM wraps JSON etc. in CDATA)
     cleanedDiff = removeCDataSections(cleanedDiff);
 
-    // SEARCH/REPLACE 블록 파싱
+    // Parse SEARCH/REPLACE blocks
     console.log(`[UpdateFileToolHandler] Raw diff: (${cleanedDiff.length} chars)`);
     const replacements = this.parseDiff(cleanedDiff);
     console.log(`[UpdateFileToolHandler] Parsed ${replacements.length} replacement(s)`);
@@ -92,13 +92,13 @@ export class UpdateFileToolHandler implements IToolHandler {
       };
     }
 
-    // ✅ 생략 패턴 감지: LLM이 SEARCH 블록에 "... (생략됨)", "// ..." 등을 사용하는 경우 조기 실패
-    // 이런 패턴은 파일 실제 내용과 일치하지 않아 무한 루프를 유발함
+    // Ellipsis pattern detection: fail early if LLM uses "... (omitted)", "// ...", etc. in SEARCH blocks
+    // These patterns do not match actual file content and cause infinite loops
     const ELLIPSIS_PATTERNS = [
-      /^\s*\.\.\.\s*\(생략됨\)\s*$/m,    // ... (생략됨)
+      /^\s*\.\.\.\s*\(생략됨\)\s*$/m,    // ... (omitted)
       /^\s*\/\/\s*\.\.\.\s*$/m,          // // ...
       /^\s*#\s*\.\.\.\s*$/m,             // # ...
-      /^\s*\.\.\.\s*$/m,                 // ... (단독 줄)
+      /^\s*\.\.\.\s*$/m,                 // ... (standalone line)
       /^\s*\/\*\s*\.\.\.\s*\*\/\s*$/m,  // /* ... */
       /^\s*<!--\s*\.\.\.\s*-->\s*$/m,   // <!-- ... -->
     ];
@@ -107,16 +107,16 @@ export class UpdateFileToolHandler implements IToolHandler {
       const hasEllipsis = ELLIPSIS_PATTERNS.some(p => p.test(replacement.search));
       if (hasEllipsis) {
         console.warn(`[UpdateFileToolHandler] Ellipsis pattern detected in SEARCH block for ${filePath}`);
-        const llmMsg = `SEARCH 블록에 생략 표현("... (생략됨)", "// ...", "..." 등)이 포함되어 있습니다 (파일: ${filePath}).\n\nSEARCH 블록에는 반드시 파일의 실제 코드를 그대로 작성해야 합니다. 생략 표현은 절대 사용할 수 없습니다.\n\nread_file로 현재 파일 내용을 확인하고, 수정할 정확한 코드 범위를 SEARCH 블록에 그대로 복사하세요.`;
+        const llmMsg = `The SEARCH block contains ellipsis expressions ("... (omitted)", "// ...", "..." etc.) (file: ${filePath}).\n\nThe SEARCH block must contain the exact actual code from the file. Ellipsis expressions are strictly forbidden.\n\nUse read_file to check the current file content, and copy the exact code range to be modified into the SEARCH block.`;
         return {
           success: false,
-          message: `❌ **수정 실패: SEARCH 블록에 생략 표현 사용 금지** (파일: ${filePath})`,
+          message: `**Edit failed: Ellipsis expressions are not allowed in SEARCH blocks** (file: ${filePath})`,
           error: { code: 'ELLIPSIS_IN_SEARCH', message: llmMsg },
         };
       }
     }
 
-    // 파일 읽기
+    // Read file
     const absolutePath = path.isAbsolute(filePath)
       ? filePath
       : path.join(context.projectRoot, filePath);
@@ -135,9 +135,9 @@ export class UpdateFileToolHandler implements IToolHandler {
       };
     }
 
-    // ✅ Shadow content가 있으면 SEARCH 기준으로 shadow 사용
-    // LLM은 shadow(누적된 수정 상태)를 보고 search pattern을 생성하므로
-    // SEARCH도 shadow 기준이어야 함 (껐다 켰을 때 pending change 불일치 방지)
+    // Use shadow content for SEARCH if available
+    // LLM generates search patterns based on shadow (accumulated edit state),
+    // so SEARCH must also use shadow as reference (prevents pending change mismatch on toggle)
     try {
       const diffModule = await import('../../managers/diff/InlineDiffManager');
       const inlineDiffManager = diffModule.InlineDiffManager.getInstance();
@@ -146,27 +146,27 @@ export class UpdateFileToolHandler implements IToolHandler {
         fileContent = shadowContent;
         console.log(`[UpdateFileToolHandler] Using shadow content for SEARCH (pending changes included): ${filePath}`);
       }
-    } catch { /* shadow 없으면 disk content 사용 */ }
+    } catch { /* Use disk content if shadow is unavailable */ }
 
-    // --- 사전 파일 검사 (Preflight Inspection) ---
+    // --- Preflight Inspection ---
     const analysis = mutationManager.analyzeFile(fileContent);
 
-    // ✅ 핵심: SEARCH/REPLACE diff가 있으면 무조건 SEARCH_REPLACE 전략 사용
-    // ❌ 절대 금지: SEARCH/REPLACE diff + STRUCTURAL_REWRITE 혼용
-    // STRUCTURAL_REWRITE는 전체 파일 재작성 전략이므로 SEARCH/REPLACE와 모순됨
+    // Core: Always use SEARCH_REPLACE strategy when SEARCH/REPLACE diff is present
+    // Never mix: SEARCH/REPLACE diff + STRUCTURAL_REWRITE
+    // STRUCTURAL_REWRITE is a full file rewrite strategy, contradicting SEARCH/REPLACE
     let strategy = mutationManager.chooseStrategy(analysis, replacements[0].search);
 
-    // SEARCH/REPLACE 블록이 있으면 무조건 SEARCH_REPLACE 전략 사용
+    // Always use SEARCH_REPLACE strategy when SEARCH/REPLACE blocks exist
     if (replacements.length > 0) {
       strategy = PatchStrategy.SEARCH_REPLACE;
       console.log(`[UpdateFileToolHandler] Using SEARCH_REPLACE strategy (SEARCH/REPLACE diff detected) for ${filePath}`);
     } else if (strategy === PatchStrategy.STRUCTURAL_REWRITE) {
       console.log(`[UpdateFileToolHandler] Strategy switched to STRUCTURAL_REWRITE for ${filePath}`);
-      // STRUCTURAL_REWRITE는 전체 파일 재작성이므로 별도 처리 필요
-      // 하지만 지금은 SEARCH/REPLACE만 처리하므로 여기서는 발생하지 않음
+      // STRUCTURAL_REWRITE requires separate handling for full file rewrite
+      // But currently only SEARCH/REPLACE is handled, so this case should not occur
     }
 
-    // 각 REPLACE 블록의 매칭 위치를 찾아서 저장
+    // Find and store matching positions for each REPLACE block
     const replacementsToApply: Array<{
       start: number;
       end: number;
@@ -176,7 +176,7 @@ export class UpdateFileToolHandler implements IToolHandler {
     for (const replacement of replacements) {
       let matchResult: [number, number] | false = false;
 
-      // 매칭 전략 1: 정확한 매칭 시도
+      // Match strategy 1: Try exact match
       const exactIndex = fileContent.indexOf(replacement.search);
       if (exactIndex !== -1) {
         matchResult = [exactIndex, exactIndex + replacement.search.length];
@@ -185,7 +185,7 @@ export class UpdateFileToolHandler implements IToolHandler {
         );
       }
 
-      // 매칭 전략 2: Line-trimmed 매칭 (정확한 매칭 실패 시)
+      // Match strategy 2: Line-trimmed match (when exact match fails)
       if (!matchResult) {
         const lineMatch = this.lineTrimmedFallbackMatch(
           fileContent,
@@ -200,7 +200,7 @@ export class UpdateFileToolHandler implements IToolHandler {
         }
       }
 
-      // 매칭 전략 3: Block anchor 매칭 (여전히 실패 시)
+      // Match strategy 3: Block anchor match (when still failing)
       if (!matchResult) {
         const blockMatch = this.blockAnchorFallbackMatch(
           fileContent,
@@ -215,7 +215,7 @@ export class UpdateFileToolHandler implements IToolHandler {
         }
       }
 
-      // 매칭 전략 4: 구조적 공백 무시 매칭
+      // Match strategy 4: Structural whitespace-ignoring match
       if (!matchResult) {
         const structuralMatch = this.structuralFallbackMatch(
           fileContent,
@@ -230,7 +230,7 @@ export class UpdateFileToolHandler implements IToolHandler {
         }
       }
 
-      // 매칭 성공 시 적용 목록에 추가
+      // Add to apply list on successful match
       if (matchResult) {
         replacementsToApply.push({
           start: matchResult[0],
@@ -238,21 +238,21 @@ export class UpdateFileToolHandler implements IToolHandler {
           replace: replacement.replace,
         });
       } else {
-        // --- 실패 시 Fallback ---
+        // --- Fallback on failure ---
         console.warn(
           `[UpdateFileToolHandler] Search pattern not found in file: ${filePath}`,
         );
 
-        // SEARCH 매칭 실패 → 에러 반환 (파일 내용 포함하여 LLM이 재시도 가능)
-        // ⚠️ 전체 덮어쓰기 Fallback 제거: REPLACE 블록만으로 파일 전체를 대체하면 나머지 코드가 소실됨
+        // SEARCH match failed - return error (include file content so LLM can retry)
+        // Full overwrite fallback removed: replacing entire file with only REPLACE block would lose remaining code
         {
-          // UI 표시용 짧은 메시지
-          const uiMessage = `❌ **수정 실패: SEARCH 블록을 찾을 수 없습니다** (파일: ${filePath})`;
+          // Short message for UI display
+          const uiMessage = `**Edit failed: SEARCH block not found** (file: ${filePath})`;
 
-          // LLM 전달용 상세 메시지 (파일 내용 포함하여 재시도 가능)
-          let llmMessage = `SEARCH 블록을 찾을 수 없습니다 (파일: ${filePath})\n\n`;
+          // Detailed message for LLM (includes file content for retry)
+          let llmMessage = `SEARCH block not found (file: ${filePath})\n\n`;
 
-          // 같은 파일+같은 패턴 반복 실패 감지
+          // Detect repeated failures with same file + same pattern
           const searchKey = replacement.search.substring(0, 80);
           const failedList = this._failedSearchPatterns.get(filePath) || [];
           const existing = failedList.find(f => f.pattern === searchKey);
@@ -265,21 +265,21 @@ export class UpdateFileToolHandler implements IToolHandler {
           const repeatCount = existing?.count || 1;
 
           if (repeatCount >= 2) {
-            llmMessage += `⚠️ **같은 SEARCH 패턴으로 ${repeatCount}회 연속 실패했습니다.** 이 파일은 이전 턴에서 이미 수정되었을 수 있습니다. 이전 SEARCH 패턴은 더 이상 유효하지 않습니다. 반드시 read_file로 현재 파일 내용을 다시 읽고, 실제 내용을 기반으로 새 SEARCH 블록을 작성하세요.\n\n`;
+            llmMessage += `**Same SEARCH pattern has failed ${repeatCount} times in a row.** This file may have already been modified in a previous turn. The previous SEARCH pattern is no longer valid. You must use read_file to re-read the current file content and write a new SEARCH block based on the actual content.\n\n`;
           } else if (analysis.isViteTemplate && !fileContent.includes('<nav') && !fileContent.includes('Router')) {
-            llmMessage += `분석 결과: 에이전트가 예상한 메뉴나 네비게이션 구조가 아직 구현되지 않아 부분 수정(SEARCH/REPLACE)이 불가능합니다.\n\n`;
+            llmMessage += `Analysis: The menu or navigation structure expected by the agent has not been implemented yet, making partial modification (SEARCH/REPLACE) impossible.\n\n`;
           } else {
-            llmMessage += `SEARCH 블록이 파일 내용과 일치하지 않습니다. 이 파일이 이전 턴에서 수정되었을 수 있습니다. read_file로 현재 내용을 다시 읽고 정확히 복사하세요. (공백, 들여쓰기, 줄바꿈 포함)\n\n`;
+            llmMessage += `SEARCH block does not match the file content. This file may have been modified in a previous turn. Use read_file to re-read the current content and copy it exactly. (including whitespace, indentation, newlines)\n\n`;
           }
 
-          // 2회 이상 반복 실패 시 더 많은 내용 제공
+          // Provide more content on 2+ repeated failures
           const maxPreviewLength = repeatCount >= 2 ? 8000 : 3000;
           const preview = fileContent.length > maxPreviewLength
-            ? fileContent.substring(0, maxPreviewLength) + `\n... (${fileContent.length - maxPreviewLength}자 생략)`
+            ? fileContent.substring(0, maxPreviewLength) + `\n... (${fileContent.length - maxPreviewLength} chars omitted)`
             : fileContent;
-          llmMessage += `현재 파일의 실제 내용 (아래 내용을 복사하여 SEARCH 블록에 사용하세요):\n`;
+          llmMessage += `Current actual file content (copy the content below into the SEARCH block):\n`;
           llmMessage += `\`\`\`\n${preview}\n\`\`\`\n`;
-          llmMessage += `\n파일을 완전히 교체하려면 update_file 대신 create_file을 사용하세요.`;
+          llmMessage += `\nTo completely replace the file, use create_file instead of update_file.`;
 
           return {
             success: false,
@@ -293,15 +293,15 @@ export class UpdateFileToolHandler implements IToolHandler {
       }
     }
 
-    // 겹치는 영역이 있는지 확인 및 시작 위치 기준 정렬
+    // Check for overlapping regions and sort by start position
     replacementsToApply.sort((a, b) => a.start - b.start);
 
-    // 겹침 검사
+    // Overlap check
     for (let i = 0; i < replacementsToApply.length - 1; i++) {
       if (replacementsToApply[i].end > replacementsToApply[i + 1].start) {
         return {
           success: false,
-          message: `수정하려는 영역들이 서로 겹칩니다 (${filePath}). 수정을 더 작은 단위로 나누거나 순차적으로 진행하세요.`,
+          message: `The regions to modify overlap each other (${filePath}). Split the modifications into smaller units or apply them sequentially.`,
           error: {
             code: "OVERLAPPING_REPLACEMENTS",
             message: "Replacements overlap.",
@@ -310,7 +310,7 @@ export class UpdateFileToolHandler implements IToolHandler {
       }
     }
 
-    // 정렬된 순서대로 한꺼번에 적용하여 새로운 컨텐츠 생성
+    // Apply all replacements in sorted order to generate new content
     let newContent = "";
     let lastEnd = 0;
     for (const r of replacementsToApply) {
@@ -320,13 +320,13 @@ export class UpdateFileToolHandler implements IToolHandler {
     }
     newContent += fileContent.substring(lastEnd);
 
-    // InlineDiffManager를 통해 diff 표시
+    // Show diff via InlineDiffManager
     const diffModule = await import('../../managers/diff/InlineDiffManager');
     const inlineDiffManager = diffModule.InlineDiffManager.getInstance();
 
-    // ✅ 핵심 수정: 현재 문서의 실제 내용을 가져오기 (pending changes 제외)
-    // fileContent는 디스크에서 읽은 내용이지만, 실제 문서에는 이미 pending changes가 적용되어 있을 수 있음
-    // getCurrentDocumentContent()는 pending changes를 제외한 "stable content"를 반환하므로 이를 사용
+    // Core fix: Get the actual content of the current document (excluding pending changes)
+    // fileContent is read from disk, but the actual document may already have pending changes applied
+    // getCurrentDocumentContent() returns "stable content" excluding pending changes, so we use that
     let currentDocumentContent: string;
     try {
       const currentContent = inlineDiffManager.getCurrentDocumentContent(absolutePath);
@@ -334,7 +334,7 @@ export class UpdateFileToolHandler implements IToolHandler {
         currentDocumentContent = currentContent;
         console.log(`[UpdateFileToolHandler] Using current document content (pending changes excluded) for ${filePath}`);
       } else {
-        // Fallback: VS Code editor에서 직접 가져오기
+        // Fallback: Get directly from VS Code editor
         const vscode = await import('vscode');
         const uri = vscode.Uri.file(absolutePath);
         try {
@@ -342,7 +342,7 @@ export class UpdateFileToolHandler implements IToolHandler {
           currentDocumentContent = document.getText();
           console.log(`[UpdateFileToolHandler] Using document.getText() as fallback for ${filePath}`);
         } catch {
-          // 최종 Fallback: 디스크에서 읽은 내용 사용
+          // Final Fallback: Use content read from disk
           currentDocumentContent = fileContent;
           console.log(`[UpdateFileToolHandler] Using fileContent from disk as final fallback for ${filePath}`);
         }
@@ -352,7 +352,7 @@ export class UpdateFileToolHandler implements IToolHandler {
       currentDocumentContent = fileContent;
     }
 
-    // diff 표시 (현재 문서 상태를 기준으로)
+    // Show diff (based on current document state)
     await inlineDiffManager.showInlineDiff(absolutePath, currentDocumentContent, newContent, context.conversationTurnId);
 
     return {
@@ -372,12 +372,12 @@ export class UpdateFileToolHandler implements IToolHandler {
     let currentReplace = "";
     let inSearch = false;
     let inReplace = false;
-    let hadSeparator = false; // ======= 구분자가 있었는지 추적
+    let hadSeparator = false; // Track whether ======= separator was encountered
 
     for (const line of lines) {
       const trimmedLine = line.trim();
 
-      // SEARCH 시작 마커 (유연하게 매칭)
+      // SEARCH start marker (flexible matching)
       if (trimmedLine.match(/^([-=]{3,}|<{4,})\s*SEARCH\s*/i)) {
         inSearch = true;
         inReplace = false;
@@ -386,7 +386,7 @@ export class UpdateFileToolHandler implements IToolHandler {
         continue;
       }
 
-      // 구분자 마커 (======= 등)
+      // Separator marker (======= etc.)
       if (inSearch && trimmedLine.match(/^([=]{3,})$/)) {
         inSearch = false;
         inReplace = true;
@@ -395,26 +395,26 @@ export class UpdateFileToolHandler implements IToolHandler {
         continue;
       }
 
-      // REPLACE 종료 마커 (>>>>>>> REPLACE 등)
-      // 🔥 핵심 수정: ======= 구분자 없이 바로 >>>>>>> REPLACE가 나온 경우 처리
+      // REPLACE end marker (>>>>>>> REPLACE etc.)
+      // Core fix: Handle case where >>>>>>> REPLACE appears directly without ======= separator
       if (trimmedLine.match(/^([+]{3,}|>{4,})\s*REPLACE\s*/i)) {
         if (inSearch && !hadSeparator) {
-          // ======= 없이 SEARCH에서 바로 REPLACE로 전환된 경우
-          // SEARCH 내용을 그대로 유지하고 REPLACE 수집 시작
+          // Case where SEARCH transitions directly to REPLACE without =======
+          // Keep SEARCH content as-is and start collecting REPLACE
           console.log('[UpdateFileToolHandler] Warning: Missing ======= separator, treating content after >>>>>>> REPLACE as replacement');
           inSearch = false;
           inReplace = true;
           currentReplace = "";
           continue;
         } else if (inReplace) {
-          // 정상 케이스: REPLACE 블록 완료
+          // Normal case: REPLACE block complete
           replacements.push({
             search: currentSearch.trimEnd(),
             replace: currentReplace.trimEnd(),
           });
           inReplace = false;
           hadSeparator = false;
-          // 🔥 중복 push 방지: 블록 완료 후 상태 초기화
+          // Prevent duplicate push: reset state after block completion
           currentSearch = "";
           currentReplace = "";
           continue;
@@ -428,7 +428,7 @@ export class UpdateFileToolHandler implements IToolHandler {
       }
     }
 
-    // 🔥 마지막 블록 처리: REPLACE 마커 없이 끝난 경우 (>>>>>>> REPLACE 이후 내용)
+    // Handle last block: case where it ends without a REPLACE marker (content after >>>>>>> REPLACE)
     if (currentSearch && currentReplace) {
       replacements.push({
         search: currentSearch.trimEnd(),
@@ -440,7 +440,7 @@ export class UpdateFileToolHandler implements IToolHandler {
   }
 
   /**
-   * 각 줄을 trim()한 후 비교하여 leading/trailing whitespace 차이를 허용
+   * Compare each line after trim() to allow leading/trailing whitespace differences
    */
   private lineTrimmedFallbackMatch(
     originalContent: string,
@@ -450,12 +450,12 @@ export class UpdateFileToolHandler implements IToolHandler {
     const originalLines = originalContent.split("\n");
     const searchLines = searchContent.split("\n");
 
-    // 마지막 빈 줄 제거 (trailing \n 처리)
+    // Remove last empty line (handle trailing \n)
     if (searchLines[searchLines.length - 1] === "") {
       searchLines.pop();
     }
 
-    // startIndex가 어느 줄에 있는지 찾기
+    // Find which line startIndex falls on
     let startLineNum = 0;
     let currentIndex = 0;
     while (currentIndex < startIndex && startLineNum < originalLines.length) {
@@ -463,7 +463,7 @@ export class UpdateFileToolHandler implements IToolHandler {
       startLineNum++;
     }
 
-    // 각 가능한 시작 위치에서 매칭 시도
+    // Try matching at each possible start position
     for (
       let i = startLineNum;
       i <= originalLines.length - searchLines.length;
@@ -471,7 +471,7 @@ export class UpdateFileToolHandler implements IToolHandler {
     ) {
       let matches = true;
 
-      // 모든 검색 줄을 이 위치에서 매칭 시도
+      // Try matching all search lines from this position
       for (let j = 0; j < searchLines.length; j++) {
         const originalTrimmed = originalLines[i + j].trim();
         const searchTrimmed = searchLines[j].trim();
@@ -483,7 +483,7 @@ export class UpdateFileToolHandler implements IToolHandler {
       }
 
       if (matches) {
-        // 정확한 문자 위치 계산
+        // Calculate exact character positions
         let matchStartIndex = 0;
         for (let k = 0; k < i; k++) {
           matchStartIndex += originalLines[k].length + 1; // +1 for \n
@@ -502,7 +502,7 @@ export class UpdateFileToolHandler implements IToolHandler {
   }
 
   /**
-   * 3줄 이상 블록의 경우 첫 줄과 마지막 줄을 앵커로 사용하여 매칭
+   * For blocks of 3+ lines, use first and last lines as anchors for matching
    */
   private blockAnchorFallbackMatch(
     originalContent: string,
@@ -512,12 +512,12 @@ export class UpdateFileToolHandler implements IToolHandler {
     const originalLines = originalContent.split("\n");
     const searchLines = searchContent.split("\n");
 
-    // 최소 3줄 이상일 때만 앵커 매칭 적용
+    // Apply anchor matching only for 3+ lines
     if (searchLines.length < 3) {
       return false;
     }
 
-    // 마지막 빈 줄 제거
+    // Remove last empty line
     if (searchLines[searchLines.length - 1].trim() === "") {
       searchLines.pop();
     }
@@ -526,7 +526,7 @@ export class UpdateFileToolHandler implements IToolHandler {
     const lastLineSearch = searchLines[searchLines.length - 1].trim();
     const searchBlockSize = searchLines.length;
 
-    // 중간 줄 유사도 검증용 (첫 줄/마지막 줄 제외)
+    // For middle line similarity verification (excluding first/last lines)
     const middleSearchLines = searchLines.slice(1, -1).map(l => l.trim());
     const MIDDLE_SIMILARITY_THRESHOLD = 0.6;
 
@@ -534,7 +534,7 @@ export class UpdateFileToolHandler implements IToolHandler {
     let bestSimilarity = -1;
 
     for (let i = 0; i <= originalLines.length - searchBlockSize; i++) {
-      // 첫 줄과 마지막 줄이 trim() 기준으로 일치하는지 확인
+      // Check if first and last lines match based on trim()
       if (
         originalLines[i].trim() !== firstLineSearch ||
         originalLines[i + searchBlockSize - 1].trim() !== lastLineSearch
@@ -542,7 +542,7 @@ export class UpdateFileToolHandler implements IToolHandler {
         continue;
       }
 
-      // 중간 줄 유사도 검사 (false positive 방지)
+      // Middle line similarity check (prevent false positives)
       if (middleSearchLines.length > 0) {
         const middleOriginalLines = originalLines
           .slice(i + 1, i + searchBlockSize - 1)
@@ -557,12 +557,12 @@ export class UpdateFileToolHandler implements IToolHandler {
 
         if (similarity < MIDDLE_SIMILARITY_THRESHOLD) continue;
 
-        // 가장 유사도 높은 매칭 선택
+        // Select match with highest similarity
         if (similarity <= bestSimilarity) continue;
         bestSimilarity = similarity;
       }
 
-      // 매칭된 시작 인덱스와 끝 인덱스 계산
+      // Calculate matched start and end indices
       let matchStartIndex = 0;
       for (let k = 0; k < i; k++) {
         matchStartIndex += originalLines[k].length + 1;
@@ -573,14 +573,14 @@ export class UpdateFileToolHandler implements IToolHandler {
         matchEndIndex += originalLines[i + k].length + 1;
       }
 
-      // 끝에 붙은 \n 보정 (파일 끝이 아닌 경우)
+      // Correct trailing \n (when not at end of file)
       if (matchEndIndex > originalContent.length) {
         matchEndIndex = originalContent.length;
       }
 
       bestMatch = [matchStartIndex, matchEndIndex];
 
-      // 완벽 매칭이면 즉시 반환
+      // Return immediately on perfect match
       if (bestSimilarity === 1.0) return bestMatch;
     }
 
@@ -588,29 +588,29 @@ export class UpdateFileToolHandler implements IToolHandler {
   }
 
   /**
-   * 공백과 뉴라인의 차이를 무시하고 구조적으로 일치하는 영역을 찾습니다.
-   * (연속된 공백/탭/개행을 하나로 압축하여 비교)
+   * Find structurally matching regions while ignoring whitespace and newline differences.
+   * (Compresses consecutive spaces/tabs/newlines into one for comparison)
    */
   private structuralFallbackMatch(
     originalContent: string,
     searchContent: string,
     startIndex: number,
   ): [number, number] | false {
-    // 모든 공백과 뉴라인을 하나로 압축하는 정규식
+    // Regex to compress all whitespace and newlines into one
     const normalizePattern = /\s+/g;
     const normalizedSearch = searchContent
       .replace(normalizePattern, " ")
       .trim();
 
-    // 너무 짧은 패턴은 오탐 위험이 있으므로 제외
+    // Exclude overly short patterns due to risk of false positives
     if (normalizedSearch.length < 10) {
       return false;
     }
 
     const originalSuffix = originalContent.substring(startIndex);
 
-    // 원본 텍스트에서도 공백을 압축하여 위치를 찾음
-    // (주의: 정규식 특수문자 이스케이프 필요)
+    // Find position in original text by compressing whitespace
+    // (Note: regex special characters need escaping)
     const escapedSearch = normalizedSearch
       .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
       .replace(/ /g, "\\s+");

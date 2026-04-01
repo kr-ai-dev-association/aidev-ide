@@ -1,114 +1,116 @@
 /**
  * TaskSplitter
- * 사용자 요청을 서브태스크로 분할하는 모듈
+ * Module that splits user requests into subtasks
  *
- * LLM 1회 호출로 작업 복잡도 판단 + 분할 수행
- * 단순 작업 → shouldSplit: false (단일 ConversationManager 루프)
- * 복합 작업 → shouldSplit: true + SubTask[] (SubAgentLoop 병렬 실행)
+ * Single LLM call to determine task complexity + perform splitting
+ * Simple task -> shouldSplit: false (single ConversationManager loop)
+ * Complex task -> shouldSplit: true + SubTask[] (SubAgentLoop parallel execution)
  */
 
 import { LLMManager } from '../managers/model/LLMManager';
 import { SubTask, TaskSplitResult, ToolPermission } from './types';
 
-const SYSTEM_PROMPT = `당신은 코딩 어시스턴트의 작업 분할 판단기입니다.
-사용자의 요청을 분석하여, 여러 에이전트가 병렬로 처리하면 효율적인지 판단합니다.
+const SYSTEM_PROMPT = `You are a task splitting evaluator for a coding assistant.
+You analyze user requests and determine whether it would be efficient for multiple agents to process them in parallel.
 
-## 핵심 원칙
+## Core Principles
 
-1. **조사(investigation)는 거의 항상 병렬 가능합니다.**
-   파일 읽기, 구조 파악, 검색, 코드 분석 같은 읽기 작업은 서로 충돌하지 않습니다.
-   여러 영역을 동시에 조사하면 시간이 크게 단축됩니다.
+1. **Investigation is almost always parallelizable.**
+   Read-only tasks such as file reading, structure analysis, searching, and code analysis do not conflict with each other.
+   Investigating multiple areas simultaneously significantly reduces time.
 
-2. **서로 다른 파일/모듈 생성은 병렬 가능합니다.**
-   "로그인 페이지 + API 엔드포인트 + 테스트"처럼 각각 다른 파일을 만드는 작업은
-   나중에 import로 연결되더라도 생성 자체는 독립적입니다.
+2. **Creating different files/modules is parallelizable.**
+   Tasks like "login page + API endpoint + tests" that each create different files
+   are independently creatable even if they will later be connected via imports.
 
-3. **같은 파일을 동시에 수정하는 것만 충돌합니다.**
-   두 에이전트가 동일한 파일을 동시에 수정하면 충돌이 발생합니다.
-   하지만 A가 새 파일을 만들고, B가 다른 새 파일을 만드는 건 안전합니다.
+3. **Only simultaneous modification of the same file causes conflicts.**
+   Two agents modifying the same file simultaneously will cause conflicts.
+   However, agent A creating a new file while agent B creates a different new file is safe.
 
-5. **파일 의존성이 있으면 반드시 dependencies에 명시하세요.**
-   task-B가 task-A가 생성할 파일을 read_file로 읽어야 한다면,
-   task-B의 dependencies에 task-A를 반드시 포함해야 합니다.
-   병렬 태스크는 다른 태스크가 생성할 파일에 접근할 수 없습니다.
+5. **If there are file dependencies, you must specify them in dependencies.**
+   If task-B needs to read a file that task-A will create using read_file,
+   task-B's dependencies must include task-A.
+   Parallel tasks cannot access files that other tasks will create.
 
-4. **통합 작업은 병렬 작업 후 순차로 처리합니다.**
-   라우팅 연결, index.ts 업데이트 등 여러 결과를 합치는 작업은
-   dependencies에 선행 태스크를 명시하면 됩니다.
+4. **Integration work is handled sequentially after parallel work.**
+   Tasks that combine multiple results, such as routing connections or index.ts updates,
+   just need to specify predecessor tasks in dependencies.
 
-## 분할 판단 기준
+## Splitting Criteria
 
-### 분할해야 하는 경우 (shouldSplit: true)
-- 서로 다른 디렉토리/모듈에 파일을 생성하는 작업
-- 백엔드 + 프론트엔드처럼 레이어가 다른 작업
-- 여러 독립 컴포넌트/페이지를 만드는 작업
-- 복수 영역의 코드를 조사/분석하는 작업
+### Cases to split (shouldSplit: true)
+- Tasks that create files in different directories/modules
+- Tasks spanning different layers like backend + frontend
+- Tasks creating multiple independent components/pages
+- Tasks investigating/analyzing code across multiple areas
 
-### 분할하지 않는 경우 (shouldSplit: false)
-- 단일 파일 수정 (버그 수정, 리팩토링)
-- 하나의 기능만 추가하는 작업
-- 전체 흐름이 순차적으로 의존하는 작업 (A 완료 후 B, B 완료 후 C)
-- **HOT LOAD 키워드와 매칭되는 요청** (등록된 명령어를 실행해야 하므로 분할하면 안 됨)
+### Cases not to split (shouldSplit: false)
+- Single file modification (bug fix, refactoring)
+- Tasks adding only one feature
+- Tasks where the entire flow depends sequentially (A completes then B, B completes then C)
+- **Requests matching HOT LOAD keywords** (registered commands must be executed, so splitting is not allowed)
 
-## 서브태스크 설계 규칙
+## Subtask Design Rules
 
-- 최소 2개, 최대 5개
-- dependencies가 비어있으면 즉시 병렬 실행 가능
-- dependencies에 다른 태스크 id가 있으면 해당 태스크 완료 후 실행
-- toolPermission 설정:
-  - "read-only": 파일 읽기, 검색만 필요 (조사/분석)
-  - "read-only-with-commands": 읽기 + 명령어 실행 (테스트, 빌드 확인)
-  - "full": 파일 생성/수정/삭제 필요 (구현)
-- **⚠️ 경로 명시 (필수)**: 각 서브태스크의 description에 대상 디렉토리 경로를 반드시 포함하세요.
-  - 사용자가 "server/ 에 API 만들어줘"라고 했으면 → description에 "server/ 디렉토리에..." 명시
-  - 사용자가 "client/ 프론트엔드 만들어줘"라고 했으면 → description에 "client/ 디렉토리에..." 명시
-  - 프로젝트 정보에 워크스페이스 루트 디렉토리나 사용자 언급 경로가 있으면 반드시 참고
-  - 서브 에이전트는 프로젝트 구조를 모를 수 있으므로, 파일을 생성할 정확한 경로를 description에 포함해야 합니다
+- Minimum 2, maximum 5
+- If dependencies is empty, it can be executed in parallel immediately
+- If dependencies contains other task ids, it executes after those tasks complete
+- toolPermission settings:
+  - "read-only": Only needs file reading and searching (investigation/analysis)
+  - "read-only-with-commands": Reading + command execution (testing, build verification)
+  - "full": Needs file creation/modification/deletion (implementation)
+- **Path specification (required)**: You must include the target directory path in each subtask's description.
+  - If the user said "create an API in server/" -> specify "in the server/ directory..." in the description
+  - If the user said "create frontend in client/" -> specify "in the client/ directory..." in the description
+  - If project info contains workspace root directory or user-mentioned paths, you must reference them
+  - Sub-agents may not know the project structure, so the exact path for file creation must be included in the description
 
-## 예시
+## Examples
 
-### 예시 1: 분할 O
-요청: "server/ 에 백엔드 API 추가하고 client/ 에 프론트엔드 대시보드 만들고 테스트도 작성해줘"
-→ shouldSplit: true
-서브태스크:
-  - task-1: "server/ 디렉토리에 백엔드 API 엔드포인트 생성 (server/src/routes/, server/src/controllers/)" (full, dependencies: [])
-  - task-2: "client/ 디렉토리에 프론트엔드 대시보드 페이지 생성 (client/src/pages/Dashboard.tsx)" (full, dependencies: [])
-  - task-3: "테스트 코드 작성 (server/src/__tests__/, client/src/__tests__/)" (full, dependencies: ["task-1", "task-2"])
+### Example 1: Split YES
+Request: "Add a backend API in server/, create a frontend dashboard in client/, and write tests"
+-> shouldSplit: true
+Subtasks:
+  - task-1: "Create backend API endpoints in the server/ directory (server/src/routes/, server/src/controllers/)" (full, dependencies: [])
+  - task-2: "Create frontend dashboard page in the client/ directory (client/src/pages/Dashboard.tsx)" (full, dependencies: [])
+  - task-3: "Write test code (server/src/__tests__/, client/src/__tests__/)" (full, dependencies: ["task-1", "task-2"])
 
-### 예시 2: 분할 O
-요청: "로그인 페이지, 회원가입 페이지, 설정 페이지 만들어줘"
-→ shouldSplit: true
-서브태스크:
-  - task-1: "로그인 페이지 생성 (src/pages/Login.tsx)" (full, dependencies: [])
-  - task-2: "회원가입 페이지 생성 (src/pages/Signup.tsx)" (full, dependencies: [])
-  - task-3: "설정 페이지 생성 (src/pages/Settings.tsx)" (full, dependencies: [])
-  - task-4: "App.tsx에 라우팅 연결" (full, dependencies: ["task-1", "task-2", "task-3"])
+### Example 2: Split YES
+Request: "Create a login page, signup page, and settings page"
+-> shouldSplit: true
+Subtasks:
+  - task-1: "Create login page (src/pages/Login.tsx)" (full, dependencies: [])
+  - task-2: "Create signup page (src/pages/Signup.tsx)" (full, dependencies: [])
+  - task-3: "Create settings page (src/pages/Settings.tsx)" (full, dependencies: [])
+  - task-4: "Connect routing in App.tsx" (full, dependencies: ["task-1", "task-2", "task-3"])
 
-### 예시 3: 분할 X
-요청: "버튼 하나 추가해줘"
-→ shouldSplit: false (단일 파일 수정)
+### Example 3: Split NO
+Request: "Add a button"
+-> shouldSplit: false (single file modification)
 
-### 예시 4: 분할 X
-요청: "이 함수의 버그 찾아서 고쳐줘"
-→ shouldSplit: false (하나의 순차적 작업)
+### Example 4: Split NO
+Request: "Find and fix the bug in this function"
+-> shouldSplit: false (a single sequential task)
 
-## 응답 형식
+## Response Format
 
-반드시 유효한 JSON만 출력하세요 (마크다운, 설명 없이):
+Output only valid JSON (no markdown, no explanation):
 {
   "shouldSplit": boolean,
-  "reasoning": "판단 이유 (한국어, 1-2문장)",
+  "reasoning": "Reason for the decision in Korean (1-2 sentences)",
   "subtasks": [
     {
       "id": "task-1",
-      "title": "짧은 제목",
-      "description": "에이전트에게 전달할 상세 지시사항. 대상 디렉토리 경로를 반드시 포함하고, 어떤 파일을 만들고, 무엇을 구현해야 하는지 구체적으로 작성.",
+      "title": "Short title in Korean",
+      "description": "Detailed instructions in Korean to pass to the agent. Must include target directory paths, specify which files to create, and what to implement in detail.",
       "dependencies": [],
       "toolPermission": "full"
     }
   ]
 }
-shouldSplit이 false이면 subtasks는 빈 배열.`;
+If shouldSplit is false, subtasks should be an empty array.
+
+IMPORTANT: All "title", "description", and "reasoning" values MUST be written in Korean.`;
 
 export class TaskSplitter {
     private llmManager: LLMManager;
@@ -130,40 +132,40 @@ export class TaskSplitter {
             return this.parseResponse(response);
         } catch (error) {
             console.error('[TaskSplitter] LLM call failed:', error);
-            return { shouldSplit: false, subtasks: [], reasoning: 'LLM 호출 실패' };
+            return { shouldSplit: false, subtasks: [], reasoning: 'LLM call failed' };
         }
     }
 
     private buildPrompt(userQuery: string, projectContext?: string, hotLoadKeywords?: string[]): string {
-        let prompt = `사용자 요청: ${userQuery}`;
+        let prompt = `User request: ${userQuery}`;
         if (projectContext) {
-            prompt += `\n\n프로젝트 정보:\n${projectContext}`;
+            prompt += `\n\nProject information:\n${projectContext}`;
         }
         if (hotLoadKeywords && hotLoadKeywords.length > 0) {
-            prompt += `\n\n⚠️ HOT LOAD 등록 키워드: [${hotLoadKeywords.join(', ')}]\n위 키워드와 사용자 요청이 의미적으로 관련되면 반드시 shouldSplit: false로 반환하세요. 등록된 명령어를 단일 루프에서 실행해야 합니다.`;
+            prompt += `\n\nHOT LOAD registered keywords: [${hotLoadKeywords.join(', ')}]\nIf the above keywords are semantically related to the user request, you must return shouldSplit: false. The registered command must be executed in a single loop.`;
         }
         return prompt;
     }
 
     private parseResponse(response: string): TaskSplitResult {
         try {
-            // thinking 블록(<think>...</think>) 제거 후 JSON 추출
+            // Remove thinking blocks (<think>...</think>) then extract JSON
             const stripped = response.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
             const jsonMatch = stripped.match(/\{[\s\S]*\}/);
             if (!jsonMatch) {
-                return { shouldSplit: false, subtasks: [], reasoning: '응답 파싱 실패' };
+                return { shouldSplit: false, subtasks: [], reasoning: 'Failed to parse response' };
             }
 
             const parsed = JSON.parse(jsonMatch[0]);
 
             if (!parsed.shouldSplit || !Array.isArray(parsed.subtasks) || parsed.subtasks.length < 2) {
                 console.log(`[TaskSplitter] Not splitting: shouldSplit=${parsed.shouldSplit}, subtasks=${parsed.subtasks?.length ?? 0}, reasoning=${parsed.reasoning}`);
-                return { shouldSplit: false, subtasks: [], reasoning: parsed.reasoning || '단일 작업' };
+                return { shouldSplit: false, subtasks: [], reasoning: parsed.reasoning || 'Single task' };
             }
 
             const subtasks: SubTask[] = parsed.subtasks.map((st: any, i: number) => ({
                 id: st.id || `task-${i + 1}`,
-                title: st.title || `서브태스크 ${i + 1}`,
+                title: st.title || `Subtask ${i + 1}`,
                 description: st.description || '',
                 dependencies: Array.isArray(st.dependencies) ? st.dependencies : [],
                 toolPermission: this.validatePermission(st.toolPermission),
@@ -174,19 +176,19 @@ export class TaskSplitter {
 
             if (independent.length < 2) {
                 console.log(`[TaskSplitter] Not splitting: ${independent.length} independent / ${dependent.length} dependent tasks`);
-                return { shouldSplit: false, subtasks: [], reasoning: '병렬 실행 가능한 독립 태스크 부족' };
+                return { shouldSplit: false, subtasks: [], reasoning: 'Not enough independent tasks for parallel execution' };
             }
 
             console.log(`[TaskSplitter] Split result: ${subtasks.length} total, ${independent.length} independent, ${dependent.length} dependent`);
 
             return {
                 shouldSplit: true,
-                subtasks,  // 전체 반환 — 라우터가 독립/의존 실행 순서 결정
+                subtasks,  // Return all — the router determines independent/dependent execution order
                 reasoning: parsed.reasoning || '',
             };
         } catch (error) {
             console.error('[TaskSplitter] Failed to parse LLM response:', error);
-            return { shouldSplit: false, subtasks: [], reasoning: '파싱 오류' };
+            return { shouldSplit: false, subtasks: [], reasoning: 'Parsing error' };
         }
     }
 

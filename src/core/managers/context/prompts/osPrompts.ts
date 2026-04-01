@@ -1,68 +1,68 @@
 /**
- * OS별 프롬프트 레지스트리
+ * OS-specific prompt registry
  *
- * 기존 os/ 디렉토리의 4개 파일을 하나의 레지스트리로 통합.
- * 새 OS 추가 시 osPromptRegistry에 엔트리만 추가하면 됨.
+ * Consolidates the 4 files from the os/ directory into a single registry.
+ * To add a new OS, simply add an entry to osPromptRegistry.
  */
 
 const osPromptRegistry: Record<string, string> = {
-  windows: `**Windows 환경 특화 가이드라인:**
-- PowerShell 또는 Command Prompt 명령어를 사용하세요.
-- 파일 경로는 백슬래시(\\) 또는 슬래시(/) 모두 사용 가능합니다.
-- 환경변수는 %VARIABLE_NAME% 형식을 사용하세요.
-- 터미널 명령어는 run_command 도구를 사용하세요.
-- 포트 해제: netstat -ano | findstr :포트번호, taskkill /PID 프로세스ID /F
-- 프로세스 종료: taskkill /IM 프로세스명 /F
-- 서비스 관리: net start/stop 서비스명
-- 권한 문제 시 관리자 권한으로 실행하도록 안내하세요.`,
+  windows: `**Windows Environment Guidelines:**
+- Use PowerShell or Command Prompt commands.
+- File paths can use either backslashes (\\) or forward slashes (/).
+- Use the %VARIABLE_NAME% format for environment variables.
+- Use the run_command tool for terminal commands.
+- Release port: netstat -ano | findstr :PORT_NUMBER, taskkill /PID PROCESS_ID /F
+- Kill process: taskkill /IM PROCESS_NAME /F
+- Service management: net start/stop SERVICE_NAME
+- If there are permission issues, instruct the user to run as administrator.`,
 
-  macos: `**macOS 환경 특화 가이드라인:**
-- Bash/Zsh 쉘 명령어를 사용하세요.
-- 파일 경로는 슬래시(/)를 사용하세요.
-- 환경변수는 $VARIABLE_NAME 형식을 사용하세요.
-- 터미널 명령어는 run_command 도구를 사용하세요.
-- 포트 해제: lsof -ti:포트번호 | xargs kill -9
-- 프로세스 종료: pkill -f "프로세스명"
-- Homebrew 패키지 관리자 사용을 권장하세요.
-- 권한 문제 시 sudo 명령어 사용을 안내하세요.
-- **중요: 쉘 스크립트 생성 조건 및 규칙:**
-  - 쉘 스크립트는 **프로젝트 빌드, 실행, 테스트, 배포**와 직접 관련된 작업일 때만 생성하세요.
-  - 프로젝트 빌드/실행과 무관한 작업에는 절대 쉘 스크립트를 생성하지 마세요.
-  - 쉘 스크립트 내에 프로그래밍 언어 코드(Python, Node.js, Java 등)가 필요한 경우:
-    * 반드시 해당 언어명 callout을 사용하세요 (예: \`\`\`python, \`\`\`javascript)
-    * "새 파일: [파일경로]" 형식으로 파일 생성 가이드를 따르세요
-  - 복잡한 bash 스크립트(함수 정의, 여러 줄 변수, if/for/while 루프 포함)는 반드시 .sh 파일로 생성하고, 생성 후 \`chmod +x 스크립트.sh && ./스크립트.sh\` 형식으로 실행하세요.
-  - 단순한 한 줄 명령어만 코드 블록에 직접 작성하세요 (예: \`mvn clean package\`, \`npm install\` 등).`,
+  macos: `**macOS Environment Guidelines:**
+- Use Bash/Zsh shell commands.
+- Use forward slashes (/) for file paths.
+- Use the $VARIABLE_NAME format for environment variables.
+- Use the run_command tool for terminal commands.
+- Release port: lsof -ti:PORT_NUMBER | xargs kill -9
+- Kill process: pkill -f "PROCESS_NAME"
+- Recommend using the Homebrew package manager.
+- If there are permission issues, instruct the user to use the sudo command.
+- **Important: Shell script creation conditions and rules:**
+  - Only create shell scripts for tasks directly related to **project build, run, test, or deployment**.
+  - Never create shell scripts for tasks unrelated to project build/run.
+  - If programming language code (Python, Node.js, Java, etc.) is needed inside a shell script:
+    * Always use the appropriate language callout (e.g., \`\`\`python, \`\`\`javascript)
+    * Follow the file creation guide in the format "New file: [file_path]"
+  - Complex bash scripts (containing function definitions, multi-line variables, if/for/while loops) must be created as .sh files and executed using \`chmod +x script.sh && ./script.sh\`.
+  - Only write simple one-line commands directly in code blocks (e.g., \`mvn clean package\`, \`npm install\`, etc.).`,
 
-  linux: `**Linux 환경 특화 가이드라인:**
-- Bash 쉘 명령어를 사용하세요.
-- 파일 경로는 슬래시(/)를 사용하세요.
-- 환경변수는 $VARIABLE_NAME 형식을 사용하세요.
-- 터미널 명령어는 run_command 도구를 사용하세요.
-- 포트 해제: lsof -ti:포트번호 | xargs kill -9 또는 fuser -k 포트번호/tcp
-- 프로세스 종료: pkill -f "프로세스명" 또는 killall 프로세스명
-- 패키지 관리자: apt (Ubuntu/Debian), yum/dnf (RHEL/CentOS), pacman (Arch)
-- 권한 문제 시 sudo 명령어 사용을 안내하세요.
-- **중요: 쉘 스크립트 생성 조건 및 규칙:**
-  - 쉘 스크립트는 **프로젝트 빌드, 실행, 테스트, 배포**와 직접 관련된 작업일 때만 생성하세요.
-  - 프로젝트 빌드/실행과 무관한 작업에는 절대 쉘 스크립트를 생성하지 마세요.
-  - 쉘 스크립트 내에 프로그래밍 언어 코드(Python, Node.js, Java 등)가 필요한 경우:
-    * 반드시 해당 언어명 callout을 사용하세요 (예: \`\`\`python, \`\`\`javascript)
-    * "새 파일: [파일경로]" 형식으로 파일 생성 가이드를 따르세요
-  - 복잡한 bash 스크립트(함수 정의, 여러 줄 변수, if/for/while 루프 포함)는 반드시 .sh 파일로 생성하고, 생성 후 \`chmod +x 스크립트.sh && ./스크립트.sh\` 형식으로 실행하세요.
-  - 단순한 한 줄 명령어만 코드 블록에 직접 작성하세요 (예: \`mvn clean package\`, \`npm install\` 등).`,
+  linux: `**Linux Environment Guidelines:**
+- Use Bash shell commands.
+- Use forward slashes (/) for file paths.
+- Use the $VARIABLE_NAME format for environment variables.
+- Use the run_command tool for terminal commands.
+- Release port: lsof -ti:PORT_NUMBER | xargs kill -9 or fuser -k PORT_NUMBER/tcp
+- Kill process: pkill -f "PROCESS_NAME" or killall PROCESS_NAME
+- Package managers: apt (Ubuntu/Debian), yum/dnf (RHEL/CentOS), pacman (Arch)
+- If there are permission issues, instruct the user to use the sudo command.
+- **Important: Shell script creation conditions and rules:**
+  - Only create shell scripts for tasks directly related to **project build, run, test, or deployment**.
+  - Never create shell scripts for tasks unrelated to project build/run.
+  - If programming language code (Python, Node.js, Java, etc.) is needed inside a shell script:
+    * Always use the appropriate language callout (e.g., \`\`\`python, \`\`\`javascript)
+    * Follow the file creation guide in the format "New file: [file_path]"
+  - Complex bash scripts (containing function definitions, multi-line variables, if/for/while loops) must be created as .sh files and executed using \`chmod +x script.sh && ./script.sh\`.
+  - Only write simple one-line commands directly in code blocks (e.g., \`mvn clean package\`, \`npm install\`, etc.).`,
 
-  default: `**일반 환경 가이드라인:**
-- 플랫폼에 독립적인 명령어를 사용하세요.
-- 파일 경로는 슬래시(/)를 사용하세요.
-- 환경변수는 $VARIABLE_NAME 형식을 사용하세요.
-- 터미널 명령어는 run_command 도구를 사용하세요.
-- 포트 해제 및 프로세스 종료 명령어는 OS별로 다를 수 있으니 주의하세요.`,
+  default: `**General Environment Guidelines:**
+- Use platform-independent commands.
+- Use forward slashes (/) for file paths.
+- Use the $VARIABLE_NAME format for environment variables.
+- Use the run_command tool for terminal commands.
+- Port release and process termination commands may vary by OS, so use caution.`,
 };
 
 /**
- * OS 문자열에서 해당하는 프롬프트를 반환합니다.
- * @param userOS - 사용자 OS 문자열 (예: "macOS", "Windows", "Linux")
+ * Returns the corresponding prompt for the given OS string.
+ * @param userOS - User OS string (e.g., "macOS", "Windows", "Linux")
  */
 export function getOSPrompt(userOS: string): string {
   const osLower = userOS.toLowerCase();
@@ -72,7 +72,7 @@ export function getOSPrompt(userOS: string): string {
   return osPromptRegistry.default;
 }
 
-// 하위 호환: 기존 개별 함수 export
+// Backward compatibility: export individual functions
 export const getWindowsPrompt = () => osPromptRegistry.windows;
 export const getMacOSPrompt = () => osPromptRegistry.macos;
 export const getLinuxPrompt = () => osPromptRegistry.linux;

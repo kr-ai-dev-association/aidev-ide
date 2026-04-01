@@ -1,6 +1,6 @@
 /**
  * Split Instruction Prompt
- * 사용자 지시사항을 행위 단위로 분리하는 프롬프트
+ * Prompt for splitting user instructions into action units
  */
 
 export interface SplitInstructionOptions {
@@ -12,25 +12,25 @@ export function getSplitInstructionPrompt(options: SplitInstructionOptions): str
     const { userQuery, forceKorean } = options;
 
     if (forceKorean) {
-        return `다음 사용자 지시사항을 행위 단위로 분리하세요. 각 행위는 독립적으로 실행 가능한 단위여야 합니다.
+        return `Split the following user instruction into action units. Each action should be an independently executable unit.
 
-사용자 지시사항:
+User instruction:
 """
 ${userQuery}
 """
 
-요구사항:
-- 각 행위를 하나의 문장으로 표현하세요.
-- 행위는 동사로 시작하는 명확한 액션으로 작성하세요.
-- 각 행위는 순서대로 번호를 매겨주세요.
-- JSON 배열 형식으로 출력하세요.
+Requirements:
+- Express each action as a single sentence.
+- Actions should be written as clear actions starting with a verb.
+- Number each action in order.
+- Output in JSON array format.
 
-출력 형식 (JSON):
+Output format (JSON):
 {
   "actions": [
-    "첫 번째 행위",
-    "두 번째 행위",
-    "세 번째 행위"
+    "First action",
+    "Second action",
+    "Third action"
   ]
 }`;
     }
@@ -60,6 +60,6 @@ Output format (JSON):
 
 export function getSplitInstructionSystemPrompt(forceKorean: boolean): string {
     return forceKorean
-        ? '행위 단위로 지시사항을 분리하세요. JSON 형식으로 응답하세요.'
+        ? 'Split instructions into action units. Respond in JSON format.'
         : 'Split instructions into action units. Respond in JSON format.';
 }

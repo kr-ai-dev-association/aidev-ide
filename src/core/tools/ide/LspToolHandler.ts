@@ -1,14 +1,14 @@
 /**
  * LSP Tool Handler
- * VSCode Language Server Protocol API를 통한 코드 인텔리전스 도구
+ * Code intelligence tool via VSCode Language Server Protocol API
  *
  * operations:
- *   goToDefinition   — 심볼 정의로 이동
- *   findReferences   — 심볼 참조 전체 검색
- *   hover            — 심볼 타입/문서 정보
- *   documentSymbol   — 파일 내 모든 심볼 목록
- *   workspaceSymbol  — 워크스페이스 전체 심볼 검색
- *   goToImplementation — 인터페이스 구현체 검색
+ *   goToDefinition   -- Go to symbol definition
+ *   findReferences   -- Search all symbol references
+ *   hover            -- Symbol type/documentation info
+ *   documentSymbol   -- List all symbols in a file
+ *   workspaceSymbol  -- Search symbols across workspace
+ *   goToImplementation -- Search interface implementations
  */
 
 import * as vscode from 'vscode';
@@ -30,7 +30,7 @@ export class LspToolHandler implements IToolHandler {
     async execute(toolUse: ToolUse, context: ToolExecutionContext): Promise<ToolResponse> {
         const operation = toolUse.params.operation as LspOperation;
         const filePath = toolUse.params.file_path;
-        // line은 1-based (사용자 친화적) → 0-based (VSCode API)
+        // line is 1-based (user-friendly) -> 0-based (VSCode API)
         const line = toolUse.params.line ? Math.max(0, parseInt(toolUse.params.line, 10) - 1) : 0;
         const character = toolUse.params.character ? parseInt(toolUse.params.character, 10) : 0;
         const query = toolUse.params.query || '';
@@ -38,7 +38,7 @@ export class LspToolHandler implements IToolHandler {
         if (!operation) {
             return {
                 success: false,
-                message: 'operation 파라미터가 필요합니다. (goToDefinition, findReferences, hover, documentSymbol, workspaceSymbol, goToImplementation)',
+                message: 'operation parameter is required. (goToDefinition, findReferences, hover, documentSymbol, workspaceSymbol, goToImplementation)',
                 error: { code: 'MISSING_PARAM', message: 'operation is required' }
             };
         }
@@ -53,7 +53,7 @@ export class LspToolHandler implements IToolHandler {
                     if (!filePath) {
                         return {
                             success: false,
-                            message: `${operation}은 file_path 파라미터가 필요합니다.`,
+                            message: `${operation} requires file_path parameter.`,
                             error: { code: 'MISSING_PARAM', message: 'file_path is required' }
                         };
                     }
@@ -107,7 +107,7 @@ export class LspToolHandler implements IToolHandler {
                     if (!query) {
                         return {
                             success: false,
-                            message: 'workspaceSymbol은 query 파라미터가 필요합니다.',
+                            message: 'workspaceSymbol requires query parameter.',
                             error: { code: 'MISSING_PARAM', message: 'query is required for workspaceSymbol' }
                         };
                     }
@@ -120,7 +120,7 @@ export class LspToolHandler implements IToolHandler {
                 default:
                     return {
                         success: false,
-                        message: `알 수 없는 operation: ${operation}`,
+                        message: `Unknown operation: ${operation}`,
                         error: { code: 'UNKNOWN_OPERATION', message: `Unknown operation: ${operation}` }
                     };
             }
@@ -128,7 +128,7 @@ export class LspToolHandler implements IToolHandler {
             const msg = error instanceof Error ? error.message : String(error);
             return {
                 success: false,
-                message: `LSP 오류: ${msg}`,
+                message: `LSP error: ${msg}`,
                 error: { code: 'LSP_ERROR', message: msg }
             };
         }
@@ -142,7 +142,7 @@ export class LspToolHandler implements IToolHandler {
         projectRoot: string
     ): ToolResponse {
         if (locations.length === 0) {
-            return { success: true, message: `${label} 없음` };
+            return { success: true, message: `No ${label} found` };
         }
 
         const lines = locations.map(loc => {
@@ -160,13 +160,13 @@ export class LspToolHandler implements IToolHandler {
 
         return {
             success: true,
-            message: `${label} (${locations.length}개):\n${lines.join('\n')}`
+            message: `${label} (${locations.length}):\n${lines.join('\n')}`
         };
     }
 
     private formatHovers(hovers: vscode.Hover[]): ToolResponse {
         if (hovers.length === 0) {
-            return { success: true, message: 'hover 정보 없음' };
+            return { success: true, message: 'No hover information' };
         }
 
         const texts = hovers.flatMap(h =>
@@ -199,12 +199,12 @@ export class LspToolHandler implements IToolHandler {
         flatten(symbols, indent);
 
         if (lines.length === 0) {
-            return { success: true, message: `${filePath}: 심볼 없음` };
+            return { success: true, message: `${filePath}: no symbols found` };
         }
 
         return {
             success: true,
-            message: `Symbols in ${filePath} (${lines.length}개):\n${lines.join('\n')}`
+            message: `Symbols in ${filePath} (${lines.length}):\n${lines.join('\n')}`
         };
     }
 
@@ -213,7 +213,7 @@ export class LspToolHandler implements IToolHandler {
         projectRoot: string
     ): ToolResponse {
         if (symbols.length === 0) {
-            return { success: true, message: '심볼 없음' };
+            return { success: true, message: 'No symbols found' };
         }
 
         const MAX = 50;
@@ -225,10 +225,10 @@ export class LspToolHandler implements IToolHandler {
             return `${kind} ${sym.name} — ${rel}:${line}`;
         });
 
-        const truncated = symbols.length > MAX ? `\n... (${symbols.length - MAX}개 더 있음)` : '';
+        const truncated = symbols.length > MAX ? `\n... (${symbols.length - MAX} more)` : '';
         return {
             success: true,
-            message: `Workspace symbols "${symbols[0]?.name ? '' : ''}(${Math.min(symbols.length, MAX)}개):\n${lines.join('\n')}${truncated}`
+            message: `Workspace symbols (${Math.min(symbols.length, MAX)}):\n${lines.join('\n')}${truncated}`
         };
     }
 
