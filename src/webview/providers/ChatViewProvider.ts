@@ -599,6 +599,7 @@ ${JSON.stringify(errorContext, null, 2)}
 
                     // ConversationService를 통해 메시지 처리
                     const promptType = data.mode === 'ASK' ? PromptType.GENERAL_ASK : data.mode === 'PLAN' ? PromptType.PLAN : PromptType.CODE_GENERATION;
+                    console.log(`[ChatViewProvider] sendMessage mode=${data.mode}, promptType=${promptType}`);
 
                     await ConversationService.handleUserMessage({
                         userQuery: data.text,
@@ -638,6 +639,11 @@ ${JSON.stringify(errorContext, null, 2)}
                     // 즉시 시도 + loadPersistedState(async)가 아직 안 끝났을 경우 대비 지연 재시도
                     sendPendingState();
                     setTimeout(sendPendingState, AgentConfig.WEBVIEW_RESTORE_DELAY_MS);
+                    break;
+                }
+                case 'askQuestionResponse': {
+                    const { AskQuestionToolHandler } = await import('../../core/tools/interaction/AskQuestionToolHandler');
+                    AskQuestionToolHandler.resolveUserAnswer(data.requestId || '', data.answers || {});
                     break;
                 }
                 case 'cancelGeminiCall':

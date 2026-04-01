@@ -38,6 +38,8 @@ export enum Tool {
     MEMORY_DELETE = 'memory_delete',
     // 스킬 로더 (서브에이전트용)
     LOAD_SKILL = 'load_skill',
+    // 사용자에게 선택지 질문
+    ASK_QUESTION = 'ask_question',
 }
 
 /**
@@ -58,6 +60,7 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
     // 메모리 도구는 프로젝트 파일을 수정하지 않으므로 read-only로 취급 (investigation→execution 전환 방지)
     Tool.MEMORY_SAVE,
     Tool.MEMORY_DELETE,
+    Tool.ASK_QUESTION,
 ]);
 
 /**

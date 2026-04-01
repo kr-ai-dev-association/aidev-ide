@@ -2100,6 +2100,23 @@ window.addEventListener("message", (event) => {
         setProcessingStep(message.step);
       }
       break;
+    case "askQuestion":
+      renderAskQuestionUI(message.title, message.questions, message.requestId);
+      break;
+    case "showPlanApproval":
+      renderPlanApprovalUI(message.planText);
+      break;
+    case "autoPlanExecute": {
+      const planExecText = message.text || "위 계획대로 진행해줘";
+      // Start loading without showing user message (plan approval is the trigger)
+      window.showLoading();
+      vscode.postMessage({
+        command: "sendMessage",
+        text: planExecText,
+        mode: "CODE",
+      });
+      break;
+    }
     case "updateProcessingStatus":
       if (message.step && message.status) {
         updateProcessingStatus(message.step, message.status);
@@ -3750,3 +3767,194 @@ function updateContextInfo(contextInfo) {
 
 // 전역으로 노출
 window.updateContextInfo = updateContextInfo;
+
+// ===== Ask Question UI =====
+function renderAskQuestionUI(title, questions, requestId) {
+  // Remove existing popup if any
+  const existing = document.querySelector(".ask-question-overlay");
+  if (existing) existing.remove();
+
+  const selectedAnswers = {};
+  questions.forEach(q => { selectedAnswers[q.id] = []; });
+
+  // Create overlay (fixed above input area)
+  const overlay = document.createElement("div");
+  overlay.className = "ask-question-overlay";
+
+  const popup = document.createElement("div");
+  popup.className = "ask-question-popup";
+
+  // Title
+  const titleEl = document.createElement("div");
+  titleEl.className = "ask-question-title";
+  titleEl.textContent = title;
+  popup.appendChild(titleEl);
+
+  // Questions
+  questions.forEach(q => {
+    const item = document.createElement("div");
+    item.className = "ask-question-item";
+
+    const prompt = document.createElement("div");
+    prompt.className = "ask-question-prompt";
+    prompt.textContent = q.prompt;
+    item.appendChild(prompt);
+
+    const optionsDiv = document.createElement("div");
+    optionsDiv.className = "ask-question-options";
+
+    q.options.forEach(opt => {
+      const btn = document.createElement("button");
+      btn.className = "ask-question-option";
+      btn.dataset.questionId = q.id;
+      btn.dataset.optionId = opt.id;
+      const labelSpan = document.createElement("strong");
+      labelSpan.textContent = opt.label;
+      btn.appendChild(labelSpan);
+      if (opt.description) {
+        const descSpan = document.createElement("span");
+        descSpan.textContent = " — " + opt.description;
+        descSpan.style.fontWeight = "normal";
+        descSpan.style.opacity = "0.7";
+        descSpan.style.fontSize = "11px";
+        btn.appendChild(descSpan);
+      }
+
+      btn.addEventListener("click", () => {
+        if (q.allowMultiple) {
+          btn.classList.toggle("selected");
+          if (btn.classList.contains("selected")) {
+            selectedAnswers[q.id].push(opt.id);
+          } else {
+            selectedAnswers[q.id] = selectedAnswers[q.id].filter(id => id !== opt.id);
+          }
+        } else {
+          optionsDiv.querySelectorAll(".ask-question-option").forEach(b => b.classList.remove("selected"));
+          btn.classList.add("selected");
+          selectedAnswers[q.id] = [opt.id];
+        }
+      });
+
+      optionsDiv.appendChild(btn);
+    });
+
+    item.appendChild(optionsDiv);
+
+    // "Other" free text input
+    const otherDiv = document.createElement("div");
+    otherDiv.className = "ask-question-other";
+    const otherInput = document.createElement("input");
+    otherInput.placeholder = "기타";
+    otherInput.dataset.questionId = q.id;
+    otherDiv.appendChild(otherInput);
+    item.appendChild(otherDiv);
+
+    popup.appendChild(item);
+  });
+
+  // Submit button
+  const submitBtn = document.createElement("button");
+  submitBtn.className = "ask-question-submit";
+  submitBtn.textContent = "선택 완료";
+  submitBtn.addEventListener("click", () => {
+    const finalAnswers = {};
+    questions.forEach(q => {
+      const otherInput = popup.querySelector(`input[data-question-id="${q.id}"]`);
+      const otherText = otherInput ? otherInput.value.trim() : "";
+      if (otherText) {
+        finalAnswers[q.id] = [...selectedAnswers[q.id], otherText];
+      } else if (selectedAnswers[q.id].length > 0) {
+        finalAnswers[q.id] = selectedAnswers[q.id];
+      } else {
+        finalAnswers[q.id] = ["(no selection)"];
+      }
+    });
+
+    vscode.postMessage({ command: "askQuestionResponse", requestId: requestId, answers: finalAnswers });
+
+    // Remove popup with fade
+    overlay.style.opacity = "0";
+    overlay.style.transition = "opacity 0.2s";
+    setTimeout(() => overlay.remove(), 200);
+  });
+
+  popup.appendChild(submitBtn);
+  overlay.appendChild(popup);
+
+  // Insert before chat-input-area
+  const inputArea = document.getElementById("chat-input-area");
+  if (inputArea && inputArea.parentNode) {
+    inputArea.parentNode.insertBefore(overlay, inputArea);
+  } else {
+    document.body.appendChild(overlay);
+  }
+}
+
+// ===== Plan Approval UI =====
+function renderPlanApprovalUI(planText) {
+  const chatContainer = document.getElementById("chat-container");
+  if (!chatContainer) return;
+
+  const container = document.createElement("div");
+  container.className = "ask-question-container";
+  container.style.textAlign = "center";
+
+  const title = document.createElement("div");
+  title.className = "ask-question-title";
+  title.textContent = "위 계획을 승인하시겠습니까?";
+  container.appendChild(title);
+
+  const btnRow = document.createElement("div");
+  btnRow.style.display = "flex";
+  btnRow.style.gap = "10px";
+  btnRow.style.justifyContent = "center";
+  btnRow.style.marginTop = "10px";
+
+  const approveBtn = document.createElement("button");
+  approveBtn.className = "ask-question-submit";
+  approveBtn.textContent = "승인 — 실행 시작";
+  approveBtn.addEventListener("click", () => {
+    // Switch to CODE mode and send plan as context
+    const modeSelect = document.getElementById("mode-select");
+    if (modeSelect) modeSelect.value = "CODE";
+
+    // Send message to execute the plan
+    vscode.postMessage({
+      command: "sendMessage",
+      text: "위 계획대로 진행해줘",
+      mode: "CODE",
+    });
+
+    // Replace buttons with confirmation
+    container.innerHTML = "";
+    const done = document.createElement("div");
+    done.className = "ask-question-title";
+    done.textContent = "✓ 승인됨 — 실행을 시작합니다";
+    done.style.opacity = "0.7";
+    container.appendChild(done);
+  });
+
+  const rejectBtn = document.createElement("button");
+  rejectBtn.className = "ask-question-submit";
+  rejectBtn.style.background = "var(--vscode-button-secondary-background, #555)";
+  rejectBtn.style.color = "var(--vscode-button-secondary-foreground, #fff)";
+  rejectBtn.textContent = "거절";
+  rejectBtn.addEventListener("click", () => {
+    container.innerHTML = "";
+    const done = document.createElement("div");
+    done.className = "ask-question-title";
+    done.textContent = "✗ 거절됨 — 계획을 수정하려면 새로 질의하세요";
+    done.style.opacity = "0.5";
+    container.appendChild(done);
+  });
+
+  btnRow.appendChild(approveBtn);
+  btnRow.appendChild(rejectBtn);
+  container.appendChild(btnRow);
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "message-bubble bot";
+  wrapper.appendChild(container);
+  chatContainer.appendChild(wrapper);
+  chatContainer.scrollTop = chatContainer.scrollHeight;
+}

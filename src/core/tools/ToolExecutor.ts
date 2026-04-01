@@ -21,21 +21,8 @@ import { UsageMetricsManager } from '../managers/state/UsageMetricsManager';
 export class ToolExecutor {
     private registry: ToolRegistry;
 
-    /**
-     * read_file FILE_NOT_FOUND로 실패한 경로 목록
-     * 같은 세션 내에서 create_file이 해당 경로에 파일 생성하는 것을 차단
-     */
-    private _readFailedPaths: Set<string> = new Set();
-
     constructor() {
         this.registry = ToolRegistry.getInstance();
-    }
-
-    /**
-     * read_file 실패 경로 추적 초기화 (새 대화 시작 시)
-     */
-    resetReadFailedPaths(): void {
-        this._readFailedPaths.clear();
     }
 
     /**
@@ -66,26 +53,6 @@ export class ToolExecutor {
             console.warn(`[ToolExecutor] Tool warning: ${toolUse.name} - ${validation.reason}`);
         }
 
-        // 🔥 하드 가드: read_file 실패한 경로에 create_file 차단
-        if (toolUse.name === Tool.CREATE_FILE) {
-            const createPath = toolUse.params.path || toolUse.params.absolutePath || '';
-            const normalizedPath = createPath.replace(/^\/+/, '');
-            const isBlockedPath = Array.from(this._readFailedPaths).some(failedPath => {
-                const normalizedFailed = failedPath.replace(/^\/+/, '');
-                return normalizedPath === normalizedFailed
-                    || normalizedPath.endsWith('/' + normalizedFailed)
-                    || normalizedFailed.endsWith('/' + normalizedPath);
-            });
-            if (isBlockedPath) {
-                console.warn(`[ToolExecutor] 🚫 create_file BLOCKED: "${createPath}" was previously not found by read_file. Use ripgrep_search to find the correct path.`);
-                return {
-                    success: false,
-                    message: `File creation blocked: "${createPath}" (path does not exist)`,
-                    error: { code: 'CREATE_BLOCKED_AFTER_READ_FAIL', message: `"${createPath}" was confirmed as non-existent by read_file. Do NOT create a file at this path. Use glob_search with "**/${createPath.split('/').pop()}" pattern to find the actual location. If the file does not exist in the project, inform the user.` }
-                };
-            }
-        }
-
         const handler = this.registry.getHandler(toolUse.name);
 
         if (!handler) {
@@ -103,15 +70,6 @@ export class ToolExecutor {
             console.log(`[ToolExecutor] Executing tool: ${toolUse.name}`);
             const result = await handler.execute(toolUse, context);
             const executionTime = Date.now() - startTime;
-
-            // 🔥 read_file FILE_NOT_FOUND 경로 추적
-            if (toolUse.name === Tool.READ_FILE && !result.success && result.error?.code === 'FILE_NOT_FOUND') {
-                const readPath = toolUse.params.path || toolUse.params.paths || '';
-                if (readPath) {
-                    this._readFailedPaths.add(readPath);
-                    console.log(`[ToolExecutor] Tracking read_file failure: "${readPath}" (total: ${this._readFailedPaths.size})`);
-                }
-            }
 
             // 도구 실행 메트릭 기록
             usageMetrics.recordToolExecution(toolUse.name, executionTime, result.success);
