@@ -1,40 +1,40 @@
 /**
  * StreamingToolParser
- * 스트리밍 응답에서 도구 호출을 점진적으로 파싱하는 유틸리티
+ * Utility for incrementally parsing tool calls from streaming responses
  *
- * 핵심 원리:
- * 1. 스트리밍 중에는 텍스트만 UI에 표시
- * 2. { "tool": ... } <file_content> ... </file_content>가 감지되면 도구 호출로 분리
- * 3. 응답 완료 후 전체 도구 파싱 및 실행
+ * Core principles:
+ * 1. Only display text in UI during streaming
+ * 2. When { "tool": ... } <file_content> ... </file_content> is detected, separate as tool call
+ * 3. Full tool parsing and execution after response completion
  *
- * v9.2.0: XML 스타일 file_content 태그 형식 (Git merge conflict 마커 혼동 방지)
+ * v9.2.0: XML-style file_content tag format (prevents Git merge conflict marker confusion)
  */
 
 import { ToolUse } from './types';
 import { ToolParser } from './ToolParser';
 
 export interface StreamingParseResult {
-    /** UI에 표시할 텍스트 (도구 호출 제외) */
+    /** Text to display in UI (excluding tool calls) */
     displayText: string;
-    /** 파싱된 도구 호출 목록 */
+    /** List of parsed tool calls */
     toolCalls: ToolUse[];
-    /** 아직 완성되지 않은 JSON 블록이 있는지 */
+    /** Whether there are incomplete JSON blocks */
     hasPendingJson: boolean;
-    /** 전체 원본 텍스트 */
+    /** Full original text */
     fullText: string;
 }
 
 export interface StreamingCallbacks {
-    /** 텍스트 청크 수신 시 호출 */
+    /** Called when text chunk is received */
     onTextChunk: (text: string) => void;
-    /** 도구 호출 감지 시 호출 (선택적) */
+    /** Called when tool call is detected (optional) */
     onToolCallDetected?: (toolCall: ToolUse) => void;
-    /** 스트리밍 완료 시 호출 */
+    /** Called when streaming is complete */
     onComplete: (result: StreamingParseResult) => void;
 }
 
 /**
- * 스트리밍 응답에서 도구 호출을 분리하면서 텍스트를 실시간 표시
+ * Separate tool calls from streaming responses while displaying text in real-time
  */
 export class StreamingToolParser {
     // CODE 블록 마커 상수 (XML 스타일)
@@ -55,7 +55,7 @@ export class StreamingToolParser {
     }
 
     /**
-     * 스트리밍 청크 처리
+     * Process streaming chunk
      */
     processChunk(chunk: string): void {
         this.buffer += chunk;
@@ -63,23 +63,23 @@ export class StreamingToolParser {
     }
 
     /**
-     * 버퍼를 파싱하고 안전한 텍스트만 스트리밍
+     * Parse buffer and stream only safe text
      */
     private parseAndStream(): void {
         const buffer = this.buffer;
 
-        // 🔥 핵심: 도구 호출 패턴이 버퍼에 있으면 스트리밍 중에도 텍스트 출력 차단
-        // LLM이 "We need to..." 같은 텍스트 후에 도구 호출을 반환하는 경우 방지
+        // Core: Block text output during streaming if tool call pattern is in buffer
+        // Prevents case where LLM returns tool calls after text like "We need to..."
         if (/\{\s*["']tool["']\s*:/.test(buffer)) {
-            // 도구 호출이 감지되면 아무것도 출력하지 않음 (complete()에서 최종 처리)
+            // Output nothing when tool call is detected (final processing in complete())
             return;
         }
 
-        // JSON 블록 시작 감지: ```json
+        // Detect JSON block start: ```json
         const jsonStartPattern = /```json\s*/g;
         const jsonEndPattern = /```/g;
 
-        // CODE 블록 패턴: { "tool": ... } 다음에 <file_content> ... </file_content>
+        // CODE block pattern: { "tool": ... } followed by <file_content> ... </file_content>
         const toolJsonPattern = /\{\s*["']tool["']\s*:/g;
 
         let safeEndIndex = this.displayedLength;
@@ -87,43 +87,43 @@ export class StreamingToolParser {
 
         while (currentIndex < buffer.length) {
             if (!this.inJsonBlock && !this.inCodeBlock) {
-                // 1. 새로운 CODE 블록 형식 감지: { "tool": ... }
+                // 1. Detect new CODE block format: { "tool": ... }
                 toolJsonPattern.lastIndex = currentIndex;
                 const toolMatch = toolJsonPattern.exec(buffer);
 
-                // 2. 기존 JSON 블록 형식 감지: ```json
+                // 2. Detect existing JSON block format: ```json
                 jsonStartPattern.lastIndex = currentIndex;
                 const jsonMatch = jsonStartPattern.exec(buffer);
 
-                // 둘 중 먼저 나오는 것 처리
+                // Process whichever comes first
                 const toolIndex = toolMatch ? toolMatch.index : Infinity;
                 const jsonIndex = jsonMatch ? jsonMatch.index : Infinity;
 
                 if (toolIndex < jsonIndex && toolIndex !== Infinity) {
-                    // CODE 블록 형식이 먼저
+                    // CODE block format comes first
                     safeEndIndex = toolMatch!.index;
                     this.inCodeBlock = true;
                     this.toolJsonStart = toolMatch!.index;
                     currentIndex = toolMatch!.index;
                 } else if (jsonIndex !== Infinity) {
-                    // JSON 블록이 먼저
+                    // JSON block comes first
                     safeEndIndex = jsonMatch!.index;
                     this.inJsonBlock = true;
                     this.jsonBlockStart = jsonMatch!.index;
                     currentIndex = jsonMatch!.index + jsonMatch![0].length;
                 } else {
-                    // 둘 다 없음 - 끝까지 안전
-                    // 단, 마지막 15자는 패턴이 잘려서 올 수 있으므로 보류
+                    // Neither found - safe to the end
+                    // However, reserve last 15 chars as pattern may be truncated
                     safeEndIndex = Math.max(this.displayedLength, buffer.length - 15);
                     break;
                 }
             } else if (this.inJsonBlock) {
-                // JSON 블록 끝 찾기 (```json 이후의 ```)
+                // Find JSON block end (``` after ```json)
                 jsonEndPattern.lastIndex = currentIndex;
                 const endMatch = jsonEndPattern.exec(buffer);
 
                 if (endMatch) {
-                    // JSON 블록 완성됨
+                    // JSON block complete
                     const jsonBlockContent = buffer.substring(this.jsonBlockStart, endMatch.index + endMatch[0].length);
                     this.tryParseJsonBlock(jsonBlockContent);
 
@@ -132,15 +132,15 @@ export class StreamingToolParser {
                     currentIndex = endMatch.index + endMatch[0].length;
                     safeEndIndex = currentIndex;
                 } else {
-                    // JSON 블록이 아직 완성되지 않음
+                    // JSON block not yet complete
                     break;
                 }
             } else if (this.inCodeBlock) {
-                // CODE 블록 끝 찾기: </file_content>
+                // Find CODE block end: </file_content>
                 const codeEndIndex = buffer.lastIndexOf(StreamingToolParser.CODE_END_MARKER);
 
                 if (codeEndIndex !== -1) {
-                    // CODE 블록 완성됨
+                    // CODE block complete
                     const codeBlockContent = buffer.substring(this.toolJsonStart, codeEndIndex + StreamingToolParser.CODE_END_MARKER.length);
                     this.tryParseCodeBlock(codeBlockContent);
 
@@ -149,12 +149,12 @@ export class StreamingToolParser {
                     currentIndex = codeEndIndex + StreamingToolParser.CODE_END_MARKER.length;
                     safeEndIndex = currentIndex;
                 } else {
-                    // CODE 블록이 시작되지 않았을 수도 있음 - JSON만 있는 경우
-                    // JSON 닫는 } 찾기
+                    // CODE block may not have started - JSON only case
+                    // Find closing } for JSON
                     const jsonCloseBrace = this.findJsonEnd(buffer, this.toolJsonStart);
                     if (jsonCloseBrace !== -1) {
                         const afterJson = buffer.substring(jsonCloseBrace + 1, Math.min(buffer.length, jsonCloseBrace + 20));
-                        // <file_content>가 없으면 JSON만 있는 도구 호출
+                        // If no <file_content>, it's a JSON-only tool call
                         if (!afterJson.includes('<file_content') && buffer.length > jsonCloseBrace + 15) {
                             const jsonOnly = buffer.substring(this.toolJsonStart, jsonCloseBrace + 1);
                             this.tryParseCodeBlock(jsonOnly);
@@ -166,13 +166,13 @@ export class StreamingToolParser {
                             continue;
                         }
                     }
-                    // CODE 블록이 아직 완성되지 않음
+                    // CODE block not yet complete
                     break;
                 }
             }
         }
 
-        // 안전한 텍스트만 스트리밍 (도구 호출 블록 제외)
+        // Stream only safe text (excluding tool call blocks)
         if (safeEndIndex > this.displayedLength) {
             const textToDisplay = this.getDisplayableText(this.displayedLength, safeEndIndex);
             if (textToDisplay) {
@@ -183,7 +183,7 @@ export class StreamingToolParser {
     }
 
     /**
-     * JSON 객체의 끝 위치 찾기
+     * Find end position of JSON object
      */
     private findJsonEnd(content: string, startIndex: number): number {
         let depth = 0;
@@ -223,7 +223,7 @@ export class StreamingToolParser {
     }
 
     /**
-     * CODE 블록 형식에서 도구 호출 파싱
+     * Parse tool calls from CODE block format
      */
     private tryParseCodeBlock(block: string): void {
         const toolCalls = ToolParser.parseCodeBlockFormat(block);
@@ -236,32 +236,32 @@ export class StreamingToolParser {
     }
 
     /**
-     * 도구 호출 블록을 제외한 표시 가능한 텍스트 추출
+     * Extract displayable text excluding tool call blocks
      */
     private getDisplayableText(start: number, end: number): string {
         let segment = this.buffer.substring(start, end);
 
-        // JSON 블록 패턴 제거
+        // Remove JSON block patterns
         segment = segment
             .replace(/```json[\s\S]*?```/g, '')
             .replace(/```json[\s\S]*/g, '');
 
-        // CODE 블록 형식 제거: { "tool": ... } <file_content> ... </file_content>
-        // 1. 완전한 CODE 블록 제거 (file_path 속성 포함)
+        // Remove CODE block format: { "tool": ... } <file_content> ... </file_content>
+        // 1. Remove complete CODE blocks (including file_path attribute)
         segment = segment
             .replace(/\{\s*["']tool["'][\s\S]*?\}\s*<file_content>[\s\S]*?<\/file_content>/gi, '')
-            // 2. 부분 CODE 블록 제거 (스트리밍 중)
+            // 2. Remove partial CODE blocks (during streaming)
             .replace(/\{\s*["']tool["'][\s\S]*?\}\s*<file_content>[\s\S]*/gi, '')
-            // 3. JSON만 있는 도구 호출도 제거
+            // 3. Also remove JSON-only tool calls
             .replace(/\{\s*["']tool["'][\s\S]*?\}/g, '')
-            // 4. 고아 CODE 블록 제거 (JSON 없이 CODE 블록만 있는 경우)
+            // 4. Remove orphan CODE blocks (CODE blocks without JSON)
             .replace(/<file_content>[\s\S]*?<\/file_content>/gi, '')
             .replace(/<file_content>[\s\S]*/gi, '');
 
-        // 🔥 핵심: 도구 호출 패턴이 전체 버퍼에 있으면 이 세그먼트의 자연어도 숨김
-        // LLM이 "We need to run..." 같은 텍스트와 함께 도구 호출을 반환하는 경우
+        // Core: Hide natural language in this segment if tool call pattern exists in full buffer
+        // Handles case where LLM returns tool calls along with text like "We need to run..."
         if (/\{\s*["']tool["']\s*:/.test(this.buffer)) {
-            // 도구 호출이 감지된 응답에서는 자연어 텍스트 비우기
+            // Clear natural language text in responses where tool calls are detected
             segment = '';
         }
 
@@ -269,7 +269,7 @@ export class StreamingToolParser {
     }
 
     /**
-     * JSON 블록에서 plan 등 파싱 (도구 호출은 CODE 블록 형식으로만 처리)
+     * Parse plan etc. from JSON blocks (tool calls are only handled via CODE block format)
      */
     private tryParseJsonBlock(block: string): void {
         try {
@@ -278,19 +278,19 @@ export class StreamingToolParser {
             if (!jsonMatch) return;
 
             const jsonStr = jsonMatch[1].trim();
-            // JSON 파싱만 하고, plan 등은 ToolParser에서 처리
-            JSON.parse(jsonStr); // 유효성 검증용
+            // Only parse JSON; plan etc. are handled by ToolParser
+            JSON.parse(jsonStr); // Validation only
         } catch (e) {
-            // JSON 파싱 실패 - 무시 (불완전한 JSON일 수 있음)
+            // JSON parse failure - ignore (may be incomplete JSON)
             console.debug('[StreamingToolParser] Failed to parse JSON block:', e);
         }
     }
 
     /**
-     * 스트리밍 완료 처리
+     * Handle streaming completion
      */
     complete(): StreamingParseResult {
-        // 남은 버퍼 처리
+        // Process remaining buffer
         if (this.displayedLength < this.buffer.length && !this.inJsonBlock && !this.inCodeBlock) {
             const remainingText = this.getDisplayableText(this.displayedLength, this.buffer.length);
             if (remainingText) {
@@ -298,28 +298,28 @@ export class StreamingToolParser {
             }
         }
 
-        // 전체 응답에서 도구 호출 최종 파싱 (ToolParser 사용)
+        // Final tool call parsing from full response (using ToolParser)
         const allToolCalls = ToolParser.parseToolCallsUnified(this.buffer);
 
-        // 스트리밍 중 감지된 것과 최종 파싱 결과 병합 (중복 제거)
+        // Merge streaming-detected and final parsing results (deduplicated)
         const finalToolCalls = this.mergeToolCalls(this.detectedToolCalls, allToolCalls);
 
-        // 표시용 텍스트 (도구 호출 블록 제거)
+        // Display text (with tool call blocks removed)
         let displayText = this.buffer
             .replace(/```json[\s\S]*?```/g, '')
-            // 완전한 CODE 블록 제거
+            // Remove complete CODE blocks
             .replace(/\{\s*["']tool["'][\s\S]*?\}\s*<file_content>[\s\S]*?<\/file_content>/gi, '')
-            // 닫는 태그 없는 CODE 블록 제거 (LLM이 </file_content> 누락한 경우)
+            // Remove CODE blocks without closing tag (when LLM omits </file_content>)
             .replace(/\{\s*["']tool["'][\s\S]*?\}\s*<file_content>[\s\S]*/gi, '')
-            // JSON만 있는 도구 호출도 제거
+            // Also remove JSON-only tool calls
             .replace(/\{\s*["']tool["'][\s\S]*?\}/g, '')
-            // 고아 CODE 블록 제거
+            // Remove orphan CODE blocks
             .replace(/<file_content>[\s\S]*?<\/file_content>/gi, '')
             .replace(/<file_content>[\s\S]*/gi, '')
             .trim();
 
-        // 🔥 핵심: 도구 호출이 포함된 응답에서는 자연어 텍스트 전체 숨김
-        // LLM이 "We need to run..." 같은 텍스트와 함께 도구 호출을 반환하는 경우
+        // Core: Hide all natural language text in responses containing tool calls
+        // Handles case where LLM returns tool calls along with text like "We need to run..."
         if (finalToolCalls.length > 0 || /\{\s*["']tool["']\s*:/.test(this.buffer)) {
             displayText = '';
         }
@@ -336,10 +336,10 @@ export class StreamingToolParser {
     }
 
     /**
-     * 도구 호출 목록 병합 (중복 제거)
+     * Merge tool call lists (deduplicated)
      */
     private mergeToolCalls(detected: ToolUse[], parsed: ToolUse[]): ToolUse[] {
-        // 파싱된 결과를 기준으로 사용 (더 정확함)
+        // Use parsed results as reference (more accurate)
         if (parsed.length > 0) {
             return parsed;
         }
@@ -347,14 +347,14 @@ export class StreamingToolParser {
     }
 
     /**
-     * 현재 버퍼 내용 반환
+     * Return current buffer content
      */
     getBuffer(): string {
         return this.buffer;
     }
 
     /**
-     * 상태 초기화
+     * Reset state
      */
     reset(): void {
         this.buffer = '';
@@ -368,7 +368,7 @@ export class StreamingToolParser {
 }
 
 /**
- * 스트리밍 콜백을 StreamingToolParser와 연동하는 헬퍼 함수
+ * Helper function to integrate streaming callbacks with StreamingToolParser
  */
 export function createStreamingToolCallback(
     onTextChunk: (text: string) => void,

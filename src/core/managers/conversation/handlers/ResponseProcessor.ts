@@ -89,11 +89,11 @@ export class ResponseProcessor {
             // Gemini API는 빈 parts를 허용하지 않음 - "Request has empty input" 에러 발생
             // 파일 목록을 context로 제공하여 LLM이 요약할 대상을 명확히 알 수 있게 함
             const fileListText = [
-                createdFiles.length > 0 ? `생성된 파일: ${createdFiles.join(', ')}` : '',
-                modifiedFiles.length > 0 ? `수정된 파일: ${modifiedFiles.join(', ')}` : ''
+                createdFiles.length > 0 ? `Created files: ${createdFiles.join(', ')}` : '',
+                modifiedFiles.length > 0 ? `Modified files: ${modifiedFiles.join(', ')}` : ''
             ].filter(Boolean).join('\n');
 
-            const contextParts: any[] = [{ text: fileListText || '작업 완료' }];
+            const contextParts: any[] = [{ text: fileListText || 'Task complete' }];
 
             console.log(`[ResponseProcessor] Requesting LLM summary (attempt ${retryCount + 1}/${MAX_RETRIES + 1}, contextParts=${contextParts.length})`);
 

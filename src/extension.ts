@@ -46,7 +46,6 @@ import {
   ReadFileToolHandler,
   ListFilesToolHandler,
   RipgrepSearchToolHandler,
-  ExpandAroundLineToolHandler,
   ListImportsToolHandler,
   StatFileToolHandler,
   GlobSearchToolHandler,
@@ -546,7 +545,6 @@ export async function activate(context: vscode.ExtensionContext) {
   toolRegistry.register(new RipgrepSearchToolHandler());
   toolRegistry.register(new RunCommandToolHandler());
   // 새로운 파일 읽기 도구들
-  toolRegistry.register(new ExpandAroundLineToolHandler());
   toolRegistry.register(new ListImportsToolHandler());
   toolRegistry.register(new StatFileToolHandler());
   // IDE, Web 도구들

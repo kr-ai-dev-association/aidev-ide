@@ -1,6 +1,6 @@
 /**
  * Load Skill Tool Handler
- * 서브에이전트가 스킬 content를 on-demand로 로드하는 도구
+ * Tool for sub-agents to load skill content on-demand
  */
 
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
@@ -16,33 +16,33 @@ export class LoadSkillToolHandler implements IToolHandler {
         if (!skillKey) {
             return {
                 success: false,
-                message: 'skill_key 파라미터가 필요합니다. 사용 가능한 스킬 목록을 확인하세요.',
+                message: 'skill_key parameter is required. Check the list of available skills.',
                 error: { code: 'MISSING_PARAM', message: 'skill_key is required' },
             };
         }
 
         const entry = PromptComposer.getSkillContent(skillKey);
         if (!entry) {
-            // 사용 가능한 스킬 목록 안내
+            // List available skills
             const available = PromptComposer.getSkillDescriptions();
             const listText = available.length > 0
-                ? `사용 가능한 스킬: ${available.map(s => s.key).join(', ')}`
-                : '등록된 스킬이 없습니다.';
+                ? `Available skills: ${available.map(s => s.key).join(', ')}`
+                : 'No skills registered.';
             return {
                 success: false,
-                message: `스킬 '${skillKey}'을(를) 찾을 수 없습니다. ${listText}`,
+                message: `Skill '${skillKey}' not found. ${listText}`,
                 error: { code: 'SKILL_NOT_FOUND', message: `Skill '${skillKey}' not found` },
             };
         }
 
         console.log(`[LoadSkillToolHandler] Skill loaded: ${skillKey} (${entry.content.length} chars)`);
 
-        // 참조에 로드된 스킬 추가
+        // Add loaded skill to references
         PromptComposer.addSkillReference(skillKey, entry.source);
 
         return {
             success: true,
-            message: `## 스킬: ${skillKey}\n\n${entry.content}`,
+            message: `## Skill: ${skillKey}\n\n${entry.content}`,
             data: {
                 key: entry.key,
                 source: entry.source,

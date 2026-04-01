@@ -80,8 +80,8 @@ export class ToolExecutor {
                 console.warn(`[ToolExecutor] 🚫 create_file BLOCKED: "${createPath}" was previously not found by read_file. Use ripgrep_search to find the correct path.`);
                 return {
                     success: false,
-                    message: `파일 생성이 차단되었습니다: "${createPath}" (존재하지 않는 경로)`,
-                    error: { code: 'CREATE_BLOCKED_AFTER_READ_FAIL', message: `"${createPath}"는 read_file에서 존재하지 않는 것으로 확인된 경로입니다. 이 경로에 파일을 생성하면 안 됩니다. glob_search로 "**/${createPath.split('/').pop()}" 패턴을 검색하여 실제 위치를 찾으세요. 파일이 프로젝트에 없다면 사용자에게 알려주세요.` }
+                    message: `File creation blocked: "${createPath}" (path does not exist)`,
+                    error: { code: 'CREATE_BLOCKED_AFTER_READ_FAIL', message: `"${createPath}" was confirmed as non-existent by read_file. Do NOT create a file at this path. Use glob_search with "**/${createPath.split('/').pop()}" pattern to find the actual location. If the file does not exist in the project, inform the user.` }
                 };
             }
         }
@@ -164,6 +164,7 @@ export class ToolExecutor {
 
         for (let i = 0; i < toolUses.length; i++) {
             if (abortSignal?.aborted) {
+                console.log(`[ToolExecutor] Aborted before tool ${i + 1}/${toolUses.length}`);
                 break;
             }
 
@@ -220,7 +221,6 @@ export class ToolExecutor {
         if (readBatch.length > 0) {
             const settled = await Promise.allSettled(readBatch.map(async ({ toolUse, idx }) => {
                 if (abortSignal?.aborted) return;
-
                 if (onToolStart) {
                     onToolStart(toolUse, idx);
                 }
@@ -242,6 +242,7 @@ export class ToolExecutor {
         // Phase 2: 쓰기 도구 순차 실행
         for (const { toolUse, idx } of writeBatch) {
             if (abortSignal?.aborted) {
+                console.log(`[ToolExecutor] Aborted before write tool ${idx}`);
                 break;
             }
 

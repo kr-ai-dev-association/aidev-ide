@@ -46,7 +46,7 @@ export interface CompactorConfig {
 
 const DEFAULT_CONFIG: CompactorConfig = {
   tokenThreshold: AgentConfig.COMPACTION_TOKEN_THRESHOLD,
-  keepRecentCount: 12,
+  keepRecentCount: 4,
   summarizationOptions: {
     includeTechnicalDetails: true,
     includeCodeSnippets: true,
@@ -180,7 +180,7 @@ export class ConversationCompactor {
       // 요약을 새 userParts의 첫 번째 메시지로 추가
       const compactedParts = [
         {
-          text: `[이전 대화 요약]\n${summary}\n\n[이전 대화 요약 끝 - 아래는 최근 대화입니다]`,
+          text: `[Previous conversation summary]\n${summary}\n\n[End of summary - recent conversation follows below]`,
         },
         ...recentMessages,
       ];
@@ -277,7 +277,7 @@ export class ConversationCompactor {
 
       // 요약을 새 userParts의 첫 번째 메시지로 추가
       const compactedParts = [
-        { text: `[이전 대화 요약]:\n${summary}` },
+        { text: `[Previous conversation summary]:\n${summary}` },
         ...recentMessages,
       ];
 
@@ -346,7 +346,7 @@ export class ConversationCompactor {
 
     const userParts = [
       {
-        text: `다음 대화를 요약해주세요:\n\n${conversationText}`,
+        text: `Summarize the following conversation:\n\n${conversationText}`,
       },
     ];
 
@@ -424,44 +424,71 @@ export class ConversationCompactor {
       return { trimmed: false, parts: userParts, savedTokens: 0 };
     }
 
-    // 최근 메시지는 보호
+    // 최근 메시지는 보호 (but large tool results in protected area are still truncated)
     const protectedCount = Math.min(this.config.keepRecentCount, userParts.length);
     const trimTarget = userParts.length - protectedCount;
 
-    if (trimTarget <= 0) {
+    if (trimTarget <= 0 && totalTokens <= maxTokens * 0.75) {
       return { trimmed: false, parts: userParts, savedTokens: 0 };
     }
 
-    // 도구 결과 패턴 (read_file 내용, glob 결과, ripgrep 결과 등)
-    const toolResultPatterns = [
-      { pattern: /^```[\s\S]{500,}```/m, label: '코드 블록' },
-      { pattern: /^\d+[→│\|].+(\n\d+[→│\|].+){10,}/m, label: '파일 내용' },
-      { pattern: /^(검색 결과|Search results|Found \d+|파일 목록)/m, label: '검색 결과' },
-      { pattern: /^\[?(read_file|glob_search|ripgrep_search)\]?\s*결과/mi, label: '도구 결과' },
-    ];
+    // Step 1: Deduplicate read_file results (Cline-style optimization)
+    // Keep only the latest read of each file, replace older ones with placeholder
+    const fileReadPositions = new Map<string, number[]>(); // filePath -> [indices]
+    for (let i = 0; i < userParts.length; i++) {
+      const text = userParts[i].text || '';
+      // Detect read_file results by line-numbered content pattern
+      const pathMatch = text.match(/(?:file|path)[:\s]*[`"]?([^\s`"]+\.\w{1,6})/i)
+        || text.match(/^([^\s]+\.\w{1,5})\s*[\(:|]/m);
+      if (pathMatch && /^\d+[→│|]/m.test(text)) {
+        const fp = pathMatch[1];
+        const positions = fileReadPositions.get(fp) || [];
+        positions.push(i);
+        fileReadPositions.set(fp, positions);
+      }
+    }
 
     let trimmed = false;
     const newParts = [...userParts];
 
+    // Replace older duplicate file reads with placeholder (keep latest only)
+    for (const [fp, positions] of fileReadPositions) {
+      if (positions.length <= 1) continue;
+      for (let j = 0; j < positions.length - 1; j++) {
+        const idx = positions[j];
+        if (idx >= userParts.length - protectedCount) continue;
+        newParts[idx] = {
+          text: `[File previously read: ${fp} — see latest read below]`,
+        };
+        trimmed = true;
+      }
+    }
+
+    // Step 2: Trim old tool results (non-protected area)
+    const toolResultPatterns = [
+      { pattern: /^```[\s\S]{500,}```/m, label: 'code block' },
+      { pattern: /^(Search results|Found \d+)/m, label: 'search results' },
+      { pattern: /^\[?(read_file|glob_search|ripgrep_search)\]?\s*result/mi, label: 'tool result' },
+    ];
+
     for (let i = 0; i < trimTarget; i++) {
       const part = newParts[i];
       if (!part.text || part.text.length < 500) continue;
+      if (part.text.startsWith('[Previous conversation summary]') || part.text.startsWith('[System]') || part.text.startsWith('[File previously read:')) continue;
 
-      // 이전 대화 요약은 건드리지 않음
-      if (part.text.startsWith('[이전 대화 요약]') || part.text.startsWith('[시스템]')) continue;
+      const isLatestRead = [...fileReadPositions.values()].some(positions => positions[positions.length - 1] === i);
+      if (isLatestRead) continue;
 
-      // 파일 경로 추출 시도
-      const filePathMatch = part.text.match(/(?:파일|file|path)[:\s]*[`"]?([^\s`"]+\.\w+)/i)
-        || part.text.match(/^([^\s]+\.\w{1,5})\s*(?:\(|의|:)/m);
+      const filePathMatch = part.text.match(/(?:file|path)[:\s]*[`"]?([^\s`"]+\.\w+)/i)
+        || part.text.match(/^([^\s]+\.\w{1,5})\s*[\(:|]/m);
       const filePath = filePathMatch ? filePathMatch[1] : '';
 
-      // 도구 결과 패턴 매칭
       let matched = false;
       for (const { pattern, label } of toolResultPatterns) {
         if (pattern.test(part.text)) {
           const lineCount = part.text.split('\n').length;
           newParts[i] = {
-            text: `[이전 ${label} 생략: ${filePath || '(경로 미확인)'} — ${lineCount}줄, 내용 생략됨]`,
+            text: `[Previous ${label} omitted: ${filePath || '(path unknown)'} - ${lineCount} lines, content omitted]`,
           };
           matched = true;
           trimmed = true;
@@ -469,12 +496,34 @@ export class ConversationCompactor {
         }
       }
 
-      // 패턴 매치 안 되더라도 500자 이상이고 보호 영역 밖이면 축약
       if (!matched && part.text.length > 2000) {
         const preview = part.text.substring(0, 200);
         const lineCount = part.text.split('\n').length;
         newParts[i] = {
-          text: `[이전 내용 축약 — ${lineCount}줄]\n${preview}\n... [이하 생략]`,
+          text: `[Previous content truncated - ${lineCount} lines]\n${preview}\n... [rest omitted]`,
+        };
+        trimmed = true;
+      }
+    }
+
+    // Also truncate oversized tool results in protected (recent) area
+    // But preserve the latest read of each file (needed for accurate update_file SEARCH blocks)
+    const PROTECTED_MAX_CHARS = 3000;
+    for (let i = Math.max(0, trimTarget); i < newParts.length; i++) {
+      const part = newParts[i];
+      if (!part.text || part.text.length <= PROTECTED_MAX_CHARS) continue;
+      if (part.text.startsWith('[Previous conversation summary]') || part.text.startsWith('[File previously read:')) continue;
+
+      const isLatestFileRead = [...fileReadPositions.values()].some(positions => positions[positions.length - 1] === i);
+      if (isLatestFileRead) continue;
+
+      const hasNonFileToolMarkers = /^```|^\[?(glob_search|ripgrep_search|run_command)\]?/m.test(part.text);
+      if (hasNonFileToolMarkers) {
+        const head = part.text.substring(0, 1500);
+        const tail = part.text.substring(part.text.length - 1000);
+        const lineCount = part.text.split('\n').length;
+        newParts[i] = {
+          text: `${head}\n\n... [truncated: ${lineCount} lines, ${part.text.length.toLocaleString()} chars total] ...\n\n${tail}`,
         };
         trimmed = true;
       }
@@ -525,7 +574,7 @@ export class ConversationCompactor {
       if (round === 0) {
         currentParts = [
           {
-            text: `[시스템] 컨텍스트 최적화: 이전 메시지가 점진적으로 정리되었습니다. 필요한 정보가 있으면 다시 요청해주세요.`,
+            text: `[System] Context optimized: previous messages have been progressively cleaned up. If you need any information, please ask again.`,
           },
           ...remaining,
         ];
@@ -648,7 +697,7 @@ export class ConversationCompactor {
   ): Promise<string> {
     const summarizationPrompt = getCompactSummarizationPrompt();
     const userParts = [
-      { text: `다음 대화를 요약해주세요:\n\n${conversationText}` },
+      { text: `Summarize the following conversation:\n\n${conversationText}` },
     ];
 
     // StateManager가 있으면 compactorModel 사용, 없으면 메인 모델 사용
@@ -756,7 +805,7 @@ export class ConversationCompactor {
 
       const summarizationPrompt = getCompactSummarizationPrompt();
       const userParts = [
-        { text: `다음 대화를 요약해주세요:\n\n${conversationText}` },
+        { text: `Summarize the following conversation:\n\n${conversationText}` },
       ];
 
       // StateManager가 있으면 compactorModel 사용, 없으면 메인 모델 사용

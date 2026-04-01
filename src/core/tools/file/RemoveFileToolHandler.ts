@@ -1,6 +1,6 @@
 /**
  * Remove File Tool Handler
- * 파일 삭제 툴 핸들러
+ * Deletes files
  */
 
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
@@ -25,7 +25,7 @@ export class RemoveFileToolHandler implements IToolHandler {
         }
         const filePath = parseResult.data.path;
 
-        // 파일 존재 여부 확인
+        // Check if file exists
         const absolutePath = path.isAbsolute(filePath)
             ? filePath
             : path.join(context.projectRoot, filePath);
@@ -33,13 +33,13 @@ export class RemoveFileToolHandler implements IToolHandler {
         if (!fs.existsSync(absolutePath)) {
             console.log(`[RemoveFileToolHandler] File does not exist, skipping: ${absolutePath}`);
             return {
-                success: true, // 이미 없는 파일은 성공으로 처리 (idempotent)
+                success: true, // Treat already missing files as success (idempotent)
                 message: `File does not exist (already deleted or never existed): ${filePath}`,
                 data: { filePath, skipped: true }
             };
         }
 
-        // 기존 ActionManager의 executeFileOperation 사용
+        // Use existing ActionManager's executeFileOperation
         const action = {
             id: `tool_${Date.now()}_${Math.random()}`,
             type: ActionType.FILE_OPERATION,

@@ -1,9 +1,9 @@
 /**
  * List Code Definitions Tool Handler
- * 디렉토리 내 모든 파일의 최상위 코드 정의(함수/클래스/인터페이스 등)를 추출
+ * Extracts top-level code definitions (functions/classes/interfaces etc.) from all files in a directory
  *
- * Cline의 list_code_definition_names와 동일한 목적 — tree-sitter 대신 regex 기반 (외부 의존성 없음)
- * ReadFileToolHandler.extractSymbols 로직 재활용
+ * Same purpose as Cline's list_code_definition_names -- regex-based instead of tree-sitter (no external dependencies)
+ * Reuses ReadFileToolHandler.extractSymbols logic
  */
 
 import * as fs from 'fs/promises';
@@ -24,8 +24,8 @@ const SUPPORTED_EXTENSIONS = new Set([
     '.py', '.java', '.kt', '.go', '.rs'
 ]);
 
-const MAX_FILES = 100;       // 너무 많은 파일 방지
-const MAX_FILE_LINES = 5000; // 너무 큰 파일 방지 (심볼만 추출하므로 충분)
+const MAX_FILES = 100;       // Prevent too many files
+const MAX_FILE_LINES = 5000; // Prevent too large files (sufficient for symbol extraction only)
 
 export class ListCodeDefinitionsToolHandler implements IToolHandler {
     readonly name = Tool.LIST_CODE_DEFINITIONS;
@@ -40,7 +40,7 @@ export class ListCodeDefinitionsToolHandler implements IToolHandler {
         if (!dirPath) {
             return {
                 success: false,
-                message: 'path 파라미터가 필요합니다.',
+                message: 'path parameter is required.',
                 error: { code: 'MISSING_PARAM', message: 'path is required' }
             };
         }
@@ -49,7 +49,7 @@ export class ListCodeDefinitionsToolHandler implements IToolHandler {
             ? dirPath
             : path.join(context.projectRoot, dirPath);
 
-        // 프로젝트 루트 외부 접근 차단
+        // Block access outside project root
         if (!absoluteDir.startsWith(context.projectRoot)) {
             return {
                 success: false,
@@ -58,38 +58,38 @@ export class ListCodeDefinitionsToolHandler implements IToolHandler {
             };
         }
 
-        // 디렉토리 존재 확인
+        // Check directory existence
         try {
             const stat = await fs.stat(absoluteDir);
             if (!stat.isDirectory()) {
                 return {
                     success: false,
-                    message: `${dirPath}는 디렉토리가 아닙니다.`,
+                    message: `${dirPath} is not a directory.`,
                     error: { code: 'NOT_A_DIRECTORY', message: 'Path is not a directory' }
                 };
             }
         } catch {
             return {
                 success: false,
-                message: `디렉토리를 찾을 수 없습니다: ${dirPath}`,
+                message: `Directory not found: ${dirPath}`,
                 error: { code: 'DIR_NOT_FOUND', message: 'Directory not found' }
             };
         }
 
-        // 파일 목록 수집
+        // Collect file list
         const files = await this.collectFiles(absoluteDir, recursive, extFilter);
 
         if (files.length === 0) {
             return {
                 success: true,
-                message: `${dirPath}: 지원하는 파일 없음`
+                message: `${dirPath}: no supported files found`
             };
         }
 
         const truncated = files.length > MAX_FILES;
         const filesToProcess = files.slice(0, MAX_FILES);
 
-        // 각 파일 심볼 추출
+        // Extract symbols from each file
         const results: Array<{ relPath: string; symbols: SymbolInfo[] }> = [];
         let totalSymbols = 0;
 
@@ -97,7 +97,7 @@ export class ListCodeDefinitionsToolHandler implements IToolHandler {
             try {
                 const content = await fs.readFile(absPath, 'utf8');
                 const lines = content.split('\n');
-                if (lines.length > MAX_FILE_LINES) { continue; } // 너무 큰 파일 스킵
+                if (lines.length > MAX_FILE_LINES) { continue; } // Skip too large files
 
                 const ext = path.extname(absPath).toLowerCase();
                 const symbols = this.extractSymbols(lines, ext);
@@ -108,18 +108,18 @@ export class ListCodeDefinitionsToolHandler implements IToolHandler {
                     totalSymbols += symbols.length;
                 }
             } catch {
-                // 읽기 실패 시 스킵
+                // Skip on read failure
             }
         }
 
         if (results.length === 0) {
             return {
                 success: true,
-                message: `${dirPath}: 추출된 심볼 없음`
+                message: `${dirPath}: no symbols extracted`
             };
         }
 
-        // 포맷팅
+        // Formatting
         const lines: string[] = [];
         for (const { relPath, symbols } of results) {
             lines.push(relPath);
@@ -130,7 +130,7 @@ export class ListCodeDefinitionsToolHandler implements IToolHandler {
             lines.push('');
         }
 
-        const header = `코드 정의 목록: ${dirPath} (${results.length}개 파일, ${totalSymbols}개 심볼)${truncated ? ` — ${files.length}개 중 ${MAX_FILES}개만 표시` : ''}\n`;
+        const header = `Code definitions: ${dirPath} (${results.length} files, ${totalSymbols} symbols)${truncated ? ` -- showing ${MAX_FILES} of ${files.length}` : ''}\n`;
 
         return {
             success: true,
@@ -154,7 +154,7 @@ export class ListCodeDefinitionsToolHandler implements IToolHandler {
             }
 
             for (const entry of entries) {
-                // node_modules, .git, dist 등 제외
+                // Exclude node_modules, .git, dist, etc.
                 if (entry.isDirectory()) {
                     const skip = ['node_modules', '.git', 'dist', 'build', '.next', '__pycache__', 'vendor'];
                     if (skip.includes(entry.name)) { continue; }
@@ -171,7 +171,7 @@ export class ListCodeDefinitionsToolHandler implements IToolHandler {
         };
 
         await scan(dir);
-        return results.sort(); // 알파벳순 정렬
+        return results.sort(); // Sort alphabetically
     }
 
     private extractSymbols(lines: string[], ext: string): SymbolInfo[] {

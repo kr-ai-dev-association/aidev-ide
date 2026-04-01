@@ -1,8 +1,8 @@
 /**
  * Stat File Tool Handler
- * 파일 메타데이터 조회 도구 (내용 없이)
- * - 파일 크기, 수정 시간, 라인 수 등
- * - 파일 구조 요약 (클래스, 함수 목록)
+ * File metadata query tool (without content)
+ * - File size, modification time, line count, etc.
+ * - File structure summary (class, function list)
  */
 
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
@@ -23,7 +23,7 @@ export class StatFileToolHandler implements IToolHandler {
 
     async execute(toolUse: ToolUse, context: ToolExecutionContext): Promise<ToolResponse> {
         const filePath = toolUse.params.path;
-        const includeSymbols = toolUse.params.symbols !== 'false'; // 기본값: true
+        const includeSymbols = toolUse.params.symbols !== 'false'; // Default: true
 
         if (!filePath) {
             return {
@@ -37,7 +37,7 @@ export class StatFileToolHandler implements IToolHandler {
             ? filePath
             : path.join(context.projectRoot, filePath);
 
-        // 프로젝트 루트 외부 파일 접근 차단
+        // Block access to files outside project root
         if (!absolutePath.startsWith(context.projectRoot) && absolutePath !== context.projectRoot) {
             console.warn(`[StatFileToolHandler] External file access blocked: ${absolutePath}`);
             return {
@@ -48,7 +48,7 @@ export class StatFileToolHandler implements IToolHandler {
         }
 
         try {
-            // 파일 stat 정보
+            // File stat info
             const stat = await fs.stat(absolutePath);
 
             if (!stat.isFile()) {
@@ -59,7 +59,7 @@ export class StatFileToolHandler implements IToolHandler {
                 };
             }
 
-            // 파일 내용 읽기 (라인 수 및 심볼 분석용)
+            // Read file content (for line count and symbol analysis)
             const cache = ProjectContextCache.getInstance();
             let fullContent = await cache.getFile(absolutePath);
             if (!fullContent) {
@@ -70,16 +70,16 @@ export class StatFileToolHandler implements IToolHandler {
             const lines = fullContent.split('\n');
             const ext = path.extname(absolutePath).toLowerCase();
 
-            // 심볼 추출
+            // Extract symbols
             let symbols: SymbolInfo[] = [];
             if (includeSymbols) {
                 symbols = this.extractSymbols(lines, ext);
             }
 
-            // 파일 구조 요약 생성
+            // Generate file structure summary
             const symbolSummary = this.generateSymbolSummary(symbols);
 
-            // 포맷된 출력
+            // Formatted output
             let formattedOutput = `=== File Info: ${path.basename(absolutePath)} ===\n`;
             formattedOutput += `Path: ${filePath}\n`;
             formattedOutput += `Size: ${this.formatFileSize(stat.size)}\n`;
@@ -129,7 +129,7 @@ export class StatFileToolHandler implements IToolHandler {
     private extractSymbols(lines: string[], ext: string): SymbolInfo[] {
         const symbols: SymbolInfo[] = [];
 
-        // 지원하는 확장자 확인
+        // Check supported extensions
         const supportedExts = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.java', '.kt', '.go', '.rs'];
         if (!supportedExts.includes(ext)) {
             return symbols;
@@ -141,23 +141,23 @@ export class StatFileToolHandler implements IToolHandler {
                 return;
             }
 
-            // TypeScript/JavaScript 패턴
+            // TypeScript/JavaScript patterns
             if (['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'].includes(ext)) {
-                // 클래스
+                // Class
                 let match = trimmedLine.match(/^(export\s+)?(abstract\s+)?class\s+(\w+)/);
                 if (match) {
                     symbols.push({ name: match[3], type: 'class', line: idx + 1, exported: !!match[1] });
                     return;
                 }
 
-                // 인터페이스
+                // Interface
                 match = trimmedLine.match(/^(export\s+)?interface\s+(\w+)/);
                 if (match) {
                     symbols.push({ name: match[2], type: 'interface', line: idx + 1, exported: !!match[1] });
                     return;
                 }
 
-                // 타입
+                // Type
                 match = trimmedLine.match(/^(export\s+)?type\s+(\w+)/);
                 if (match) {
                     symbols.push({ name: match[2], type: 'type', line: idx + 1, exported: !!match[1] });
@@ -171,17 +171,17 @@ export class StatFileToolHandler implements IToolHandler {
                     return;
                 }
 
-                // 함수 (function 키워드)
+                // Function (function keyword)
                 match = trimmedLine.match(/^(export\s+)?(async\s+)?function\s+(\w+)/);
                 if (match) {
                     symbols.push({ name: match[3], type: 'function', line: idx + 1, exported: !!match[1] });
                     return;
                 }
 
-                // 화살표 함수 또는 const/let 함수
+                // Arrow function or const/let function
                 match = trimmedLine.match(/^(export\s+)?(const|let|var)\s+(\w+)\s*[=:]/);
                 if (match) {
-                    // 함수인지 변수인지 판별 (다음에 =>나 function이 있으면 함수)
+                    // Determine if function or variable (function if => or function follows)
                     if (line.includes('=>') || line.includes('function')) {
                         symbols.push({ name: match[3], type: 'function', line: idx + 1, exported: !!match[1] });
                     } else {
@@ -191,7 +191,7 @@ export class StatFileToolHandler implements IToolHandler {
                 }
             }
 
-            // Python 패턴
+            // Python patterns
             if (ext === '.py') {
                 let match = trimmedLine.match(/^class\s+(\w+)/);
                 if (match) {
@@ -206,7 +206,7 @@ export class StatFileToolHandler implements IToolHandler {
                 }
             }
 
-            // Java/Kotlin 패턴
+            // Java/Kotlin patterns
             if (['.java', '.kt'].includes(ext)) {
                 let match = trimmedLine.match(/^(public|private|protected)?\s*(static\s+)?(abstract\s+)?(class|interface|enum)\s+(\w+)/);
                 if (match) {
@@ -222,7 +222,7 @@ export class StatFileToolHandler implements IToolHandler {
                 }
             }
 
-            // Go 패턴
+            // Go patterns
             if (ext === '.go') {
                 let match = trimmedLine.match(/^type\s+(\w+)\s+(struct|interface)/);
                 if (match) {
@@ -240,7 +240,7 @@ export class StatFileToolHandler implements IToolHandler {
                 }
             }
 
-            // Rust 패턴
+            // Rust patterns
             if (ext === '.rs') {
                 let match = trimmedLine.match(/^(pub\s+)?struct\s+(\w+)/);
                 if (match) {

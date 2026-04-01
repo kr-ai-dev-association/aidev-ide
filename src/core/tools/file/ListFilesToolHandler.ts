@@ -1,6 +1,6 @@
 /**
  * List Files Tool Handler
- * 파일 목록 조회 툴 핸들러
+ * Lists files in a directory
  */
 
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
@@ -13,7 +13,7 @@ import { SubProjectDetector } from '../../managers/project/SubProjectDetector';
 export class ListFilesToolHandler implements IToolHandler {
     readonly name = Tool.LIST_FILES;
 
-    // .gitignore 패턴 캐시 (projectRoot → patterns)
+    // .gitignore pattern cache (projectRoot -> patterns)
     private gitignoreCache: Map<string, string[]> = new Map();
 
     private async loadGitignorePatterns(projectRoot: string): Promise<string[]> {
@@ -38,12 +38,12 @@ export class ListFilesToolHandler implements IToolHandler {
     private matchesGitignore(entryName: string, relativePath: string, patterns: string[]): boolean {
         for (const pattern of patterns) {
             const p = pattern.endsWith('/') ? pattern.slice(0, -1) : pattern;
-            // 단순 이름 매칭
+            // Simple name matching
             if (!p.includes('/') && !p.includes('*')) {
                 if (entryName === p) { return true; }
                 continue;
             }
-            // 와일드카드 패턴 — 간단한 glob 변환
+            // Wildcard pattern -- simple glob conversion
             const regex = new RegExp(
                 '^' + p.replace(/\./g, '\\.').replace(/\*\*/g, '.*').replace(/\*/g, '[^/]*') + '$'
             );
@@ -108,7 +108,7 @@ export class ListFilesToolHandler implements IToolHandler {
             ? dirPath
             : path.join(context.projectRoot, dirPath);
 
-        // 서브프로젝트 경로 fallback: 디렉토리가 없으면 서브프로젝트 루트에서 재탐색
+        // Sub-project path fallback: re-search from sub-project root if directory not found
         if (!path.isAbsolute(dirPath) && !fsSync.existsSync(absolutePath)) {
             const fallback = SubProjectDetector.resolveWithFallback(context.projectRoot, dirPath);
             if (fallback && fsSync.statSync(fallback).isDirectory()) {
@@ -117,7 +117,7 @@ export class ListFilesToolHandler implements IToolHandler {
             }
         }
 
-        // 프로젝트 루트 외부 경로 접근 차단
+        // Block access to paths outside project root
         if (!absolutePath.startsWith(context.projectRoot) && absolutePath !== context.projectRoot) {
             console.warn(`[ListFilesToolHandler] External path blocked: ${absolutePath}. Using project root instead.`);
             absolutePath = context.projectRoot;
@@ -132,7 +132,7 @@ export class ListFilesToolHandler implements IToolHandler {
                 data: { path: dirPath, files }
             };
         } catch (error: any) {
-            // 권한 에러 처리
+            // Handle permission errors
             if (error.code === 'EACCES') {
                 return {
                     success: false,
@@ -155,7 +155,7 @@ export class ListFilesToolHandler implements IToolHandler {
         const files: string[] = [];
         const self = this;
 
-        // 탐색 대상 디렉토리 이름이 무시 목록에 있는지 확인
+        // Check if target directory name is in the ignore list
         const targetDirName = path.basename(dirPath);
         const isTargetingIgnored = this.DEFAULT_IGNORE_DIRECTORIES.includes(targetDirName) || targetDirName.startsWith('.');
 
@@ -168,10 +168,10 @@ export class ListFilesToolHandler implements IToolHandler {
                     const fullPath = path.join(currentPath, entryName);
                     const relativePath = path.relative(projectRoot, fullPath);
 
-                    // 무시 필터링:
-                    // 1. 명시적으로 해당 디렉토리를 타겟팅한 게 아니라면 무시 목록 체크
-                    // 2. 숨김 파일/디렉토리 ('.') 체크 (타겟팅하지 않은 경우에만)
-                    // 3. .gitignore 패턴 체크
+                    // Ignore filtering:
+                    // 1. Check ignore list unless explicitly targeting this directory
+                    // 2. Check hidden files/directories ('.') (only when not targeting)
+                    // 3. Check .gitignore patterns
                     if (!isTargetingIgnored) {
                         if (self.DEFAULT_IGNORE_DIRECTORIES.includes(entryName) || entryName.startsWith('.')) {
                             continue;
@@ -188,7 +188,7 @@ export class ListFilesToolHandler implements IToolHandler {
                     }
                 }
             } catch (error: any) {
-                // 특정 서브디렉토리 권한 에러 시 해당 디렉토리만 건너뜀
+                // Skip only the subdirectory with permission errors
                 if (error.code === 'EACCES') {
                     console.warn(`[ListFilesToolHandler] Skipping protected directory: ${currentPath}`);
                     return;

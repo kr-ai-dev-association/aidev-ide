@@ -1,10 +1,10 @@
 /**
  * Tool Spec Builder
- * 프롬프트에 포함될 툴 스펙을 생성하는 빌더
+ * Builder that generates tool specs to be included in prompts
  *
- * v8.9.0: JSON Function Calling 지원 추가
- * - buildFunctionDeclarations(): Gemini/OpenAI 호환 function declarations
- * - buildToolPromptSectionJson(): JSON 기반 도구 호출 프롬프트
+ * v8.9.0: Added JSON Function Calling support
+ * - buildFunctionDeclarations(): Gemini/OpenAI compatible function declarations
+ * - buildToolPromptSectionJson(): JSON-based tool calling prompt
  */
 
 import { ToolSpec, Tool, ToolName } from './types';
@@ -13,7 +13,7 @@ import { ToolRegistry } from './ToolRegistry';
 import { MCPToolHandler } from './mcp/MCPToolHandler';
 
 /**
- * JSON Schema 형식의 Function Declaration (Gemini/OpenAI 호환)
+ * JSON Schema format Function Declaration (Gemini/OpenAI compatible)
  */
 export interface FunctionDeclaration {
     name: string;
@@ -30,7 +30,7 @@ export interface FunctionDeclaration {
 }
 
 /**
- * Native Function Call 응답 형식
+ * Native Function Call response format
  */
 export interface FunctionCall {
     name: string;
@@ -39,7 +39,7 @@ export interface FunctionCall {
 
 export class ToolSpecBuilder {
     /**
-     * 모든 툴 스펙 생성 (프롬프트에 포함)
+     * Build all tool specs (included in prompt)
      */
     static buildToolSpecs(allowedTools?: Tool[]): ToolSpec[] {
         const specs: ToolSpec[] = [];
@@ -48,10 +48,10 @@ export class ToolSpecBuilder {
         if (!allowedTools || allowedTools.includes(Tool.CREATE_FILE)) {
             specs.push({
                 name: Tool.CREATE_FILE,
-                description: '새 파일을 생성하거나 기존 파일을 덮어씁니다. 필요한 디렉토리는 자동으로 생성됩니다.',
+                description: 'Creates a new file or overwrites an existing file. Required directories are created automatically.',
                 parameters: [
-                    { name: 'path', required: true, description: '작성할 파일 경로 (프로젝트 루트 기준 상대 경로)', type: 'string' },
-                    { name: 'content', required: true, description: '파일에 작성할 전체 내용', type: 'string' }
+                    { name: 'path', required: true, description: 'File path to write (relative path from project root)', type: 'string' },
+                    { name: 'content', required: true, description: 'Full content to write to the file', type: 'string' }
                 ]
             });
         }
@@ -60,10 +60,10 @@ export class ToolSpecBuilder {
         if (!allowedTools || allowedTools.includes(Tool.UPDATE_FILE)) {
             specs.push({
                 name: Tool.UPDATE_FILE,
-                description: '기존 파일의 특정 부분만 수정합니다. 전체 파일을 덮어쓰지 않습니다. **CRITICAL: update_file을 사용하기 전에 반드시 read_file로 최신 파일 내용을 먼저 읽어야 합니다.**',
+                description: 'Modifies only specific parts of an existing file. Does not overwrite the entire file. **CRITICAL: You must read the latest file content with read_file before using update_file.**',
                 parameters: [
-                    { name: 'path', required: true, description: '수정할 파일 경로', type: 'string' },
-                    { name: 'diff', required: true, description: 'SEARCH/REPLACE 블록 형식:\n<<<<<<< SEARCH\n[정확한 현재 파일 내용]\n=======\n[새 내용]\n>>>>>>> REPLACE\n\n**중요:** SEARCH 블록의 내용은 반드시 read_file로 읽은 최신 파일 내용과 정확히 일치해야 합니다. 공백, 들여쓰기, 줄바꿈까지 정확히 일치해야 합니다.', type: 'string' }
+                    { name: 'path', required: true, description: 'File path to modify', type: 'string' },
+                    { name: 'diff', required: true, description: 'SEARCH/REPLACE block format:\n<<<<<<< SEARCH\n[exact current file content]\n=======\n[new content]\n>>>>>>> REPLACE\n\n**Important:** The content in the SEARCH block must exactly match the latest file content read via read_file. Whitespace, indentation, and line breaks must match exactly.', type: 'string' }
                 ]
             });
         }
@@ -72,9 +72,9 @@ export class ToolSpecBuilder {
         if (!allowedTools || allowedTools.includes(Tool.REMOVE_FILE)) {
             specs.push({
                 name: Tool.REMOVE_FILE,
-                description: '프로젝트에서 파일을 삭제합니다.',
+                description: 'Deletes a file from the project.',
                 parameters: [
-                    { name: 'path', required: true, description: '삭제할 파일 경로', type: 'string' }
+                    { name: 'path', required: true, description: 'File path to delete', type: 'string' }
                 ]
             });
         }
@@ -83,12 +83,12 @@ export class ToolSpecBuilder {
         if (!allowedTools || allowedTools.includes(Tool.READ_FILE)) {
             specs.push({
                 name: Tool.READ_FILE,
-                description: '지정된 경로의 파일 내용을 읽습니다. 여러 파일을 한 번에 읽으려면 <paths> 태그에 쉼표로 구분된 경로 목록을 제공하거나, 여러 <path> 태그를 사용할 수 있습니다. 큰 파일의 경우 startLine과 endLine을 사용하여 특정 범위만 읽을 수 있습니다.',
+                description: 'Reads the content of a file at the specified path. To read multiple files at once, provide a comma-separated list of paths in the <paths> tag, or use multiple <path> tags. For large files, you can use startLine and endLine to read only a specific range.',
                 parameters: [
-                    { name: 'path', required: false, description: '읽을 파일 경로 (단일 파일인 경우)', type: 'string' },
-                    { name: 'paths', required: false, description: '읽을 파일 경로 목록 (쉼표로 구분된 문자열 또는 여러 <path> 태그)', type: 'string' },
-                    { name: 'startLine', required: false, description: '읽기 시작할 줄 번호 (1부터 시작, 생략하면 처음부터)', type: 'number' },
-                    { name: 'endLine', required: false, description: '읽기 끝낼 줄 번호 (포함, 생략하면 끝까지)', type: 'number' }
+                    { name: 'path', required: false, description: 'File path to read (for a single file)', type: 'string' },
+                    { name: 'paths', required: false, description: 'List of file paths to read (comma-separated string or multiple <path> tags)', type: 'string' },
+                    { name: 'startLine', required: false, description: 'Line number to start reading from (1-based, reads from beginning if omitted)', type: 'number' },
+                    { name: 'endLine', required: false, description: 'Line number to stop reading at (inclusive, reads to end if omitted)', type: 'number' }
                 ]
             });
         }
@@ -97,10 +97,10 @@ export class ToolSpecBuilder {
         if (!allowedTools || allowedTools.includes(Tool.LIST_FILES)) {
             specs.push({
                 name: Tool.LIST_FILES,
-                description: '**디렉토리 구조 파악 전용.** "src 안에 뭐가 있나", "이 폴더 구조가 어떻게 됐나" 확인 시 사용하세요. ⚠️ 파일 검색에는 사용 금지: 파일명/경로로 찾을 때 → glob_search, 파일 내용으로 찾을 때 → ripgrep_search.',
+                description: '**For exploring directory structure only.** Use when checking "what is inside src" or "what does the folder structure look like". Do not use for file searching: use glob_search to find files by name/path, use ripgrep_search to search file contents.',
                 parameters: [
-                    { name: 'path', required: false, description: '디렉토리 경로 (기본값: 프로젝트 루트)', type: 'string' },
-                    { name: 'recursive', required: false, description: '재귀적으로 나열할지 여부 (true/false)', type: 'string' }
+                    { name: 'path', required: false, description: 'Directory path (default: project root)', type: 'string' },
+                    { name: 'recursive', required: false, description: 'Whether to list recursively (true/false)', type: 'string' }
                 ]
             });
         }
@@ -109,17 +109,17 @@ export class ToolSpecBuilder {
         if (!allowedTools || allowedTools.includes(Tool.RIPGREP_SEARCH)) {
             specs.push({
                 name: Tool.RIPGREP_SEARCH,
-                description: '파일 내용에서 키워드나 패턴을 검색합니다. 결과에 파일 경로와 **정확한 줄 번호**가 포함됩니다. 대규모 프로젝트에서도 매우 빠릅니다. **줄 번호가 필요한 모든 검색**("몇 번째 줄", "def 함수 목록", "어디에 구현되어 있어?" 등)에 사용하세요. stat_file은 심볼 이름만 반환하고 줄 번호는 제공하지 않으므로, 줄 번호가 필요하면 반드시 ripgrep_search를 사용해야 합니다. **권장 플로우**: 1) ripgrep_search로 패턴 검색, 2) read_file로 각 파일 내용 확인, 3) update_file로 SEARCH/REPLACE 블록 사용하여 수정. find + sed -i 같은 쉘 명령어는 절대 사용하지 마세요.',
+                description: 'Searches for keywords or patterns within file contents. Results include file paths and **exact line numbers**. Extremely fast even in large projects. **Use for any search requiring line numbers** ("which line", "list of def functions", "where is it implemented", etc.). stat_file only returns symbol names without line numbers, so you must use ripgrep_search when line numbers are needed. **Recommended workflow**: 1) Search patterns with ripgrep_search, 2) Verify file contents with read_file, 3) Modify with update_file using SEARCH/REPLACE blocks. Never use shell commands like find + sed -i.',
                 parameters: [
-                    { name: 'pattern', required: true, description: '검색할 정규식 또는 키워드', type: 'string' },
-                    { name: 'path', required: false, description: '검색할 디렉토리 (기본값: 프로젝트 루트)', type: 'string' },
-                    { name: 'include', required: false, description: '포함할 파일 패턴 (쉼표로 구분)', type: 'string' },
-                    { name: 'exclude', required: false, description: '제외할 파일 패턴 (쉼표로 구분)', type: 'string' },
-                    { name: 'caseSensitive', required: false, description: '대소문자 구분 여부 (true/false)', type: 'string' },
-                    { name: 'contextLines', required: false, description: '주변 컨텍스트 라인 수 (기본: 2)', type: 'string' },
-                    { name: 'outputMode', required: false, description: '출력 모드: content(매치 라인+컨텍스트, 기본), files_with_matches(파일 경로만), count(매치 수만)', type: 'string' },
-                    { name: 'multiline', required: false, description: '여러 줄에 걸친 패턴 매칭 (true/false, 기본: false)', type: 'string' },
-                    { name: 'headLimit', required: false, description: '상위 N개 파일 결과만 반환', type: 'string' }
+                    { name: 'pattern', required: true, description: 'Regex or keyword to search for', type: 'string' },
+                    { name: 'path', required: false, description: 'Directory to search in (default: project root)', type: 'string' },
+                    { name: 'include', required: false, description: 'File patterns to include (comma-separated)', type: 'string' },
+                    { name: 'exclude', required: false, description: 'File patterns to exclude (comma-separated)', type: 'string' },
+                    { name: 'caseSensitive', required: false, description: 'Whether to match case-sensitively (true/false)', type: 'string' },
+                    { name: 'contextLines', required: false, description: 'Number of surrounding context lines (default: 2)', type: 'string' },
+                    { name: 'outputMode', required: false, description: 'Output mode: content (matching lines + context, default), files_with_matches (file paths only), count (match count only)', type: 'string' },
+                    { name: 'multiline', required: false, description: 'Multi-line pattern matching (true/false, default: false)', type: 'string' },
+                    { name: 'headLimit', required: false, description: 'Return only the top N file results', type: 'string' }
                 ]
             });
         }
@@ -128,68 +128,55 @@ export class ToolSpecBuilder {
         if (!allowedTools || allowedTools.includes(Tool.RUN_COMMAND)) {
             specs.push({
                 name: Tool.RUN_COMMAND,
-                description: '프로젝트 디렉토리에서 터미널 명령을 실행합니다. **⚠️ 중요: 파일 일괄 수정(find + sed 등)은 절대 사용하지 마세요. 대신 ripgrep_search → read_file → update_file 플로우를 사용하세요.**',
+                description: 'Executes a terminal command in the project directory. **Important: Never use bulk file modification commands (find + sed, etc.). Use the ripgrep_search -> read_file -> update_file workflow instead.**',
                 parameters: [
-                    { name: 'command', required: true, description: '실행할 명령어. **절대 금지: find + sed -i, perl -i, xargs sed 등 파일 일괄 수정 명령어**', type: 'string' },
-                    { name: 'timeout', required: false, description: '명령어 타임아웃 (초)', type: 'string' },
-                    { name: 'wait', required: false, description: '완료까지 대기 (true이면 타임아웃 없이 완료까지 대기)', type: 'string' }
+                    { name: 'command', required: true, description: 'Command to execute. **Strictly prohibited: find + sed -i, perl -i, xargs sed, and other bulk file modification commands**', type: 'string' },
+                    { name: 'timeout', required: false, description: 'Command timeout (seconds)', type: 'string' },
+                    { name: 'is_background', required: false, description: 'Set to "true" for long-running processes (dev servers, watchers, etc.) that should run in the background. The command starts immediately and returns without waiting for completion. Use for: npm run dev, uvicorn, docker compose up, nodemon, etc.', type: 'string' }
                 ]
             });
         }
 
-        // expand_around_line - 특정 라인 주변 컨텍스트 읽기
-        if (!allowedTools || allowedTools.includes(Tool.EXPAND_AROUND_LINE)) {
-            specs.push({
-                name: Tool.EXPAND_AROUND_LINE,
-                description: '특정 라인 번호를 중심으로 주변 컨텍스트를 읽습니다. ripgrep_search 결과에서 찾은 라인의 주변 코드를 확인할 때 유용합니다.',
-                parameters: [
-                    { name: 'path', required: true, description: '읽을 파일 경로', type: 'string' },
-                    { name: 'line', required: true, description: '중심 라인 번호 (1부터 시작)', type: 'number' },
-                    { name: 'before', required: false, description: '중심 라인 위로 읽을 라인 수 (기본값: 20)', type: 'number' },
-                    { name: 'after', required: false, description: '중심 라인 아래로 읽을 라인 수 (기본값: 20)', type: 'number' }
-                ]
-            });
-        }
 
-        // list_imports - 파일의 import/export 문 추출
+        // list_imports - Extract import/export statements from a file
         if (!allowedTools || allowedTools.includes(Tool.LIST_IMPORTS)) {
             specs.push({
                 name: Tool.LIST_IMPORTS,
-                description: '파일의 import/export 문을 추출합니다. 파일의 의존성과 내보내기를 빠르게 파악할 때 유용합니다. JS/TS, Python, Java, Go, Rust, C/C++ 등 다양한 언어를 지원합니다.',
+                description: 'Extracts import/export statements from a file. Useful for quickly identifying file dependencies and exports. Supports various languages including JS/TS, Python, Java, Go, Rust, C/C++.',
                 parameters: [
-                    { name: 'path', required: true, description: '분석할 파일 경로', type: 'string' }
+                    { name: 'path', required: true, description: 'File path to analyze', type: 'string' }
                 ]
             });
         }
 
-        // stat_file - 파일 메타데이터 조회
+        // stat_file - Query file metadata
         if (!allowedTools || allowedTools.includes(Tool.STAT_FILE)) {
             specs.push({
                 name: Tool.STAT_FILE,
-                description: '파일의 메타데이터와 구조 요약을 조회합니다. 파일 크기, 총 라인 수, 수정 시간, 그리고 클래스/함수/인터페이스 등의 **심볼 이름 목록**을 반환합니다. 파일을 읽기 전에 크기 확인, 또는 어떤 클래스/함수가 존재하는지 이름만 파악할 때 사용하세요. ⚠️ 제한: 심볼의 **정확한 줄 번호를 제공하지 않습니다**. "몇 번째 줄", "def 목록과 줄 번호", "어디에 구현됨" 등 줄 번호가 필요하면 ripgrep_search를 사용하세요.',
+                description: 'Queries file metadata and structural summary. Returns file size, total line count, modification time, and a **list of symbol names** such as classes/functions/interfaces. Use to check file size before reading, or to identify which classes/functions exist by name only. Limitation: Does **not provide exact line numbers** for symbols. If you need line numbers ("which line", "list of defs with line numbers", "where is it implemented"), use ripgrep_search instead.',
                 parameters: [
-                    { name: 'path', required: true, description: '조회할 파일 경로', type: 'string' },
-                    { name: 'symbols', required: false, description: '심볼(클래스, 함수 등) 추출 여부 (기본값: true)', type: 'string' }
+                    { name: 'path', required: true, description: 'File path to query', type: 'string' },
+                    { name: 'symbols', required: false, description: 'Whether to extract symbols (classes, functions, etc.) (default: true)', type: 'string' }
                 ]
             });
         }
 
-        // read_active_file - 현재 열린 파일 읽기
+        // read_active_file - Read currently open file
         if (!allowedTools || allowedTools.includes(Tool.READ_ACTIVE_FILE)) {
             specs.push({
                 name: Tool.READ_ACTIVE_FILE,
-                description: '에디터에 현재 열려있는 파일의 내용을 읽습니다. 사용자가 @로 파일을 첨부하지 않았고, "이 파일", "지금 보고있는 파일", "열린 파일" 등 경로 없이 현재 파일을 지칭할 때만 사용하세요. @첨부된 파일이 있으면 이 도구는 불필요합니다.',
+                description: 'Reads the content of the file currently open in the editor. Use only when the user refers to the current file without a path, such as "this file", "the file I am looking at", or "the open file", and has not attached a file with @. If a file was attached with @, this tool is unnecessary.',
                 parameters: []
             });
         }
 
-        // fetch_url - URL 내용 가져오기
+        // fetch_url - Fetch URL content
         if (!allowedTools || allowedTools.includes(Tool.FETCH_URL)) {
             specs.push({
                 name: Tool.FETCH_URL,
-                description: '외부 URL의 내용을 가져올 수 있습니다. 사용자가 URL을 제공하고 내용을 요청하면 이 도구를 사용하세요. 웹페이지 요약, API 문서 확인, GitHub 파일 조회 등에 활용합니다.',
+                description: 'Fetches the content of an external URL. Use this tool when the user provides a URL and requests its content. Useful for web page summarization, API documentation review, GitHub file retrieval, etc.',
                 parameters: [
-                    { name: 'url', required: true, description: '가져올 URL (https:// 포함)', type: 'string' }
+                    { name: 'url', required: true, description: 'URL to fetch (including https://)', type: 'string' }
                 ]
             });
         }
@@ -198,13 +185,13 @@ export class ToolSpecBuilder {
         if (!allowedTools || allowedTools.includes(Tool.LSP)) {
             specs.push({
                 name: Tool.LSP,
-                description: 'Language Server Protocol(LSP)을 통해 코드 인텔리전스 정보를 조회합니다. 심볼 정의 위치, 참조 검색, 타입 정보, 파일/워크스페이스 심볼 목록 등을 제공합니다.',
+                description: 'Queries code intelligence information via Language Server Protocol (LSP). Provides symbol definition locations, reference search, type information, file/workspace symbol lists, and more.',
                 parameters: [
-                    { name: 'operation', required: true, description: '수행할 작업: goToDefinition (정의로 이동) | findReferences (참조 검색) | hover (타입/문서 정보) | documentSymbol (파일 내 심볼 목록) | workspaceSymbol (워크스페이스 심볼 검색) | goToImplementation (구현체 검색)', type: 'string' },
-                    { name: 'file_path', required: false, description: '대상 파일 경로 (workspaceSymbol 제외 필수)', type: 'string' },
-                    { name: 'line', required: false, description: '커서 라인 번호 (1-based, 위치 기반 작업에 필요)', type: 'string' },
-                    { name: 'character', required: false, description: '커서 컬럼 번호 (0-based, 위치 기반 작업에 필요)', type: 'string' },
-                    { name: 'query', required: false, description: 'workspaceSymbol 검색어', type: 'string' },
+                    { name: 'operation', required: true, description: 'Operation to perform: goToDefinition (go to definition) | findReferences (find references) | hover (type/documentation info) | documentSymbol (list symbols in file) | workspaceSymbol (search workspace symbols) | goToImplementation (find implementations)', type: 'string' },
+                    { name: 'file_path', required: false, description: 'Target file path (required except for workspaceSymbol)', type: 'string' },
+                    { name: 'line', required: false, description: 'Cursor line number (1-based, required for position-based operations)', type: 'string' },
+                    { name: 'character', required: false, description: 'Cursor column number (0-based, required for position-based operations)', type: 'string' },
+                    { name: 'query', required: false, description: 'workspaceSymbol search query', type: 'string' },
                 ]
             });
         }
@@ -213,65 +200,65 @@ export class ToolSpecBuilder {
         if (!allowedTools || allowedTools.includes(Tool.LIST_CODE_DEFINITIONS)) {
             specs.push({
                 name: Tool.LIST_CODE_DEFINITIONS,
-                description: '디렉토리 내 모든 파일에서 최상위 코드 정의(함수, 클래스, 인터페이스, 타입 등)를 추출하여 코드베이스 구조를 빠르게 파악합니다. 지원 언어: TypeScript, JavaScript, Python, Java, Kotlin, Go, Rust.',
+                description: 'Extracts top-level code definitions (functions, classes, interfaces, types, etc.) from all files in a directory to quickly understand codebase structure. Supported languages: TypeScript, JavaScript, Python, Java, Kotlin, Go, Rust.',
                 parameters: [
-                    { name: 'path', required: true, description: '스캔할 디렉토리 경로', type: 'string' },
-                    { name: 'recursive', required: false, description: '하위 디렉토리 재귀 스캔 여부 (기본: false)', type: 'string' },
-                    { name: 'extensions', required: false, description: '필터할 파일 확장자 (쉼표 구분, 예: "ts,tsx,js")', type: 'string' },
+                    { name: 'path', required: true, description: 'Directory path to scan', type: 'string' },
+                    { name: 'recursive', required: false, description: 'Whether to recursively scan subdirectories (default: false)', type: 'string' },
+                    { name: 'extensions', required: false, description: 'File extensions to filter (comma-separated, e.g.: "ts,tsx,js")', type: 'string' },
                 ]
             });
         }
 
-        // glob_search - 파일 경로 패턴 검색
+        // glob_search - Search file paths by pattern
         if (!allowedTools || allowedTools.includes(Tool.GLOB_SEARCH)) {
             specs.push({
                 name: Tool.GLOB_SEARCH,
-                description: 'glob 패턴으로 프로젝트 내 파일 경로를 검색합니다. 파일 이름이나 경로 패턴으로 파일 위치를 찾을 때 사용하세요. ripgrep_search는 파일 **내용**을 검색하고, glob_search는 파일 **경로/이름**을 검색합니다. **파일 위치를 모를 때, 또는 파일명에 특정 단어가 포함된 파일을 찾을 때(예: *manager*, *service*)는 glob_search를 사용하세요.** list_files 대신 glob_search를 우선 사용하세요.',
+                description: 'Searches for file paths within the project using glob patterns. Use when finding file locations by file name or path pattern. ripgrep_search searches file **contents**, while glob_search searches file **paths/names**. **Use glob_search when you do not know the file location, or when finding files whose names contain specific words (e.g.: *manager*, *service*).** Prefer glob_search over list_files.',
                 parameters: [
-                    { name: 'pattern', required: true, description: 'glob 패턴 (예: **/Dashboard.tsx, src/**/*.test.ts, **/*.config.{js,ts})', type: 'string' },
-                    { name: 'path', required: false, description: '검색 시작 디렉토리 (기본값: 프로젝트 루트)', type: 'string' },
-                    { name: 'maxResults', required: false, description: '최대 결과 수 (기본값: 200)', type: 'string' }
+                    { name: 'pattern', required: true, description: 'Glob pattern (e.g.: **/Dashboard.tsx, src/**/*.test.ts, **/*.config.{js,ts})', type: 'string' },
+                    { name: 'path', required: false, description: 'Starting directory for search (default: project root)', type: 'string' },
+                    { name: 'maxResults', required: false, description: 'Maximum number of results (default: 200)', type: 'string' }
                 ]
             });
         }
 
-        // memory_save - 영속적 메모리 저장
+        // memory_save - Persistent memory save
         if (!allowedTools || allowedTools.includes(Tool.MEMORY_SAVE)) {
             specs.push({
                 name: Tool.MEMORY_SAVE,
-                description: '이전 대화에서 학습한 정보를 영속적으로 저장합니다. 사용자 선호도, 피드백, 프로젝트 맥락, 참조 정보 등 미래 대화에서 유용한 정보를 저장하세요. 저장된 정보는 다음 대화 시작 시 자동으로 로드됩니다.',
+                description: 'Persistently saves information learned from previous conversations. Save user preferences, feedback, project context, reference information, and other data useful for future conversations. Saved information is automatically loaded at the start of the next conversation.',
                 parameters: [
-                    { name: 'name', required: true, description: '메모리 항목 이름 (영문 snake_case 권장, 예: user_role, prefer_typescript)', type: 'string' },
-                    { name: 'description', required: true, description: '이 메모리가 언제 유용한지 한 줄 설명 (미래 대화에서 로드 여부 판단용)', type: 'string' },
-                    { name: 'type', required: true, description: '메모리 유형: user(사용자 역할/선호), feedback(작업 방식 피드백), project(프로젝트 현황/목표), reference(외부 시스템 참조)', type: 'string' },
-                    { name: 'content', required: true, description: '저장할 메모리 내용 (마크다운 형식 지원)', type: 'string' },
+                    { name: 'name', required: true, description: 'Memory entry name (snake_case recommended, e.g.: user_role, prefer_typescript)', type: 'string' },
+                    { name: 'description', required: true, description: 'One-line description of when this memory is useful (used to determine whether to load in future conversations)', type: 'string' },
+                    { name: 'type', required: true, description: 'Memory type: user (user role/preferences), feedback (workflow feedback), project (project status/goals), reference (external system reference)', type: 'string' },
+                    { name: 'content', required: true, description: 'Memory content to save (supports markdown format)', type: 'string' },
                 ]
             });
         }
 
-        // memory_delete - 영속적 메모리 삭제
+        // memory_delete - Persistent memory delete
         if (!allowedTools || allowedTools.includes(Tool.MEMORY_DELETE)) {
             specs.push({
                 name: Tool.MEMORY_DELETE,
-                description: '저장된 메모리를 삭제합니다. 오래되거나 잘못된 정보를 제거할 때 사용하세요.',
+                description: 'Deletes saved memory. Use to remove outdated or incorrect information.',
                 parameters: [
-                    { name: 'name', required: true, description: '삭제할 메모리 항목 이름', type: 'string' },
+                    { name: 'name', required: true, description: 'Name of the memory entry to delete', type: 'string' },
                 ]
             });
         }
 
-        // load_skill - 스킬 로더 (서브에이전트용)
+        // load_skill - Skill loader (for sub-agents)
         if (!allowedTools || allowedTools.includes(Tool.LOAD_SKILL)) {
             specs.push({
                 name: Tool.LOAD_SKILL,
-                description: '등록된 스킬의 전체 내용을 로드합니다. 시스템 프롬프트의 스킬 목록에서 필요한 스킬을 확인한 후, 이 도구로 해당 스킬의 상세 지침을 가져와 작업에 적용하세요.',
+                description: 'Loads the full content of a registered skill. After checking the skill list in the system prompt for the needed skill, use this tool to retrieve the detailed instructions of that skill and apply them to your work.',
                 parameters: [
-                    { name: 'skill_key', required: true, description: '로드할 스킬 키 (스킬 목록에 표시된 이름)', type: 'string' },
+                    { name: 'skill_key', required: true, description: 'Skill key to load (name shown in the skill list)', type: 'string' },
                 ]
             });
         }
 
-        // MCP 도구 추가
+        // Add MCP tools
         const mcpSpecs = this.buildMCPToolSpecs();
         specs.push(...mcpSpecs);
 
@@ -279,7 +266,7 @@ export class ToolSpecBuilder {
     }
 
     /**
-     * MCP 도구 스펙 생성
+     * Build MCP tool specs
      */
     static buildMCPToolSpecs(): ToolSpec[] {
         const registry = ToolRegistry.getInstance();
@@ -298,18 +285,18 @@ export class ToolSpecBuilder {
     }
 
     /**
-     * @deprecated XML 형식은 더 이상 사용되지 않습니다. buildToolPromptSectionJson()을 사용하세요.
+     * @deprecated XML format is no longer used. Use buildToolPromptSectionJson() instead.
      */
     static buildToolPromptSection(allowedTools?: Tool[], nativeMode?: boolean): string {
-        // JSON Function Calling으로 리다이렉트
+        // Redirect to JSON Function Calling
         return this.buildToolPromptSectionJson(allowedTools, nativeMode);
     }
 
-    // ==================== JSON Function Calling 지원 (v8.9.0) ====================
+    // ==================== JSON Function Calling Support (v8.9.0) ====================
 
     /**
-     * Gemini/OpenAI 호환 Function Declarations 생성
-     * Native API function calling에 사용됩니다.
+     * Generate Gemini/OpenAI compatible Function Declarations
+     * Used for native API function calling.
      */
     static buildFunctionDeclarations(allowedTools?: Tool[]): FunctionDeclaration[] {
         const specs = this.buildToolSpecs(allowedTools);
@@ -317,7 +304,7 @@ export class ToolSpecBuilder {
     }
 
     /**
-     * ToolSpec을 FunctionDeclaration으로 변환
+     * Convert ToolSpec to FunctionDeclaration
      */
     private static specToFunctionDeclaration(spec: ToolSpec): FunctionDeclaration {
         const properties: Record<string, { type: string; description: string }> = {};
@@ -345,8 +332,8 @@ export class ToolSpecBuilder {
     }
 
     /**
-     * JSON 기반 도구 호출 프롬프트 섹션 생성
-     * v8.9.0: XML 대신 JSON Function Calling 형식 사용
+     * Generate JSON-based tool calling prompt section
+     * v8.9.0: Uses JSON Function Calling format instead of XML
      */
     static buildToolPromptSectionJson(allowedTools?: Tool[], nativeMode?: boolean): string {
         const specs = this.buildToolSpecs(allowedTools);
@@ -354,7 +341,7 @@ export class ToolSpecBuilder {
     }
 
     /**
-     * Gemini API용 tools 설정 객체 생성
+     * Generate tools configuration object for Gemini API
      */
     static buildGeminiToolsConfig(allowedTools?: Tool[]): {
         functionDeclarations: FunctionDeclaration[];
@@ -365,7 +352,7 @@ export class ToolSpecBuilder {
     }
 
     /**
-     * OpenAI/Ollama 호환 tools 설정 객체 생성
+     * Generate OpenAI/Ollama compatible tools configuration object
      */
     static buildOpenAIToolsConfig(allowedTools?: Tool[], includeVirtualTools: boolean = false): Array<{
         type: 'function';
@@ -377,32 +364,25 @@ export class ToolSpecBuilder {
             function: decl
         }));
 
+        // Add virtual tools for sub-agents
         if (includeVirtualTools) {
             tools.push({
                 type: 'function' as const,
                 function: {
                     name: '__done__',
-                    description: '작업이 완료되었음을 알립니다.',
+                    description: 'Call this tool when the task is complete. Must include status and summary.',
                     parameters: {
                         type: 'object',
                         properties: {
-                            status: {
-                                type: 'string',
-                                description: '완료 상태: completed(정상 완료), already_done(이미 완료됨), failed(실패)',
-                                enum: ['completed', 'already_done', 'failed'],
-                            },
-                            summary: {
-                                type: 'string',
-                                description: '작업 결과 요약',
-                            },
+                            status: { type: 'string', description: 'Completion status: completed, already_done, failed' },
+                            summary: { type: 'string', description: 'Summary of the task result' },
                         },
                         required: ['status', 'summary'],
                     },
-                },
+                } as FunctionDeclaration,
             });
         }
 
         return tools;
     }
 }
-

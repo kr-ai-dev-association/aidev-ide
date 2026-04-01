@@ -140,7 +140,7 @@ export class RetryCoordinator {
             // 재시도 (TestRunner가 excludedValidationCommands를 참고하여 다음 후보 선택)
             return {
                 action: 'retry' as const,
-                prompt: `[System] 검증 명령어를 찾을 수 없습니다 (${cmdFromFingerprint}). 다음 검증 후보로 자동 재시도합니다.`,
+                prompt: `[System] Validation command not found (${cmdFromFingerprint}). Automatically retrying with the next validation candidate.`,
                 testFixAttempts: testFixAttempts + 1,
                 retryFingerprint: classification.retryFingerprint,
             };

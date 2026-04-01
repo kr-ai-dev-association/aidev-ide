@@ -23,7 +23,6 @@ export enum Tool {
     RUN_COMMAND = 'run_command',
     RIPGREP_SEARCH = 'ripgrep_search',
     // 새로운 파일 읽기 도구들
-    EXPAND_AROUND_LINE = 'expand_around_line',
     LIST_IMPORTS = 'list_imports',
     STAT_FILE = 'stat_file',
     // IDE 연동 도구들
@@ -51,7 +50,6 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
     Tool.RIPGREP_SEARCH,
     Tool.STAT_FILE,
     Tool.LIST_IMPORTS,
-    Tool.EXPAND_AROUND_LINE,
     Tool.READ_ACTIVE_FILE,
     Tool.FETCH_URL,
     Tool.LSP,

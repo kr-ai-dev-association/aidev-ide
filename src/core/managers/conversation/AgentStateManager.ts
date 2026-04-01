@@ -24,7 +24,6 @@ const ALLOWED_TOOLS: Record<AgentPhase, Tool[]> = {
         Tool.READ_FILE,
         Tool.LIST_FILES,
         Tool.RIPGREP_SEARCH,
-        Tool.EXPAND_AROUND_LINE,
         Tool.LIST_IMPORTS,
         Tool.STAT_FILE,
 
@@ -45,7 +44,6 @@ const ALLOWED_TOOLS: Record<AgentPhase, Tool[]> = {
         Tool.LIST_FILES,
         Tool.RIPGREP_SEARCH,
         Tool.RUN_COMMAND,
-        Tool.EXPAND_AROUND_LINE,
         Tool.LIST_IMPORTS,
         Tool.STAT_FILE,
 
@@ -82,7 +80,6 @@ const FORBIDDEN_TOOLS: Record<AgentPhase, Tool[]> = {
         Tool.LIST_FILES,
         Tool.RIPGREP_SEARCH,
         Tool.RUN_COMMAND,
-        Tool.EXPAND_AROUND_LINE,
         Tool.LIST_IMPORTS,
         Tool.STAT_FILE,
 
@@ -100,7 +97,6 @@ const FORBIDDEN_TOOLS: Record<AgentPhase, Tool[]> = {
         Tool.LIST_FILES,
         Tool.RIPGREP_SEARCH,
         Tool.RUN_COMMAND,
-        Tool.EXPAND_AROUND_LINE,
         Tool.LIST_IMPORTS,
         Tool.STAT_FILE,
 

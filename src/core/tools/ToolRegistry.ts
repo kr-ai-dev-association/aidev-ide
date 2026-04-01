@@ -1,9 +1,9 @@
 /**
  * Tool Registry
- * 툴 핸들러를 등록하고 관리하는 레지스트리
+ * Registry for registering and managing tool handlers
  *
- * v9.2.3: ToolRegistryEntry 메타데이터 기반으로 도구 출처 관리
- * mcp_ 프리픽스 대신 구조적 메타데이터(source, serverId)로 MCP 도구 식별
+ * v9.2.3: Manages tool source via ToolRegistryEntry metadata
+ * Identifies MCP tools with structural metadata (source, serverId) instead of mcp_ prefix
  */
 
 import { IToolHandler } from './IToolHandler';
@@ -15,7 +15,7 @@ export interface ToolRegistryEntry {
     source: ToolSource;
     serverId?: string;
     serverName?: string;
-    originalName?: string;  // 충돌로 disambiguate된 경우 원래 이름 보존
+    originalName?: string;  // Preserve original name when disambiguated due to conflict
 }
 
 export class ToolRegistry {
@@ -32,7 +32,7 @@ export class ToolRegistry {
     }
 
     /**
-     * 내장 도구 등록
+     * Register built-in tool
      */
     register(handler: IToolHandler): void {
         this.entries.set(handler.name, {
@@ -42,14 +42,14 @@ export class ToolRegistry {
     }
 
     /**
-     * MCP 도구 등록 (충돌 해결 포함)
-     * @returns 실제 등록된 이름 (충돌 시 disambiguate된 이름)
+     * Register MCP tool (with conflict resolution)
+     * @returns Actually registered name (disambiguated name on conflict)
      */
     registerMCP(handler: IToolHandler, serverId: string, serverName: string, originalName: string): string {
         const desiredName = handler.name;
         const existing = this.entries.get(desiredName);
 
-        // Case 1: 충돌 없음
+        // Case 1: No conflict
         if (!existing) {
             this.entries.set(desiredName, {
                 handler, source: 'mcp', serverId, serverName, originalName,
@@ -57,7 +57,7 @@ export class ToolRegistry {
             return desiredName;
         }
 
-        // Case 2: 같은 서버 재연결 → 교체
+        // Case 2: Same server reconnection -> replace
         if (existing.source === 'mcp' && existing.serverId === serverId) {
             this.entries.set(desiredName, {
                 handler, source: 'mcp', serverId, serverName, originalName,
@@ -65,7 +65,7 @@ export class ToolRegistry {
             return desiredName;
         }
 
-        // Case 3: 다른 출처와 충돌 → disambiguate
+        // Case 3: Conflict with different source -> disambiguate
         const sanitized = serverName.toLowerCase().replace(/[^a-z0-9]/g, '_');
         let disambiguated = `${sanitized}_${desiredName}`;
         let index = 2;
@@ -81,35 +81,35 @@ export class ToolRegistry {
     }
 
     /**
-     * 툴 핸들러 조회
+     * Look up tool handler
      */
     getHandler(toolName: string): IToolHandler | undefined {
         return this.entries.get(toolName)?.handler;
     }
 
     /**
-     * 엔트리 조회 (메타데이터 포함)
+     * Look up entry (with metadata)
      */
     getEntry(toolName: string): ToolRegistryEntry | undefined {
         return this.entries.get(toolName);
     }
 
     /**
-     * 등록된 모든 툴 이름 반환
+     * Return all registered tool names
      */
     getRegisteredTools(): string[] {
         return Array.from(this.entries.keys());
     }
 
     /**
-     * 모든 핸들러 반환
+     * Return all handlers
      */
     getAllHandlers(): IToolHandler[] {
         return Array.from(this.entries.values()).map(e => e.handler);
     }
 
     /**
-     * 툴 핸들러 해제
+     * Unregister tool handler
      */
     unregister(toolName: string): boolean {
         const existed = this.entries.has(toolName);
@@ -121,7 +121,7 @@ export class ToolRegistry {
     }
 
     /**
-     * 특정 서버의 모든 MCP 도구 해제 (서버 연결 해제 시)
+     * Unregister all MCP tools for a specific server (on server disconnect)
      */
     unregisterByServerId(serverId: string): number {
         let count = 0;
@@ -136,14 +136,14 @@ export class ToolRegistry {
     }
 
     /**
-     * 도구 존재 여부 확인
+     * Check if tool exists
      */
     hasHandler(toolName: string): boolean {
         return this.entries.has(toolName);
     }
 
     /**
-     * MCP 도구인지 확인 (메타데이터 기반)
+     * Check if tool is MCP (metadata-based)
      */
     isMCPTool(toolName: string): boolean {
         const entry = this.entries.get(toolName);
@@ -151,7 +151,7 @@ export class ToolRegistry {
     }
 
     /**
-     * MCP 도구 핸들러 목록만 반환 (메타데이터 기반)
+     * Return only MCP tool handlers (metadata-based)
      */
     getMCPTools(): IToolHandler[] {
         return Array.from(this.entries.values())

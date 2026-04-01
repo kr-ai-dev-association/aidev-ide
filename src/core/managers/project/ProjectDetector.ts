@@ -30,7 +30,18 @@ export class ProjectDetector {
             return ProjectDetector.pythonRuntimeCache;
         }
 
-        // 1순위: 시스템 python3 / python
+        // 1순위: uv 프로젝트 (pyproject.toml + uv.lock 존재 시)
+        if (fs.existsSync(path.join(workspaceRoot, 'pyproject.toml')) &&
+            (fs.existsSync(path.join(workspaceRoot, 'uv.lock')) || fs.existsSync(path.join(workspaceRoot, '.python-version')))) {
+            try {
+                execSync('uv run python --version', { cwd: workspaceRoot, timeout: 5000, stdio: 'pipe' });
+                ProjectDetector.pythonRuntimeCache = 'uv run python';
+                console.log('[ProjectDetector] Python runtime detected: uv run python (uv project)');
+                return 'uv run python';
+            } catch {}
+        }
+
+        // 2순위: 시스템 python3 / python
         for (const cmd of ['python3', 'python']) {
             try {
                 execSync(`${cmd} --version`, { timeout: 3000, stdio: 'pipe' });
@@ -40,7 +51,7 @@ export class ProjectDetector {
             } catch {}
         }
 
-        // 2순위: uv (빠른 패키지 매니저)
+        // 3순위: uv fallback (pyproject.toml 없어도)
         try {
             execSync('uv run python --version', { timeout: 3000, stdio: 'pipe' });
             ProjectDetector.pythonRuntimeCache = 'uv run python';
@@ -580,29 +591,8 @@ export class ProjectDetector {
                     if (fs.existsSync(path.join(projectRoot, 'package.json'))) {
                         const pm = this.detectPackageManager(projectRoot);
 
-                        // Biome (매우 빠른 최신 툴)
-                        if (fs.existsSync(path.join(projectRoot, 'biome.json'))) {
-                            return { command: `npx tsc --noEmit && npx biome check .`, description: 'TypeScript 타입 검사 + Biome 검사' };
-                        }
-
-                        // Deno
-                        if (fs.existsSync(path.join(projectRoot, 'deno.json'))) {
-                            return { command: 'npx tsc --noEmit && deno lint', description: 'TypeScript 타입 검사 + Deno Lint' };
-                        }
-
-                        // package.json scripts: npx tsc --noEmit 후 린트 실행
-                        if (this.hasScript(projectRoot, 'lint')) {
-                            return { command: `npx tsc --noEmit && ${pm} run lint`, description: 'TypeScript 타입 검사 + Lint' };
-                        }
-                        if (this.hasScript(projectRoot, 'type-check')) {
-                            return { command: `npx tsc --noEmit && ${pm} run type-check`, description: 'TypeScript 타입 검사 + Type Check' };
-                        }
-                        if (this.hasScript(projectRoot, 'validate')) {
-                            return { command: `npx tsc --noEmit && ${pm} run validate`, description: 'TypeScript 타입 검사 + Validate' };
-                        }
-                        if (this.hasScript(projectRoot, 'build')) {
-                            return { command: `npx tsc --noEmit && ${pm} run build`, description: 'TypeScript 타입 검사 + Build' };
-                        }
+                        // TypeScript: tsc 타입 검사만 (lint는 LLM이 필요 시 직접 실행)
+                        return { command: `npx tsc --noEmit`, description: 'TypeScript 타입 검사' };
                     }
 
                     // package.json이 없거나 스크립트가 없는 경우
@@ -709,76 +699,7 @@ export class ProjectDetector {
                         path.isAbsolute(f) ? path.relative(projectRoot, f) : f
                     ).join(' ');
 
-                    // 1순위: Ruff (매우 빠른 최신 린터 + 포매터)
-                    if (fs.existsSync(path.join(projectRoot, 'ruff.toml')) ||
-                        fs.existsSync(path.join(projectRoot, '.ruff.toml')) ||
-                        fs.existsSync(path.join(projectRoot, 'pyproject.toml'))) {
-                        return {
-                            command: `ruff check ${relativePaths} && ${pythonCmd} -m compileall -q -j 0 ${relativePaths}`,
-                            description: 'Ruff Lint + Python Syntax Check'
-                        };
-                    }
-
-                    // 2순위: Flake8 (널리 사용되는 린터)
-                    if (fs.existsSync(path.join(projectRoot, '.flake8')) ||
-                        fs.existsSync(path.join(projectRoot, 'setup.cfg'))) {
-                        return {
-                            command: `flake8 ${relativePaths} && ${pythonCmd} -m compileall -q -j 0 ${relativePaths}`,
-                            description: 'Flake8 Lint + Python Syntax Check'
-                        };
-                    }
-
-                    // 3순위: Pylint (강력한 린터)
-                    if (fs.existsSync(path.join(projectRoot, '.pylintrc')) ||
-                        fs.existsSync(path.join(projectRoot, 'pylintrc'))) {
-                        return {
-                            command: `pylint ${relativePaths} && ${pythonCmd} -m compileall -q -j 0 ${relativePaths}`,
-                            description: 'Pylint + Python Syntax Check'
-                        };
-                    }
-
-                    // 4순위: Mypy (타입 체커)
-                    if (fs.existsSync(path.join(projectRoot, 'mypy.ini')) ||
-                        fs.existsSync(path.join(projectRoot, '.mypy.ini'))) {
-                        return {
-                            command: `mypy ${relativePaths} && ${pythonCmd} -m compileall -q -j 0 ${relativePaths}`,
-                            description: 'Mypy Type Check + Python Syntax Check'
-                        };
-                    }
-
-                    // 5순위: Bandit (보안 취약점 검사)
-                    if (fs.existsSync(path.join(projectRoot, '.bandit')) ||
-                        fs.existsSync(path.join(projectRoot, 'bandit.yaml'))) {
-                        return {
-                            command: `bandit -r ${relativePaths} && ${pythonCmd} -m compileall -q -j 0 ${relativePaths}`,
-                            description: 'Bandit Security Check + Python Syntax Check'
-                        };
-                    }
-
-                    // 6순위: Pyright (타입 체커 - 빠름)
-                    if (fs.existsSync(path.join(projectRoot, 'pyrightconfig.json'))) {
-                        return {
-                            command: `pyright ${relativePaths} && ${pythonCmd} -m compileall -q -j 0 ${relativePaths}`,
-                            description: 'Pyright Type Check + Python Syntax Check'
-                        };
-                    }
-
-                    // 7순위: Poetry/Pipenv 환경 검사
-                    if (fs.existsSync(path.join(projectRoot, 'poetry.lock'))) {
-                        return {
-                            command: `poetry check && ${pythonCmd} -m compileall -q -j 0 ${relativePaths}`,
-                            description: 'Poetry Check + Python Syntax Check'
-                        };
-                    }
-
-                    if (fs.existsSync(path.join(projectRoot, 'Pipfile'))) {
-                        return {
-                            command: `pipenv check && ${pythonCmd} -m compileall -q -j 0 ${relativePaths}`,
-                            description: 'Pipenv Check + Python Syntax Check'
-                        };
-                    }
-
-                    // 기본: 문법 검사만 수행
+                    // Python: 문법 검사만 (lint는 LLM이 필요 시 직접 실행)
                     return {
                         command: `${pythonCmd} -m compileall -q -j 0 ${relativePaths}`,
                         description: 'Python Syntax Check'
@@ -802,10 +723,8 @@ export class ProjectDetector {
                     return { command: 'staticcheck ./...', description: 'Go Staticcheck' };
                 }
 
-                // 3순위: go vet + go test -race (데이터 레이스 검사)
-                if (this.hasGoTestFiles(projectRoot)) {
-                    return { command: 'go vet ./... && go test -race -short ./...', description: 'Go Vet + Race Detection' };
-                }
+                // 3순위: go vet (빌드 검증만, 테스트는 LLM이 필요 시 직접 실행)
+                return { command: 'go vet ./...', description: 'Go Vet' };
 
                 // 기본: go vet
                 return { command: 'go vet ./...', description: 'Go Vet' };

@@ -1,10 +1,10 @@
 /**
  * OrchestrationRouter
- * 오케스트레이션 ON/OFF에 따라 실행 경로를 분기하는 라우터
+ * Router that branches execution paths based on orchestration ON/OFF setting
  *
- * OFF (기본): ConversationManager 단일 루프 (기존 100% 보존)
- * ON + 단순 작업: ConversationManager 단일 루프
- * ON + 복합 작업: TaskSplitter → SubAgentLoop[] 병렬 → ResultMerger
+ * OFF (default): ConversationManager single loop (100% preserved)
+ * ON + simple task: ConversationManager single loop
+ * ON + complex task: TaskSplitter -> SubAgentLoop[] parallel -> ResultMerger
  */
 
 import * as vscode from 'vscode';
@@ -30,9 +30,9 @@ import { ResultMerger } from './ResultMerger';
 import { PromisePool } from './PromisePool';
 import { SubTask, AggregatedResult, AgentLoopResult, AgentLoopCallbacks, THINKING_TAG_REGEX } from './types';
 import { LLMManager } from '../managers/model/LLMManager';
-import { StateManager } from '../managers/state/StateManager';
 import { PromptComposer } from '../managers/context/prompts/PromptComposer';
 import { AgentConfig } from '../config/AgentConfig';
+import { StateManager } from '../managers/state/StateManager';
 import { PromptType, OllamaApi, AiModelType, NotificationService } from '../../services';
 import { SettingsManager } from '../managers/state/SettingsManager';
 import { ReferenceItem } from '../webview/types';
@@ -60,25 +60,27 @@ export interface RouteOptions {
 
 const MAX_CONCURRENT_AGENTS = AgentConfig.MAX_CONCURRENT_AGENTS;
 
-/** TaskQueue 아이템 (webview 전달용) */
+/** TaskQueue item (for webview delivery) */
 interface TaskQueueItem {
     id: string;
     title: string;
     detail?: string;
-    status: 'pending' | 'in_progress' | 'done' | 'warning' | 'failed';
+    status: 'pending' | 'in_progress' | 'done' | 'failed' | 'warning';
 }
 
-/** MCP 서버 최소 타입 (gatherRulesContext 내부용) */
+/** MCP server minimal type (internal to gatherRulesContext) */
 interface McpServerInfo { enabled: boolean; customPrompt?: string; name: string; }
+/** RAG search result minimal type (internal to gatherRulesContext) */
+interface RagResult { source_name?: string; source?: string; document_name?: string; document?: string; similarity?: number; content: string; }
 
 export class OrchestrationRouter {
     /**
-     * 오케스트레이션 설정에 따라 분기
+     * Branch based on orchestration settings
      */
     static async route(options: RouteOptions): Promise<void> {
         const orchestrationEnabled = ConfigurationService.get<boolean>('orchestration', false) ?? false;
 
-        // PLAN/ASK 모드는 멀티 에이전트 불필요 — 항상 단일 에이전트로 처리
+        // PLAN/ASK mode does not need multi-agent -- always use single agent
         if (!orchestrationEnabled || options.promptType === PromptType.PLAN || options.promptType === PromptType.GENERAL_ASK) {
             return OrchestrationRouter.routeToSingleLoop(options);
         }
@@ -86,15 +88,15 @@ export class OrchestrationRouter {
         const webview = options.webviewToRespond;
         const startTime = Date.now();
 
-        // UI 메시지 수집 (히스토리 저장용)
+        // Collect UI messages (for history storage)
         const collectedUIMessages: UIMessageEntry[] = [];
 
-        // ON: TaskSplitter로 분기 판단
+        // ON: Determine branching via TaskSplitter
         try {
             const splitter = new TaskSplitter();
             const projectContext = await OrchestrationRouter.getProjectContext(options.userQuery);
 
-            // Hot Load 키워드 수집 (있으면 TaskSplitter에 전달하여 분할 방지)
+            // Collect Hot Load keywords (pass to TaskSplitter to prevent splitting if present)
             let hotLoadKeywords: string[] = [];
             try {
                 const { HotLoadManager } = await import('../managers/hotload/HotLoadManager');
@@ -103,7 +105,7 @@ export class OrchestrationRouter {
                 hotLoadKeywords = items.map((item: any) => item.keywords);
             } catch { /* ignore */ }
 
-            // 분할 중 상태 표시
+            // Show status during splitting
             WebviewBridge.sendProcessingStep(webview, 'plan');
             WebviewBridge.sendProcessingStatus(webview, 'plan', '작업 분할 분석 중...');
 
@@ -114,14 +116,14 @@ export class OrchestrationRouter {
                 return OrchestrationRouter.routeToSingleLoop(options);
             }
 
-            // 복합 작업 → 병렬 에이전트
+            // Complex task -> parallel agents
             console.log(`[OrchestrationRouter] Splitting into ${splitResult.subtasks.length} subtasks: ${splitResult.reasoning}`);
 
-            // 독립/의존 태스크 분리
+            // Separate independent/dependent tasks
             const independentTasks = splitResult.subtasks.filter(st => st.dependencies.length === 0);
             const dependentTasks = splitResult.subtasks.filter(st => st.dependencies.length > 0);
 
-            // TaskQueue에 모든 서브태스크 등록
+            // Register all subtasks in TaskQueue
             const taskItems: TaskQueueItem[] = splitResult.subtasks.map(st => ({
                 id: st.id,
                 title: st.title,
@@ -138,11 +140,12 @@ export class OrchestrationRouter {
             const toolContext = OrchestrationRouter.buildToolContext();
             const results: AgentLoopResult[] = [];
 
-            // 스킬 registry 사전 로드 (IntentDetector 전에 registry가 채워져야 함)
+            // Pre-load skill registry (registry must be populated before IntentDetector)
             PromptComposer.loadAgentRulesWithKeys();
+            await PromptComposer.ensureServerSettingsSynced();
             PromptComposer.loadServerPromptTemplates(new Set());
 
-            // 스킬이 등록되어 있으면 IntentDetector로 candidateSkillKeys 수집
+            // If skills are registered, collect candidateSkillKeys via IntentDetector
             let candidateSkillKeys: string[] = [];
             const skillDescriptions = PromptComposer.getSkillDescriptions();
             if (skillDescriptions.length > 0) {
@@ -162,7 +165,7 @@ export class OrchestrationRouter {
                 }
             }
 
-            // 규칙/설정 컨텍스트 수집 (서브 에이전트 공유용)
+            // Collect rules/settings context (shared across sub-agents)
             let rulesContext = '';
             let collectedReferences: ReferenceItem[] = [];
             try {
@@ -179,7 +182,7 @@ export class OrchestrationRouter {
                 console.warn('[OrchestrationRouter] Failed to gather rules context:', e);
             }
 
-            // Phase A: 독립 태스크 병렬 실행
+            // Phase A: Execute independent tasks in parallel
             WebviewBridge.sendProcessingStep(webview, 'executing');
 
             const pool = new PromisePool(MAX_CONCURRENT_AGENTS);
@@ -199,7 +202,7 @@ export class OrchestrationRouter {
                 }
             }
 
-            // Phase B: 의존 태스크 순차 실행
+            // Phase B: Execute dependent tasks sequentially
             if (dependentTasks.length > 0 && !options.abortSignal?.aborted) {
                 const completedIds = new Set(results.filter(r => r.success).map(r => r.subtaskId));
 
@@ -220,7 +223,7 @@ export class OrchestrationRouter {
                             createdFiles: [],
                             modifiedFiles: [],
                             deletedFiles: [],
-                            errors: [`선행 작업 미완료: ${missing.map(d => d.replace(/^task-/, '에이전트 ')).join(', ')}`],
+                            errors: [`Prerequisite tasks incomplete: ${missing.map(d => d.replace(/^task-/, 'agent ')).join(', ')}`],
                             warnings: [],
                             completionSummary: '',
                             turnCount: 0,
@@ -241,16 +244,16 @@ export class OrchestrationRouter {
                 }
             }
 
-            // Phase C: 실패한 서브태스크 1회 재시도
+            // Phase C: Retry failed subtasks once
             if (!options.abortSignal?.aborted) {
                 const failedResults = results.filter(r => !r.success && r.turnCount > 0);
                 if (failedResults.length > 0) {
                     console.log(`[OrchestrationRouter] ${failedResults.length} subtask(s) failed, retrying...`);
                     WebviewBridge.sendProcessingStep(webview, 'review');
                     WebviewBridge.sendProcessingStatus(webview, 'review',
-                        `실패한 ${failedResults.length}개 태스크 재시도 중...`);
+                        `실패한 ${failedResults.length}개 작업 재시도 중...`);
 
-                    // 성공한 에이전트들의 결과를 컨텍스트로 활용
+                    // Use successful agent results as context
                     const successResults = results.filter(r => r.success);
 
                     for (const failedResult of failedResults) {
@@ -259,38 +262,38 @@ export class OrchestrationRouter {
                         const originalSubtask = splitResult.subtasks.find(st => st.id === failedResult.subtaskId);
                         if (!originalSubtask) { continue; }
 
-                        // 재시도용 서브태스크: 이전 에러 정보 + 이전 작업 결과 + 성공한 에이전트 컨텍스트 포함
+                        // Retry subtask: includes previous error info + previous work results + successful agent context
                         const previousWorkSection = (failedResult.createdFiles.length > 0 || failedResult.modifiedFiles.length > 0)
-                            ? `\n## 이전 시도에서 이미 완료된 작업\n` +
+                            ? `\n## Work already completed in previous attempt\n` +
                               (failedResult.createdFiles.length > 0
-                                  ? `생성된 파일:\n${failedResult.createdFiles.map(f => `- ${f}`).join('\n')}\n`
+                                  ? `Created files:\n${failedResult.createdFiles.map(f => `- ${f}`).join('\n')}\n`
                                   : '') +
                               (failedResult.modifiedFiles.length > 0
-                                  ? `수정된 파일:\n${failedResult.modifiedFiles.map(f => `- ${f}`).join('\n')}\n`
+                                  ? `Modified files:\n${failedResult.modifiedFiles.map(f => `- ${f}`).join('\n')}\n`
                                   : '') +
-                              `**위 파일들은 이미 존재합니다. 프로젝트 초기화(create-vite, npm init 등)를 다시 실행하지 마세요.**\n` +
-                              `이미 생성된 파일은 read_file로 확인한 후 필요하면 update_file로 수정하세요.\n`
+                              `**These files already exist. Do not re-run project initialization (create-vite, npm init, etc.).**\n` +
+                              `Check already created files with read_file first, then use update_file to modify if needed.\n`
                             : '';
 
                         const retryDescription = `${originalSubtask.description}\n\n` +
-                            `## 이전 시도 실패 정보\n` +
-                            `이전 시도에서 ${failedResult.turnCount}턴 동안 작업했으나 완료하지 못했습니다.\n` +
+                            `## Previous attempt failure info\n` +
+                            `The previous attempt worked for ${failedResult.turnCount} turns but did not complete.\n` +
                             (failedResult.errors.length > 0
-                                ? `에러: ${failedResult.errors.join(', ')}\n`
+                                ? `Errors: ${failedResult.errors.join(', ')}\n`
                                 : '') +
                             previousWorkSection +
                             (successResults.length > 0
-                                ? `\n## 다른 에이전트 완료 내역\n${successResults.map(r => {
+                                ? `\n## Other agents' completed work\n${successResults.map(r => {
                                     const cleaned = r.response.replace(THINKING_TAG_REGEX, '').trim();
                                     return cleaned ? `- ${r.subtaskId}: ${cleaned.substring(0, 200)}` : '';
                                 }).filter(Boolean).join('\n')}\n`
                                 : '') +
-                            `\n도구 호출 형식을 정확히 따라주세요. 반드시 \`\`\`json 코드블록 안에 도구 호출을 작성하세요.`;
+                            `\nPlease follow the tool call format exactly. You must write tool calls inside \`\`\`json code blocks.`;
 
                         const retrySubtask: SubTask = {
                             ...originalSubtask,
                             id: `${originalSubtask.id}-retry`,
-                            title: `${originalSubtask.title} (재시도)`,
+                            title: `${originalSubtask.title} (retry)`,
                             description: retryDescription,
                         };
 
@@ -306,15 +309,15 @@ export class OrchestrationRouter {
                             retrySubtask, toolContext, options, projectContext, taskItems, collectedUIMessages, rulesContext,
                         );
 
-                        // 재시도 결과로 기존 실패 결과 교체
+                        // Replace existing failed result with retry result
                         const failedIdx = results.findIndex(r => r.subtaskId === failedResult.subtaskId);
                         if (failedIdx !== -1 && retryResult.success) {
                             results[failedIdx] = { ...retryResult, subtaskId: failedResult.subtaskId };
                             console.log(`[OrchestrationRouter] Retry succeeded for ${failedResult.subtaskId}`);
                         } else if (failedIdx !== -1) {
-                            // 재시도도 실패: 에러 병합
+                            // Retry also failed: merge errors
                             results[failedIdx].errors.push(
-                                ...retryResult.errors.map(e => `[재시도] ${e}`)
+                                ...retryResult.errors.map(e => `[retry] ${e}`)
                             );
                             console.warn(`[OrchestrationRouter] Retry also failed for ${failedResult.subtaskId}`);
                         }
@@ -322,7 +325,7 @@ export class OrchestrationRouter {
                 }
             }
 
-            // Phase D: 재시도 성공으로 의존성이 해소된 skipped 태스크 실행
+            // Phase D: Execute skipped tasks whose dependencies are now resolved after successful retries
             if (!options.abortSignal?.aborted) {
                 const nowCompletedIds = new Set(results.filter(r => r.success).map(r => r.subtaskId));
                 const skippedResults = results.filter(r => !r.success && r.turnCount === 0);
@@ -343,7 +346,7 @@ export class OrchestrationRouter {
                         enrichedSubtask, toolContext, options, projectContext, taskItems, collectedUIMessages, rulesContext,
                     );
 
-                    // 기존 skipped 결과 교체
+                    // Replace existing skipped result
                     const skippedIdx = results.findIndex(r => r.subtaskId === skipped.subtaskId);
                     if (skippedIdx !== -1) {
                         results[skippedIdx] = { ...result, subtaskId: skipped.subtaskId };
@@ -354,10 +357,10 @@ export class OrchestrationRouter {
                 }
             }
 
-            // 결과 병합
+            // Merge results
             const merged = ResultMerger.merge(results);
 
-            // 빌드/테스트 검증 (실패해도 요약은 표시)
+            // Build/test validation (summary is shown even if validation fails)
             let validationResult = { validated: false, testPassed: true, repairAttempts: 0 };
             try {
                 validationResult = await OrchestrationRouter.runPostMergeValidation(
@@ -367,10 +370,10 @@ export class OrchestrationRouter {
                 console.error('[OrchestrationRouter] Post-merge validation threw:', validationError);
             }
 
-            // 사용자 취소 시 요약/표시 건너뜀
+            // Skip summary/display on user cancellation
             if (options.abortSignal?.aborted) { return; }
 
-            // 통합 요약 생성 (LLM으로 자연어 요약)
+            // Generate unified summary (natural language summary via LLM)
             let unifiedSummary = '';
             try {
                 unifiedSummary = await OrchestrationRouter.generateUnifiedSummary(
@@ -380,19 +383,19 @@ export class OrchestrationRouter {
                 console.warn('[OrchestrationRouter] Failed to generate unified summary:', e);
             }
 
-            // 요약 표시
+            // Display summary
             if (options.abortSignal?.aborted) { return; }
             const summaryMessage = OrchestrationRouter.formatMergedResult(merged, validationResult, unifiedSummary);
             WebviewBridge.receiveMessage(webview, 'CODEPILOT', summaryMessage);
             collectedUIMessages.push({ sender: 'CODEPILOT', text: summaryMessage, type: 'summary' });
 
-            // 참조 정보 웹뷰 전송 (요약 메시지 이후에 전송해야 패널 위치가 정확함)
+            // Send reference info to webview (must be sent after summary message for correct panel position)
             if (collectedReferences.length > 0) {
                 console.log(`[OrchestrationRouter] Sending ${collectedReferences.length}개 references to webview`);
                 WebviewBridge.sendReferenceInfo(webview, { items: collectedReferences });
             }
 
-            // 턴 액션 표시 (모든 출력 완료 후)
+            // Show turn actions (after all output is complete)
             try {
                 const { InlineDiffManager } = await import('../managers/diff/InlineDiffManager');
                 const turnStats = InlineDiffManager.getInstance().getPendingChangesByTurn();
@@ -403,11 +406,11 @@ export class OrchestrationRouter {
                 console.warn('[OrchestrationRouter] showTurnActions failed:', e);
             }
 
-            // UI 정리
+            // UI cleanup
             WebviewBridge.sendProcessingStep(webview, 'done');
             WebviewBridge.hideLoading(webview);
 
-            // 대화 히스토리에 저장
+            // Save to conversation history
             await OrchestrationRouter.saveToHistory(options, merged, collectedUIMessages, startTime);
 
         } catch (error) {
@@ -417,7 +420,7 @@ export class OrchestrationRouter {
             WebviewBridge.receiveMessage(
                 webview,
                 'System',
-                '멀티 에이전트 실패, 단일 에이전트로 전환합니다.'
+                'Multi-agent failed, switching to single agent.'
             );
             return OrchestrationRouter.routeToSingleLoop(options);
         }
@@ -435,16 +438,16 @@ export class OrchestrationRouter {
     ): Promise<AgentLoopResult> {
         const webview = options.webviewToRespond;
 
-        // 1. TaskQueue 상태 → in_progress
+        // 1. TaskQueue status -> in_progress
         if (taskItems) {
             OrchestrationRouter.updateTaskItemStatus(webview, taskItems, subtask.id, 'in_progress');
         }
 
-        // 2. ProcessStep 상태 업데이트
+        // 2. Update ProcessStep status (including progress)
         WebviewBridge.sendProcessingStep(webview, 'executing');
         WebviewBridge.sendProcessingStatus(webview, 'executing', `${subtask.title} 실행 중...`);
 
-        // 3. 콜백 생성 — ToolExecutionCoordinator 재사용 + UI 메시지 수집
+        // 3. Create callbacks -- reuse ToolExecutionCoordinator + collect UI messages
         const callbacks: AgentLoopCallbacks = {
             onToolStart: (toolUse) => {
                 ToolExecutionCoordinator.sendToolStartStatus(webview, toolUse);
@@ -464,14 +467,14 @@ export class OrchestrationRouter {
             },
         };
 
-        // 4. 에이전트 실행 (서브태스크별 conversationTurnId 생성)
+        // 4. Run agent (generate conversationTurnId per subtask)
         const agentTurnId = `sub_${subtask.id}_${Date.now().toString(36)}`;
         const agentToolContext: ToolExecutionContext = { ...toolContext, conversationTurnId: agentTurnId };
         const settingsMgr = options.extensionContext ? SettingsManager.getInstance(options.extensionContext) : null;
         const useStreaming = settingsMgr ? await settingsMgr.isStreamingEnabled() : false;
         const thinkingEnabled = settingsMgr ? await settingsMgr.isThinkingEnabled() : true;
 
-        // 도구 승인 설정 (싱글 에이전트와 동일한 pending 동작)
+        // Tool approval settings (same pending behavior as single agent)
         const isAutoToolEnabled = settingsMgr ? await settingsMgr.isAutoToolExecutionEnabled() : true;
         const isAutoCommandEnabled = settingsMgr ? await settingsMgr.isAutoExecuteCommandsEnabled() : true;
         const isAutoUpdateEnabled = settingsMgr ? await settingsMgr.isAutoUpdateEnabled() : true;
@@ -479,6 +482,7 @@ export class OrchestrationRouter {
 
         callbacks.onToolApprovalRequired = async (call: ToolUse): Promise<boolean> => {
             const toolName = call.name as string;
+            // Determine if approval is needed (same logic as ConversationManager.checkToolNeedsConfirmation)
             let needsConfirmation = false;
             if (!isAutoToolEnabled) {
                 needsConfirmation = true;
@@ -491,53 +495,57 @@ export class OrchestrationRouter {
             }
             if (!needsConfirmation) { return true; }
 
+            // Show pending message in webview
             const detail = call.params.path || call.params.command || '';
             const detailDisplay = detail ? `: ${detail.substring(0, 50)}${detail.length > 50 ? '...' : ''}` : '';
             const toolLabel = ToolExecutionCoordinator.getToolLabel(toolName);
-            WebviewBridge.receiveMessage(webview, 'System', `⏳ [Pending] ${toolLabel}${detailDisplay} - 사용자 승인 필요`);
+            WebviewBridge.receiveMessage(webview, 'System', `[Pending] ${toolLabel}${detailDisplay} - User approval required`);
 
+            // VS Code native modal (same as single agent)
             const dialogDetail = detail ? `\n${detail}` : '';
             const result = await vscode.window.showInformationMessage(
-                `도구 실행: ${toolLabel}${dialogDetail}`,
+                `Execute tool: ${toolLabel}${dialogDetail}`,
                 { modal: true },
-                '실행',
-                '건너뛰기',
+                'Execute',
+                'Skip',
             );
-            return result === '실행';
+            return result === 'Execute';
         };
-
         const stateManager = options.extensionContext ? StateManager.getInstance(options.extensionContext) : undefined;
         const agent = new SubAgentLoop(subtask, agentToolContext, options.abortSignal, projectContext, callbacks, rulesContext, useStreaming, thinkingEnabled, agentOptions, stateManager);
         const result = await agent.run();
 
-        // 5. TaskQueue 상태 → done/warning/failed
+        // 5. TaskQueue status -> done/warning/failed
         if (taskItems) {
             let taskStatus: 'done' | 'warning' | 'failed' = 'failed';
-            if (result.success && result.warnings?.length > 0) { taskStatus = 'warning'; }
-            else if (result.success) { taskStatus = 'done'; }
+            if (result.success && result.warnings?.length > 0) {
+                taskStatus = 'warning';
+            } else if (result.success) {
+                taskStatus = 'done';
+            }
             OrchestrationRouter.updateTaskItemStatus(
-                webview, taskItems, subtask.id,
-                taskStatus
+                webview, taskItems, subtask.id, taskStatus
             );
         }
 
-        // 6. 완료 로그
+        // 6. Completion log
+        const statusLabel = result.success ? 'completed' : 'failed';
         WebviewBridge.sendProcessingStatus(
             webview, 'executing',
-            `${subtask.title} ${result.success ? '완료' : '실패'}`
+            `${subtask.title} ${statusLabel === 'completed' ? '완료' : '실패'}`
         );
 
         return result;
     }
 
     /**
-     * TaskQueue 아이템 상태 업데이트 및 웹뷰 전송
+     * Update TaskQueue item status and send to webview
      */
     private static updateTaskItemStatus(
         webview: vscode.Webview,
         taskItems: TaskQueueItem[],
         subtaskId: string,
-        status: 'pending' | 'in_progress' | 'done' | 'warning' | 'failed',
+        status: 'pending' | 'in_progress' | 'done' | 'failed' | 'warning',
     ): void {
         const item = taskItems.find(t => t.id === subtaskId);
         if (item) { item.status = status; }
@@ -545,7 +553,7 @@ export class OrchestrationRouter {
     }
 
     /**
-     * 오케스트레이션 결과를 세션 히스토리에 저장
+     * Save orchestration results to session history
      */
     private static async saveToHistory(
         options: RouteOptions,
@@ -582,7 +590,7 @@ export class OrchestrationRouter {
     }
 
     /**
-     * 결과 병합 후 빌드/테스트 검증 + 자동 수정
+     * Build/test validation after result merging + auto-repair
      */
     private static async runPostMergeValidation(
         merged: AggregatedResult,
@@ -594,7 +602,7 @@ export class OrchestrationRouter {
         collectedUIMessages: UIMessageEntry[],
         rulesContext?: string,
     ): Promise<{ validated: boolean; testPassed: boolean; repairAttempts: number }> {
-        // 파일 변경 없으면 검증 불필요
+        // No validation needed if no files were changed
         if (merged.createdFiles.length === 0 && merged.modifiedFiles.length === 0) {
             return { validated: true, testPassed: true, repairAttempts: 0 };
         }
@@ -614,8 +622,8 @@ export class OrchestrationRouter {
             if (options.abortSignal?.aborted) { break; }
 
             const label = attempt === 0
-                ? '빌드/테스트 검증 중...'
-                : `자동 수정 검증 중 (${attempt}/${MAX_REPAIR_RETRIES})...`;
+                ? 'Running build/test validation...'
+                : `Auto-repair validation in progress (${attempt}/${MAX_REPAIR_RETRIES})...`;
 
             WebviewBridge.sendProcessingStep(webview, 'review');
             WebviewBridge.sendProcessingStatus(webview, 'review', label);
@@ -631,20 +639,20 @@ export class OrchestrationRouter {
                 return { validated: true, testPassed: true, repairAttempts };
             }
 
-            // 검증 실패
+            // Validation failed
             console.log(`[OrchestrationRouter] Validation failed (attempt ${attempt}): ${testResult.errorMessage?.substring(0, 100).replace(/\n/g, ' ')}`);
 
             if (attempt >= MAX_REPAIR_RETRIES) {
                 WebviewBridge.sendProcessingStatus(webview, 'review',
-                    `빌드/테스트 검증 실패 (${MAX_REPAIR_RETRIES}회 수정 시도 후에도 미해결)`);
+                    `빌드/테스트 검증 실패 (${MAX_REPAIR_RETRIES}회 수정 시도 후 미해결)`);
                 return { validated: true, testPassed: false, repairAttempts };
             }
 
-            // 분류
+            // Classification
             const classification = testResult.classification
                 || ErrorClassifier.classifyFromMessage(testResult.errorMessage || '');
 
-            // 비재시도 카테고리 → 즉시 포기
+            // Non-retryable category -> give up immediately
             if (!ErrorClassifier.isRetryable(classification.dominantCategory)) {
                 const strategy = ErrorClassifier.getResolutionStrategy(classification.dominantCategory);
                 WebviewBridge.sendProcessingStatus(webview, 'review',
@@ -652,7 +660,7 @@ export class OrchestrationRouter {
                 return { validated: true, testPassed: false, repairAttempts };
             }
 
-            // 동일 에러 반복 → 포기
+            // Same error repeated -> give up
             const currentFingerprint = classification.retryFingerprint;
             if (currentFingerprint && currentFingerprint === lastFingerprint) {
                 WebviewBridge.sendProcessingStatus(webview, 'review', '동일 에러 반복 — 자동 수정 중단');
@@ -660,13 +668,13 @@ export class OrchestrationRouter {
             }
             lastFingerprint = currentFingerprint;
 
-            // 수리 에이전트 생성 (ENVIRONMENT_MISSING 포함 모든 에러는 LLM repair agent가 처리)
+            // Create repair agent (all errors including ENVIRONMENT_MISSING are handled by LLM repair agent)
             repairAttempts++;
             WebviewBridge.sendProcessingStep(webview, 'executing');
             WebviewBridge.sendProcessingStatus(webview, 'executing',
                 `자동 수정 에이전트 실행 중 (${repairAttempts}/${MAX_REPAIR_RETRIES})...`);
 
-            // 서브프로젝트 감지 시 repair agent의 cwd를 서브프로젝트로 조정
+            // Adjust repair agent's cwd to subproject when subproject is detected
             const detectedRoot = testResult.detectedSubProjectRoot;
             const effectiveWorkspaceRoot = detectedRoot || workspaceRoot;
 
@@ -679,7 +687,7 @@ export class OrchestrationRouter {
 
             const repairSubtask: SubTask = {
                 id: `repair-${attempt + 1}`,
-                title: `빌드/테스트 에러 수정 (시도 ${attempt + 1})`,
+                title: `빌드/테스트 에러 수정 (${attempt + 1}차 시도)`,
                 description: repairPrompt,
                 dependencies: [],
                 toolPermission: 'full',
@@ -693,7 +701,7 @@ export class OrchestrationRouter {
             taskItems.push(repairTaskItem);
             WebviewBridge.updateTaskQueue(webview, taskItems);
 
-            // repair agent에게 서브프로젝트 루트를 workspaceRoot로 전달
+            // Pass subproject root as workspaceRoot to repair agent
             const repairToolContext: ToolExecutionContext = detectedRoot
                 ? { ...toolContext, workspaceRoot: effectiveWorkspaceRoot }
                 : toolContext;
@@ -703,7 +711,7 @@ export class OrchestrationRouter {
                 { disableReadDedup: true, isRepairAgent: true },
             );
 
-            // 수리 에이전트의 파일 변경 추적
+            // Track file changes from repair agent
             for (const f of repairResult.createdFiles) {
                 if (!allCreatedFiles.includes(f)) { allCreatedFiles.push(f); }
             }
@@ -716,7 +724,7 @@ export class OrchestrationRouter {
     }
 
     /**
-     * 수리 에이전트 프롬프트용 파일 내용 읽기
+     * Read file contents for repair agent prompt
      */
     private static async readFilesForRepair(
         createdFiles: string[],
@@ -734,7 +742,7 @@ export class OrchestrationRouter {
                 const content = await fs.readFile(absolutePath, 'utf-8');
                 result.push({ path: filePath, content });
             } catch {
-                // 읽기 실패 파일은 건너뜀
+                // Skip files that fail to read
             }
         }
 
@@ -742,16 +750,16 @@ export class OrchestrationRouter {
     }
 
     /**
-     * 의존 태스크에 선행 태스크 결과(생성/수정 파일 내용)를 주입
-     * 파일 내용을 미리 제공하여 의존 태스크가 read_file 없이 바로 작업 가능
+     * Inject prior task results (created/modified file contents) into dependent tasks
+     * Provide file contents upfront so dependent tasks can work without read_file
      */
     private static async enrichWithPriorResults(subtask: SubTask, priorResults: AgentLoopResult[], workspaceRoot: string): Promise<SubTask> {
         const depResults = priorResults.filter(r => subtask.dependencies.includes(r.subtaskId));
         if (depResults.length === 0) { return subtask; }
 
-        const context: string[] = ['\n\n## 선행 태스크 결과 (파일 내용 포함 — read_file 불필요)'];
-        const MAX_FILE_LINES = 200; // 파일당 최대 줄 수
-        const MAX_TOTAL_CHARS = 30000; // 전체 주입 최대 문자 수
+        const context: string[] = ['\n\n## Prior task results (file contents included -- read_file not needed)'];
+        const MAX_FILE_LINES = 200; // Max lines per file
+        const MAX_TOTAL_CHARS = 30000; // Max total injected characters
         let totalChars = 0;
 
         const allAlreadyDone = depResults.every(r => r.doneStatus === 'already_done');
@@ -759,28 +767,28 @@ export class OrchestrationRouter {
         for (const r of depResults) {
             context.push(`### ${r.subtaskId}`);
 
-            // already_done 상태 명시
+            // Indicate already_done status
             if (r.doneStatus === 'already_done') {
-                context.push(`**상태: 이미 구현되어 있음 (already_done)** — 이 태스크는 기존 코드가 이미 완전히 구현되어 있어 추가 작업 없이 완료되었습니다.`);
+                context.push(`**Status: already implemented (already_done)** -- This task was completed without additional work because the existing code already fully implements it.`);
             }
 
-            // completionSummary 우선 사용 (구조화된 요약), 없으면 response fallback
+            // Use completionSummary first (structured summary), fallback to response
             if (r.completionSummary) {
                 context.push(r.completionSummary);
             } else if (r.response) {
                 const summary = r.response.replace(THINKING_TAG_REGEX, '').trim().substring(0, 1200);
                 if (summary) {
-                    context.push(`\n요약: ${summary}`);
+                    context.push(`\nSummary: ${summary}`);
                 }
             }
 
-            // 파일 내용 읽기 및 주입
+            // Read and inject file contents
             const allFiles = [...new Set([...r.createdFiles, ...r.modifiedFiles])];
             if (allFiles.length > 0) {
-                context.push(`**생성/수정된 파일 (${allFiles.length}개):**`);
+                context.push(`**Created/modified files (${allFiles.length}):**`);
                 for (const filePath of allFiles) {
                     if (totalChars >= MAX_TOTAL_CHARS) {
-                        context.push(`\n(이하 파일은 크기 제한으로 생략 — 필요시 read_file로 확인하세요)`);
+                        context.push(`\n(Remaining files omitted due to size limit -- use read_file to check if needed)`);
                         break;
                     }
                     try {
@@ -797,28 +805,28 @@ export class OrchestrationRouter {
                         context.push('```' + ext);
                         context.push(preview);
                         if (isTruncated) {
-                            context.push(`// ... (${lines.length - MAX_FILE_LINES}줄 생략)`);
+                            context.push(`// ... (${lines.length - MAX_FILE_LINES} lines omitted)`);
                         }
                         context.push('```');
                         totalChars += preview.length;
                     } catch {
-                        context.push(`- ${filePath} (읽기 실패 — read_file로 확인 필요)`);
+                        context.push(`- ${filePath} (read failed -- needs verification via read_file)`);
                     }
                 }
             }
 
-            // 삭제된 파일 표시
+            // Show deleted files
             if (r.deletedFiles.length > 0) {
-                context.push(`**삭제된 파일 (${r.deletedFiles.length}개):** ${r.deletedFiles.join(', ')}`);
+                context.push(`**Deleted files (${r.deletedFiles.length}):** ${r.deletedFiles.join(', ')}`);
             }
         }
 
         if (allAlreadyDone) {
-            context.push(`\n**⚠️ 모든 선행 태스크가 already_done 상태입니다. 요청된 기능이 이미 완전히 구현되어 있습니다.**`);
-            context.push(`**필요한 파일을 간단히 확인한 후 추가 작업이 불필요하면 __done__(already_done)으로 완료하세요.**`);
+            context.push(`\n**WARNING: All prior tasks are in already_done status. The requested functionality is already fully implemented.**`);
+            context.push(`**Briefly check the required files and if no additional work is needed, complete with __done__(already_done).**`);
         } else {
-            context.push(`\n**⚠️ 위 파일 내용은 이미 제공되었습니다. read_file로 다시 읽지 마세요.**`);
-            context.push(`**⚠️ 위에 나열된 파일은 이미 디스크에 존재합니다. 수정이 필요하면 반드시 update_file을 사용하세요. create_file로 덮어쓰지 마세요.**`);
+            context.push(`\n**WARNING: The file contents above have already been provided. Do not read them again with read_file.**`);
+            context.push(`**WARNING: The files listed above already exist on disk. If modifications are needed, you must use update_file. Do not overwrite with create_file.**`);
         }
 
         return {
@@ -839,14 +847,14 @@ export class OrchestrationRouter {
             if (!project) { return ''; }
 
             const lines: string[] = [];
-            lines.push(`프로젝트: ${project.name || 'unknown'}`);
-            lines.push(`타입: ${project.type || 'unknown'}`);
-            lines.push(`언어: ${project.language || 'unknown'}`);
-            if (project.framework) { lines.push(`프레임워크: ${project.framework}`); }
+            lines.push(`Project: ${project.name || 'unknown'}`);
+            lines.push(`Type: ${project.type || 'unknown'}`);
+            lines.push(`Language: ${project.language || 'unknown'}`);
+            if (project.framework) { lines.push(`Framework: ${project.framework}`); }
 
             const workspaceRoot = project.root || '';
 
-            // 워크스페이스 루트 디렉토리 스캔 (서브 에이전트에 실제 디렉토리 구조 전달)
+            // Scan workspace root directory (provide actual directory structure to sub-agents)
             if (workspaceRoot) {
                 try {
                     const entries = await fs.readdir(workspaceRoot, { withFileTypes: true });
@@ -854,29 +862,29 @@ export class OrchestrationRouter {
                         .filter(e => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules' && e.name !== 'dist' && e.name !== 'build')
                         .map(e => e.name);
                     if (dirs.length > 0) {
-                        lines.push(`\n워크스페이스 루트 디렉토리: ${dirs.join(', ')}`);
+                        lines.push(`\nWorkspace root directories: ${dirs.join(', ')}`);
                     }
                 } catch {
-                    // 디렉토리 스캔 실패 무시
+                    // Ignore directory scan failure
                 }
             }
 
-            // 사용자 쿼리에서 언급된 경로 추출 → 서브 에이전트에 명시적 경로 컨텍스트 전달
+            // Extract paths mentioned in user query -> pass explicit path context to sub-agents
             if (userQuery) {
                 const mentionedPaths = OrchestrationRouter.extractPathsFromQuery(userQuery);
                 if (mentionedPaths.length > 0) {
-                    lines.push(`\n사용자가 언급한 대상 경로: ${mentionedPaths.join(', ')}`);
-                    lines.push(`⚠️ 모든 파일 생성/수정은 반드시 위 경로 기준으로 수행해야 합니다.`);
+                    lines.push(`\nTarget paths mentioned by user: ${mentionedPaths.join(', ')}`);
+                    lines.push(`WARNING: All file creation/modification must be performed relative to the paths above.`);
                 }
             }
 
             try {
                 const inventory = await pm.buildProjectInventorySection(100);
                 if (inventory) {
-                    lines.push(`\n파일 구조:\n${inventory}`);
+                    lines.push(`\nFile structure:\n${inventory}`);
                 }
             } catch {
-                // 파일 구조 조회 실패해도 기본 정보만으로 진행
+                // Proceed with basic info even if file structure retrieval fails
             }
 
             return lines.join('\n');
@@ -886,14 +894,14 @@ export class OrchestrationRouter {
     }
 
     /**
-     * 사용자 쿼리에서 디렉토리/파일 경로 패턴을 추출
-     * e.g. "server/ 에 API 만들어줘" → ["server/"]
-     * e.g. "client/src/pages/ 에 페이지 추가" → ["client/src/pages/"]
+     * Extract directory/file path patterns from user query
+     * e.g. "create API in server/" -> ["server/"]
+     * e.g. "add page to client/src/pages/" -> ["client/src/pages/"]
      */
     private static extractPathsFromQuery(query: string): string[] {
         const paths: string[] = [];
 
-        // 패턴 1: "server/", "client/", "src/pages/" 등 슬래시로 끝나는 경로
+        // Pattern 1: Paths ending with slash like "server/", "client/", "src/pages/"
         const slashPaths = query.match(/(?:^|\s)([\w\-.]+(?:\/[\w\-.]*)*\/)/g);
         if (slashPaths) {
             for (const p of slashPaths) {
@@ -902,7 +910,7 @@ export class OrchestrationRouter {
             }
         }
 
-        // 패턴 2: "server/src/index.ts" 등 확장자가 있는 파일 경로
+        // Pattern 2: File paths with extensions like "server/src/index.ts"
         const filePaths = query.match(/(?:^|\s)([\w\-.]+(?:\/[\w\-.]+)+\.\w+)/g);
         if (filePaths) {
             for (const p of filePaths) {
@@ -929,60 +937,63 @@ export class OrchestrationRouter {
     }
 
     /**
-     * 서브 에이전트에 전달할 규칙/설정 컨텍스트를 수집
-     * - Skills (로컬 .agent/rules + 서버 dev_rules)
-     * - Hot Load 프롬프트
-     * - MCP 커스텀 프롬프트
-     * - 프레임워크 규칙
-     * - RAG 컨텍스트
+     * Collect rules/settings context to pass to sub-agents
+     * - Skills (local .agent/rules + server dev_rules)
+     * - Hot Load prompts
+     * - MCP custom prompts
+     * - Framework rules
+     * - RAG context
      *
-     * 보안 규칙(차단 명령어, 보호 파일 등)은 PreToolUseValidator에서
-     * 도구 실행 시 자동으로 적용되므로 여기서 별도로 수집하지 않음
+     * Security rules (blocked commands, protected files, etc.) are automatically
+     * applied by PreToolUseValidator during tool execution, so they are not collected here
      */
     private static async gatherRulesContext(userQuery: string, candidateSkillKeys?: string[]): Promise<{ text: string; references: ReferenceItem[] }> {
         const parts: string[] = [];
         const references: ReferenceItem[] = [];
 
-        // 1. Skills: 로컬(.agent/rules) + 서버(dev_rules)
+        // Wait for server settings sync to complete (prevent incomplete sync right after start)
+        await PromptComposer.ensureServerSettingsSynced();
+
+        // 1. Skills: local (.agent/rules) + server (dev_rules)
         try {
             const { text: localRules, ruleKeys } = PromptComposer.loadAgentRulesWithKeys();
             const { text: serverRules } = PromptComposer.loadServerPromptTemplates(ruleKeys);
             if (localRules) { parts.push(localRules); }
             if (serverRules) { parts.push(serverRules); }
-            // 참조 추적: 로컬 규칙
+            // Reference tracking: local rules
             for (const key of ruleKeys) {
                 references.push({ type: 'local_rule', name: key, source: 'local' });
             }
-            // 참조 추적: 서버 규칙
+            // Reference tracking: server rules
             for (const rule of PromptComposer.getLastIncludedServerRuleKeys()) {
                 references.push({ type: 'server_rule', name: rule.title, source: 'server' });
             }
-            // 참조 추적: 추천된 스킬만 (candidateSkillKeys가 있을 때)
+            // Reference tracking: recommended skills only (when candidateSkillKeys exist)
             if (candidateSkillKeys && candidateSkillKeys.length > 0) {
                 for (const skillKey of candidateSkillKeys) {
                     const skill = PromptComposer.getSkillDescriptions().find(s => s.key === skillKey);
                     if (skill) {
                         const refType = skill.source === 'server' ? 'server_skill' : 'local_skill';
-                        references.push({ type: refType, name: skill.key, source: skill.source || 'local' });
+                        references.push({ type: refType, name: skill.key, source: skill.source || 'server' });
                     }
                 }
             }
 
-            // 스킬 description 목록 + 메인 에이전트가 추천한 후보 힌트
-            const skillDescs = PromptComposer.getSkillDescriptions();
-            if (skillDescs.length > 0) {
+            // Skill description list + candidate hints recommended by main agent
+            const skillDescriptions = PromptComposer.getSkillDescriptions();
+            if (skillDescriptions.length > 0) {
                 const candidateHint = candidateSkillKeys && candidateSkillKeys.length > 0
-                    ? `\n\n**추천 스킬 (메인 에이전트가 이 작업에 필요하다고 판단):** ${candidateSkillKeys.join(', ')}\n추천된 스킬은 우선적으로 load_skill로 로드하세요. 그 외 스킬도 필요하면 로드할 수 있습니다.`
+                    ? `\n\n**Recommended skills (determined as needed for this task by the main agent):** ${candidateSkillKeys.join(', ')}\nLoad recommended skills first using load_skill. Other skills can also be loaded if needed.`
                     : '';
-                parts.push(`## 사용 가능한 스킬\n아래 스킬이 필요하면 load_skill 도구로 로드하세요.\n${skillDescs.map(s => `- ${s.key}: ${s.description}`).join('\n')}${candidateHint}`);
+                parts.push(`## Available Skills\nLoad the skills below using the load_skill tool if needed.\n${skillDescriptions.map(s => `- ${s.key}: ${s.description}`).join('\n')}${candidateHint}`);
             }
         } catch (e) {
             console.warn('[OrchestrationRouter] Failed to load Skills:', e);
         }
 
-        // 2. Hot Load — 서브에이전트에서는 제외 (메인 에이전트 전용 키워드→명령 매핑)
+        // 2. Hot Load -- excluded from sub-agents (main agent only keyword->command mapping)
 
-        // 2.5. 에러 수정 지침 (서브에이전트/repair 에이전트도 적용)
+        // 2.5. Error correction guide (also applies to sub-agents/repair agents)
         try {
             const { getErrorCorrectionGuide } = await import('../managers/context/prompts/base');
             parts.push(getErrorCorrectionGuide());
@@ -990,7 +1001,7 @@ export class OrchestrationRouter {
             console.warn('[OrchestrationRouter] Failed to load error correction guide:', e);
         }
 
-        // 3. MCP 커스텀 프롬프트
+        // 3. MCP custom prompts
         try {
             const { MCPManager } = await import('../mcp/MCPManager');
             const mcpServers = MCPManager.getInstance().getServers() as McpServerInfo[];
@@ -998,13 +1009,13 @@ export class OrchestrationRouter {
                 .filter(s => s.enabled && s.customPrompt?.trim())
                 .map(s => `**[MCP: ${s.name}]**\n${s.customPrompt!.trim()}`);
             if (mcpParts.length > 0) {
-                parts.push(`## MCP 도구 사용 지침\n\n${mcpParts.join('\n\n')}`);
+                parts.push(`## MCP Tool Usage Guidelines\n\n${mcpParts.join('\n\n')}`);
             }
         } catch (e) {
             console.warn('[OrchestrationRouter] Failed to load MCP prompts:', e);
         }
 
-        // 4. 프레임워크 규칙
+        // 4. Framework rules
         try {
             const cm = ContextManager.getInstance();
             const frameworkRules = await cm.getFrameworkRulesPrompt();
@@ -1013,14 +1024,14 @@ export class OrchestrationRouter {
             console.warn('[OrchestrationRouter] Failed to load framework rules:', e);
         }
 
-        // 5. RAG 컨텍스트 — standalone 모드에서는 비활성화
+        // 5. RAG context -- disabled in standalone mode (no server)
 
         return { text: parts.filter(p => p.trim()).join('\n\n'), references };
     }
 
     /**
-     * LLM을 사용하여 여러 에이전트 결과를 하나의 자연어 요약으로 통합
-     * 싱글 에이전트의 최종 응답처럼 사용자 친화적인 형태로 생성
+     * Use LLM to consolidate multiple agent results into a single natural language summary
+     * Generate in a user-friendly format similar to a single agent's final response
      */
     private static async generateUnifiedSummary(
         merged: AggregatedResult,
@@ -1029,37 +1040,37 @@ export class OrchestrationRouter {
     ): Promise<string> {
         const llm = LLMManager.getInstance();
 
-        const systemPrompt = `당신은 코딩 어시스턴트입니다. 여러 에이전트가 수행한 작업 결과를 하나의 통합 응답으로 작성하세요.
+        const systemPrompt = `You are a coding assistant. Write a single unified response from the results of multiple agents' work.
 
-규칙:
-- 사용자의 원래 요청에 대한 완료 응답을 작성
-- 무엇을 했는지 간결하게 요약 (1-3문단)
-- 사용 방법을 안내할 때 아래 프로젝트 실행 명령어를 \`\`\`bash 코드블록으로 포함하세요 (Run 버튼이 자동 생성됩니다)
-- 마크다운 형식 사용
-- 한국어로 작성
-- "에이전트"라는 단어를 사용하지 마세요 — 마치 하나의 어시스턴트가 모든 작업을 수행한 것처럼 작성
-- 빌드/테스트 결과: ${validation?.validated ? (validation.testPassed ? '통과' : '실패') : '미검증'}
-- **각 작업의 상세 내용에 명시된 파일 경로, 줄 번호, 심볼 목록 등은 이미 검증된 결과입니다. 그대로 신뢰하고 사용하세요. 절대 재조회하거나 다시 검색하지 마세요.**
+Rules:
+- Write a completion response to the user's original request
+- Summarize what was done concisely (1-3 paragraphs)
+- When providing usage instructions, include the project run commands below in \`\`\`bash code blocks (a Run button will be auto-generated)
+- Use markdown format
+- Write in the same language as the user's original request
+- Do not use the word "agent" -- write as if a single assistant performed all the work
+- Build/test result: ${validation?.validated ? (validation.testPassed ? 'passed' : 'failed') : 'not verified'}
+- **File paths, line numbers, symbol lists, etc. specified in each task's details are already verified results. Trust and use them as-is. Never re-query or re-search them.**
 
-파일 내용 규칙 (매우 중요):
-- **소스 코드 전체를 절대 포함하지 마세요** — 파일 변경 내역은 IDE 패널에 이미 표시됩니다
-- 파일명과 무엇을 변경했는지만 간단히 언급하세요
-- 코드 스니펫이 반드시 필요한 경우에만 핵심 부분 3-5줄 이내로 짧게 인용하세요
+File content rules (very important):
+- **Never include entire source code** -- file change history is already displayed in the IDE panel
+- Only briefly mention file names and what was changed
+- Only quote essential parts (3-5 lines max) when code snippets are absolutely necessary
 
-코드블록 규칙:
-- \`\`\`bash 또는 \`\`\`sh 코드블록은 **터미널에서 직접 실행 가능한 명령어만** 사용 (예: npm install, npm run dev, git clone 등)
-- JSX, TSX, TypeScript, JavaScript 등 소스 코드 스니펫은 반드시 해당 언어 태그 사용 (예: \`\`\`tsx, \`\`\`typescript, \`\`\`jsx)
-- 짧은 코드 참조는 인라인 코드(\`)로 표시
-- 실행 불가능한 코드를 절대 \`\`\`bash 블록에 넣지 마세요`;
+Code block rules:
+- \`\`\`bash or \`\`\`sh code blocks should only contain **commands directly executable in terminal** (e.g., npm install, npm run dev, git clone, etc.)
+- Source code snippets in JSX, TSX, TypeScript, JavaScript, etc. must use the appropriate language tag (e.g., \`\`\`tsx, \`\`\`typescript, \`\`\`jsx)
+- Short code references should use inline code (\`)
+- Never put non-executable code in \`\`\`bash blocks`;
 
-        const agentSummaries = merged.summary || '(요약 없음)';
+        const agentSummaries = merged.summary || '(no summary)';
         const fileList = [
-            ...merged.createdFiles.map(f => `생성: ${f}`),
-            ...merged.modifiedFiles.map(f => `수정: ${f}`),
-            ...merged.deletedFiles.map(f => `삭제: ${f}`),
+            ...merged.createdFiles.map(f => `Created: ${f}`),
+            ...merged.modifiedFiles.map(f => `Modified: ${f}`),
+            ...merged.deletedFiles.map(f => `Deleted: ${f}`),
         ].join('\n');
 
-        // 프로젝트 실행 명령어 수집
+        // Collect project run commands
         let buildCommandsInfo = '';
         try {
             const projectManager = ProjectManager.getInstance();
@@ -1070,27 +1081,27 @@ export class OrchestrationRouter {
                     .map(([k, v]) => `  ${k}: ${v}`)
                     .join('\n');
                 if (cmds) {
-                    buildCommandsInfo = `\n\n프로젝트 실행 명령어:\n${cmds}`;
+                    buildCommandsInfo = `\n\nProject run commands:\n${cmds}`;
                 }
             }
         } catch { }
 
-        const userMessage = `사용자 요청: ${userQuery}
+        const userMessage = `User request: ${userQuery}
 
-수행된 파일 변경:
-${fileList || '(없음)'}
+File changes performed:
+${fileList || '(none)'}
 
-각 작업의 상세 내용:
+Details of each task:
 ${agentSummaries}${buildCommandsInfo}
 
-위 내용을 바탕으로 사용자에게 전달할 통합 완료 응답을 작성하세요.`;
+Based on the above, write a unified completion response to deliver to the user.`;
 
         const response = await llm.sendMessageWithSystemPrompt(
             systemPrompt,
             [{ text: userMessage }],
         );
 
-        // thinking 태그 제거
+        // Remove thinking tags
         return response.replace(THINKING_TAG_REGEX, '').trim();
     }
 
@@ -1101,34 +1112,34 @@ ${agentSummaries}${buildCommandsInfo}
     ): string {
         const lines: string[] = [];
 
-        // 통합 요약이 있으면 싱글 에이전트 스타일로 표시
+        // Display in single agent style if unified summary is available
         if (unifiedSummary) {
             lines.push(unifiedSummary);
         } else {
-            // 폴백: 통합 요약 생성 실패 시 기존 형식 사용
-            lines.push(`## 작업 완료`);
+            // Fallback: use existing format when unified summary generation fails
+            lines.push(`## Task Complete`);
             if (result.createdFiles.length > 0) {
-                lines.push(`\n**생성된 파일:** ${result.createdFiles.map(f => `\`${f}\``).join(', ')}`);
+                lines.push(`\n**Created files:** ${result.createdFiles.map(f => `\`${f}\``).join(', ')}`);
             }
             if (result.modifiedFiles.length > 0) {
-                lines.push(`\n**수정된 파일:** ${result.modifiedFiles.map(f => `\`${f}\``).join(', ')}`);
+                lines.push(`\n**Modified files:** ${result.modifiedFiles.map(f => `\`${f}\``).join(', ')}`);
             }
         }
 
-        // 빌드/테스트 검증 결과
+        // Build/test validation results
         if (validation?.validated && !validation.testPassed) {
-            lines.push(`\n> ⚠️ 빌드/테스트 검증 실패`);
+            lines.push(`\n> WARNING: Build/test validation failed`);
             if (validation.repairAttempts > 0) {
-                lines.push(`> 자동 수정 ${validation.repairAttempts}회 시도 후에도 해결되지 않았습니다.`);
+                lines.push(`> Unresolved after ${validation.repairAttempts} auto-repair attempt(s).`);
             }
         }
 
         if (result.errors.length > 0) {
-            lines.push(`\n### 오류`);
-            result.errors.forEach(e => lines.push(`- ${e.replace(/\[task-(\d+)\]/g, '[에이전트 $1]')}`));
+            lines.push(`\n### Errors`);
+            result.errors.forEach(e => lines.push(`- ${e.replace(/\[task-(\d+)\]/g, '[agent $1]')}`));
         }
 
-        // 에이전트별 작업 상세 (접기)
+        // Per-agent task details (collapsible)
         if (result.summary) {
             lines.push(`\n### 작업 상세`);
             lines.push(result.summary);

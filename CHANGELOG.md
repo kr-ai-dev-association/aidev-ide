@@ -2,7 +2,41 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.43**
+> **현재 버전: v1.0.44**
+
+---
+
+## v1.0.44 (2026-04-01)
+
+### 프롬프트 최적화
+
+- **시스템 프롬프트 영문 전환**: 47개 파일의 LLM 프롬프트를 한글→영문으로 변환 — 토큰 ~85% 절감
+- **한국어 응답 강화**: "CRITICAL Language Rule — NEVER respond in English" + plan/review 한국어 예시
+- **XML 태그 구조화**: 20개 섹션 XML 태그 분리
+- **Cursor 참고 규칙 추가**: 설명성 주석 금지, 바이너리 출력 금지, 되돌리기 금지, 도구명 비노출, 병렬 호출 일반화
+
+### 도구 & 검증 개선
+
+- **`is_background` 파라미터** (`run_command`): 장기 실행 명령어 백그라운드 지정
+- **타임아웃 30초 + 무조건 백그라운드**: 초과 시 즉시 백그라운드 전환
+- **검증 명령어 lint 분리**: tsc/compileall만 자동 검증, lint는 LLM 판단
+- **Python 런타임 uv 우선**: `pyproject.toml` + `uv.lock` 시 `uv run python` 1순위
+- **`expand_around_line` 도구 제거**: `read_file` startLine/endLine으로 대체
+
+### 컨텍스트 압축 개선
+
+- **중복 read_file 최적화**: 같은 파일 마지막 것만 보존
+- **최신 파일 읽기 보호**: update_file SEARCH 정확도 유지
+
+### Investigation 단계 강화
+
+- **write 도구 필터링**: Investigation에서 write 도구 자동 제거, read만 실행
+- **read then write 규칙 강화**
+
+### UI 한글화
+
+- **리뷰/작업큐/상태 메시지**: 영문→한글 통일
+- **서버 호출 제거**: PromptComposer `ensureServerSettingsSynced` 비활성화, OrchestrationRouter RAG 섹션 제거
 
 ---
 
