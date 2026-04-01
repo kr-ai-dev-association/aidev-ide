@@ -256,7 +256,12 @@ export function getBaseRules(nativeMode?: boolean): string {
    - After investigation, you can execute tasks immediately (investigation + execution in the same response)
    - Example: Confirm path with glob_search -> read_file -> Execute create_file or update_file
 
-2. **Formulate Plans for Complex Tasks**:
+2. **Clarify Before Executing Ambiguous Tasks**:
+   - When the user's request involves technology choices, UI preferences, or multiple valid implementation approaches, use the ask_question tool to collect preferences BEFORE starting implementation
+   - Do NOT guess when there are multiple valid approaches — ask first, then execute based on the user's choices
+   - Do NOT ask for trivial or obvious choices — only ask when the decision significantly affects the implementation
+
+3. **Formulate Plans for Complex Tasks**:
    - Tasks with 3+ steps: Present a plan first
    - Simple tasks (1-2 steps): Execute immediately
 

@@ -949,11 +949,15 @@ export class ConversationManager implements IConversationHandler {
     const isDirectExecutionTask =
       isSimpleTask && (intent?.category === "execution" || intent?.category === "code");
 
-    const initialState = hasActivePlan
-      ? AgentPhase.EXECUTION
-      : isDirectExecutionTask || (isExecutionFirstTask && !hasExistingProject)
+    const isPlanMode = options.promptType === PromptType.PLAN;
+
+    const initialState = isPlanMode
+      ? AgentPhase.INVESTIGATION  // PLAN mode always starts with investigation
+      : hasActivePlan
         ? AgentPhase.EXECUTION
-        : AgentPhase.INVESTIGATION;
+        : isDirectExecutionTask || (isExecutionFirstTask && !hasExistingProject)
+          ? AgentPhase.EXECUTION
+          : AgentPhase.INVESTIGATION;
     const stateManager = new AgentStateManager(initialState);
 
     if (isDirectResponseTask) {
@@ -1004,7 +1008,7 @@ export class ConversationManager implements IConversationHandler {
     let hasInvestigationHistory = false; // 조사 이력 추적
     const preloadedFiles = new Set<string>(); // Pre-load된 파일 목록 추적 (중복 읽기 방지)
     const alreadyStattedFiles = new Set<string>(); // 턴 간 중복 stat_file 방지
-    const isPlanMode = options.promptType === PromptType.PLAN; // PLAN 모드 쓰기 차단용
+    // isPlanMode is declared earlier (before initialState) for phase decision
     let planTextResponse = ''; // PLAN 모드 응답 원문 (세션 히스토리 저장용)
 
     // 파일 변경 추적 (요약 검증용)
@@ -1135,19 +1139,21 @@ export class ConversationManager implements IConversationHandler {
         // 압축 실패해도 계속 진행
       }
 
-      // [수정] 루프 시작 시점에 현재 계획 상태를 UI에 즉시 동기화
+      // [수정] 루프 시작 시점에 현재 계획 상태를 UI에 즉시 동기화 (PLAN 모드에서는 숨김)
       const allItems = taskManager.listPlanItems();
-      if (allItems.length > 0) {
+      if (allItems.length > 0 && !isPlanMode) {
         WebviewBridge.updateTaskQueue(webviewToRespond, allItems);
       }
 
       // 현재 활성 계획 아이템 확인
       const currentPlanItem = taskManager.getNextPendingItem();
 
-      // 실행 시작 시 in_progress로 전환 (UI에 파란색 표시)
+      // 실행 시작 시 in_progress로 전환 (UI에 파란색 표시, PLAN 모드 제외)
       if (currentPlanItem && currentPlanItem.status === 'pending') {
         taskManager.updatePlanItemStatus(currentPlanItem.id, 'in_progress');
-        WebviewBridge.updateTaskQueue(webviewToRespond, taskManager.listPlanItems());
+        if (!isPlanMode) {
+          WebviewBridge.updateTaskQueue(webviewToRespond, taskManager.listPlanItems());
+        }
       }
 
       // FSM에서 현재 상태 가져오기
@@ -1729,6 +1735,13 @@ export class ConversationManager implements IConversationHandler {
                   lastToolMatch = { tool: tm[1], file: tm[2] };
                 }
                 if (lastToolMatch && toolLabels[lastToolMatch.tool]) {
+                  if (isPlanMode) {
+                    if (planItemLastTool !== '계획 작성 중...') {
+                      planItemLastTool = '계획 작성 중...';
+                      WebviewBridge.sendProcessingStatus(webviewToRespond, 'thinking', '계획 작성 중...');
+                    }
+                    return;
+                  }
                   const fileName = lastToolMatch.file.split('/').pop() || lastToolMatch.file;
                   const status = `${toolLabels[lastToolMatch.tool]}: ${fileName}...`;
                   if (status !== planItemLastTool) {
@@ -1740,7 +1753,7 @@ export class ConversationManager implements IConversationHandler {
                 // 토큰 카운트 표시 (500자마다 업데이트)
                 if (!planItemLastTool && planItemStreamBuffer.length % 500 < chunk.length) {
                   const tokens = estimateTokens(planItemStreamBuffer);
-                  WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `응답 생성 중 (${tokens.toLocaleString()} 토큰...)`);
+                  WebviewBridge.sendProcessingStatus(webviewToRespond, isPlanMode ? 'thinking' : 'executing', `${isPlanMode ? '계획 작성 중' : '응답 생성 중'} (${tokens.toLocaleString()} 토큰...)`);
                 }
               };
               llmResponseForExecution =
@@ -1941,7 +1954,33 @@ export class ConversationManager implements IConversationHandler {
                     `[ConversationManager] EXECUTION phase: Text response displayed (length: ${textResponse.length}). isPlanMode=${isPlanMode}`,
                   );
                   if (isPlanMode) {
-                    planTextResponse = textResponse; // 플랜 원문 캡처 (세션 저장용)
+                    planTextResponse = textResponse;
+                    await WebviewBridge.streamText(
+                      webviewToRespond,
+                      "CODEPILOT",
+                      textResponse,
+                    );
+                    const vscodeModule = require('vscode');
+                    const approval = await vscodeModule.window.showInformationMessage(
+                      '구현 계획이 작성되었습니다. 승인하시겠습니까?',
+                      { modal: true },
+                      '승인',
+                      '거절',
+                    );
+                    if (approval === '승인') {
+                      console.log('[ConversationManager] PLAN approved — auto-executing in CODE mode');
+                      WebviewBridge.receiveMessage(webviewToRespond, 'System', '✓ 계획이 승인되었습니다.');
+                      setTimeout(() => {
+                        webviewToRespond.postMessage({
+                          command: 'autoPlanExecute',
+                          text: '위 계획대로 진행해줘',
+                        });
+                      }, 500);
+                    } else {
+                      WebviewBridge.receiveMessage(webviewToRespond, 'System', '✗ 계획이 거절되었습니다.');
+                    }
+                    stateManager.transitionTo(AgentPhase.REVIEW);
+                    break;
                   }
                   await WebviewBridge.streamText(
                     webviewToRespond,
@@ -2188,6 +2227,8 @@ export class ConversationManager implements IConversationHandler {
               actionManager, executionManager, terminalManager,
               contextManager: this.contextManager,
             };
+            const fileName = path.split('/').pop() || path;
+            WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `파일 생성 중: ${fileName}...`);
             const streamResults = await toolExecutor.executeTools([capturedCall], streamCtx, undefined, undefined, abortSignal);
             if (streamResults[0]?.success && capturedCall.params.path) {
               const p = capturedCall.params.path as string;
@@ -2214,8 +2255,8 @@ export class ConversationManager implements IConversationHandler {
         const onChunk = (chunk: string, done: boolean) => {
           accumulatedResponse += chunk;
 
-          if (isAutoToolForStreaming && isAutoUpdateForStreaming) {
-            // ON+ON: </file_content> 감지 즉시 실행
+          if (isAutoToolForStreaming && isAutoUpdateForStreaming && !isPlanMode) {
+            // ON+ON: </file_content> 감지 즉시 실행 (PLAN 모드에서는 비활성)
             let endIdx = accumulatedResponse.indexOf(FILE_END_MARKER, streamLastFileContentPos);
             while (endIdx !== -1) {
               const segmentEnd = endIdx + FILE_END_MARKER.length;
@@ -2229,8 +2270,8 @@ export class ConversationManager implements IConversationHandler {
               }
               endIdx = accumulatedResponse.indexOf(FILE_END_MARKER, streamLastFileContentPos);
             }
-          } else {
-            // 도구OFF 또는 파일OFF: </file_content> 감지 즉시 pending 처리
+          } else if (!isPlanMode) {
+            // 도구OFF 또는 파일OFF: </file_content> 감지 즉시 pending 처리 (PLAN 모드에서는 비활성)
             let endIdx = accumulatedResponse.indexOf(FILE_END_MARKER, streamLastFileContentPos);
             while (endIdx !== -1) {
               const segmentEnd = endIdx + FILE_END_MARKER.length;
@@ -2424,15 +2465,17 @@ export class ConversationManager implements IConversationHandler {
             const isJsonPlanResponse = /\{\s*"plan"\s*:/.test(llmResponse);
 
             if (isStreamingEnabled && isJsonPlanResponse) {
-              // 스트리밍으로 이미 표시된 raw JSON 제거
               WebviewBridge.removeLastMessage(webviewToRespond);
               console.log(
-                `[ConversationManager] EXECUTION phase: Removed streamed JSON plan from UI`,
+                `[ConversationManager] ${isPlanMode ? 'PLAN' : 'EXECUTION'} phase: Removed streamed JSON plan from UI`,
               );
 
-              // plan items에서 사용자 친화적 요약 추출
+              if (isPlanMode) {
+                console.log(`[ConversationManager] PLAN mode: JSON plan suppressed from chat UI`);
+              }
+
               const planItems = ToolParser.parsePlanItems(llmResponse);
-              if (planItems.length > 0) {
+              if (planItems.length > 0 && !isPlanMode) {
                 const summary = planItems.map(item => `- ${item.title}${item.detail ? `: ${item.detail}` : ''}`).join('\n');
                 await WebviewBridge.streamText(
                   webviewToRespond,
@@ -2531,6 +2574,26 @@ export class ConversationManager implements IConversationHandler {
                   console.log(
                     `[ConversationManager] PLAN mode: Natural language response accepted as plan output. Done.`,
                   );
+                  planTextResponse = cleanResponse.trim();
+                  const vscodeModule = require('vscode');
+                  const approval = await vscodeModule.window.showInformationMessage(
+                    '구현 계획이 작성되었습니다. 승인하시겠습니까?',
+                    { modal: true },
+                    '승인',
+                    '거절',
+                  );
+                  if (approval === '승인') {
+                    console.log('[ConversationManager] PLAN approved — auto-executing in CODE mode');
+                    WebviewBridge.receiveMessage(webviewToRespond, 'System', '✓ 계획이 승인되었습니다.');
+                    setTimeout(() => {
+                      webviewToRespond.postMessage({
+                        command: 'autoPlanExecute',
+                        text: '위 계획대로 진행해줘',
+                      });
+                    }, 500);
+                  } else {
+                    WebviewBridge.receiveMessage(webviewToRespond, 'System', '✗ 계획이 거절되었습니다. 새로 질의하거나 수정 사항을 알려주세요.');
+                  }
                   break; // 계획 출력 완료 → 루프 종료
                 } else {
                   // think 태그만 있고 실제 계획 텍스트 없음 → 한 번 더 요청
@@ -2735,7 +2798,7 @@ export class ConversationManager implements IConversationHandler {
         registeredMCPTools.some((handler) =>
           llmResponse.includes(handler.name),
         );
-      if (hasJsonPlanInResponse && (!isTextOnlyIntent || hasMCPToolInPlan)) {
+      if (hasJsonPlanInResponse && (!isTextOnlyIntent || hasMCPToolInPlan) && !isPlanMode) {
         if (hasMCPToolInPlan && isTextOnlyIntent) {
           console.log(
             `[ConversationManager] JSON plan contains MCP tools - overriding ${intent?.category} intent to execute plan`,

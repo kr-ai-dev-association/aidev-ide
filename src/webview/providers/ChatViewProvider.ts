@@ -575,6 +575,11 @@ ${JSON.stringify(errorContext, null, 2)}
                     setTimeout(sendPendingState, AgentConfig.WEBVIEW_RESTORE_DELAY_MS);
                     break;
                 }
+                case 'askQuestionResponse': {
+                    const { AskQuestionToolHandler } = await import('../../core/tools/interaction/AskQuestionToolHandler');
+                    AskQuestionToolHandler.resolveUserAnswer(data.requestId || '', data.answers || {});
+                    break;
+                }
                 case 'cancelGeminiCall':
                     ConversationService.cancelCurrentCall();
                     // 즉시 로딩/처리 상태를 종료

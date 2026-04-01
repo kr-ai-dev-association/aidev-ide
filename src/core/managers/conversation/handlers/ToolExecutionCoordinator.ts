@@ -72,6 +72,7 @@ export class ToolExecutionCoordinator {
             [Tool.GLOB_SEARCH]: '파일 검색',
             [Tool.RIPGREP_SEARCH]: '코드 검색',
             [Tool.RUN_COMMAND]: '명령 실행',
+            [Tool.ASK_QUESTION]: '사용자 확인 대기',
             'plan': '계획 수립',
             'task_progress': '작업 진행'
         };

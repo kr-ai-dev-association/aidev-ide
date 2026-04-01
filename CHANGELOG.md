@@ -2,7 +2,29 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.44**
+> **현재 버전: v1.0.45**
+
+---
+
+## v1.0.45 (2026-04-02)
+
+### 신규 기능
+
+- **`ask_question` 도구 추가**: LLM이 사용자에게 다중 선택 질문을 할 수 있는 인터랙티브 도구 — requestId 기반 동시 호출 지원, 5분 타임아웃
+- **ask_question 팝업 UI**: 입력 패널 위 인라인 팝업, 컴팩트 디자인 (max-height 300px, 11-12px 폰트, flex-wrap 옵션)
+
+### PLAN 모드 개선
+
+- **PLAN 모드 승인 팝업**: 계획 작성 후 VS Code 모달로 승인/거절 — 승인 시 자동 CODE 모드 실행
+- **JSON 계획 출력 억제**: PLAN 모드에서 JSON plan이 채팅에 표시되지 않도록 차단
+- **작업큐 숨김**: PLAN 모드에서 task queue UI 비표시
+- **스트리밍 write 차단**: PLAN 모드에서 스트리밍 중 create_file 실행 방지
+- **Investigation 자동 시작**: PLAN 모드 진입 시 항상 INVESTIGATION 단계부터 시작
+
+### 버그 수정
+
+- **read_file 실패 추적 제거**: `_readFailedPaths` 시스템 삭제 — create_file 차단 오류 해소
+- **Investigation write 필터링**: 스트리밍 pre-execution에서도 PLAN 모드 체크 추가
 
 ---
 

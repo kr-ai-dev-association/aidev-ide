@@ -258,6 +258,18 @@ export class ToolSpecBuilder {
             });
         }
 
+        // ask_question - Collect structured answers from the user
+        if (!allowedTools || allowedTools.includes(Tool.ASK_QUESTION)) {
+            specs.push({
+                name: Tool.ASK_QUESTION,
+                description: 'Collect structured multiple-choice answers from the user before proceeding. Use this when you need to clarify requirements such as technology choices, UI preferences, or implementation approaches. The user will see clickable option buttons in the chat panel.',
+                parameters: [
+                    { name: 'title', required: true, description: 'Title for the question set (in Korean)', type: 'string' },
+                    { name: 'questions', required: true, description: 'JSON array of 1-4 questions. Each question: { "id": "unique_id", "prompt": "Question text in Korean", "options": [{ "id": "option_id", "label": "Concise label (1-5 words)", "description": "Explanation of trade-offs" }] (2-4 options per question), "allow_multiple": false }. Do NOT include an "Other" option — it is provided automatically.', type: 'string' },
+                ]
+            });
+        }
+
         // Add MCP tools
         const mcpSpecs = this.buildMCPToolSpecs();
         specs.push(...mcpSpecs);
