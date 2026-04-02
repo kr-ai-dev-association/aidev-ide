@@ -189,8 +189,21 @@ export function registerSessionCommands(
 
           let deleted = 0;
           for (const item of selected) {
-            if (sessionManager.deleteSession((item as any).sessionId)) {
+            const sessionId = (item as any).sessionId;
+            if (sessionManager.deleteSession(sessionId)) {
               deleted++;
+              // Clean up associated plan files
+              try {
+                const globalStoragePath = context.globalStorageUri?.fsPath;
+                if (globalStoragePath) {
+                  const fs = require('fs');
+                  const planFilePath = path.join(globalStoragePath, 'plans', `plan_${sessionId}.md`);
+                  if (fs.existsSync(planFilePath)) {
+                    fs.unlinkSync(planFilePath);
+                    console.log(`[SessionCommands] Deleted plan file: ${planFilePath}`);
+                  }
+                }
+              } catch { /* non-fatal */ }
             }
           }
 

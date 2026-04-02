@@ -2,7 +2,29 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.49**
+> **현재 버전: v1.0.50**
+
+---
+
+## v1.0.50 (2026-04-02)
+
+### 세션 관리 개선
+
+- **크래시 복구**: 중단된 세션 감지 (`wasLastSessionInterrupted`) — 마지막 대화가 사용자 요청인데 응답 없으면 "이전 작업이 중단되었습니다. 이어서 진행할까요?" 알림
+- **세션 간 이어하기**: 이전 세션의 압축 요약을 새 대화 컨텍스트에 `[Previous session context]`로 자동 주입
+- **PLAN 계획 파일 저장**: PLAN 모드 승인 시 `globalStorage/plans/plan_{sessionId}.md`로 디스크 저장
+- **세션 삭제 시 plan 파일 정리**: 세션 삭제 시 연관된 plan 파일도 함께 삭제
+
+### 도구 개선
+
+- **ask_question 유일성 검증**: 질문 텍스트 중복 / 옵션 라벨 중복 시 에러 반환 (DUPLICATE_QUESTION, DUPLICATE_OPTION)
+
+### 프롬프트 개선
+
+- **프롬프트 차별화**: Claude Code 복사 → CodePilot 고유 프롬프트로 재작성
+  - `Code Quality Rules` → `Code Quality — Minimize Change Scope` (맥락 + 이유 설명)
+  - `Git Best Practices` → `Version Control Awareness` (행동 + 근거)
+  - `Security & Ethical Guidelines` → `Security-Conscious Code Generation` (구체적 기법: 파라미터 쿼리, XSS 이스케이프, 시크릿 관리)
 
 ---
 
