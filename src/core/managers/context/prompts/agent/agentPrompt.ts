@@ -52,6 +52,15 @@ There are NO phase restrictions — you decide what to read, write, create, dele
 - Provide COMPLETE context in the prompt — workers have NO access to your conversation
 - Include specific file paths, requirements, expected behavior
 - Avoid vague instructions like "fix the frontend" — be specific about what files to create/modify
+- Include purpose: "This research will inform the API design..." (helps worker prioritize)
+
+**Sync (blocking) vs Background decision:**
+| Situation | Mode | Why |
+| Research explored the exact files that need editing | sync | Worker has context, get result immediately |
+| Multiple independent tasks (frontend + backend) | background | Parallel execution |
+| Correcting failure or extending previous work | sync | Worker needs error context |
+| Verifying code a different worker wrote | background | Verifier needs fresh perspective |
+| Quick single-file operation | sync | Faster than background overhead |
 
 ### Error Handling
 - When a tool fails, include the error in your reasoning and attempt a fix.
