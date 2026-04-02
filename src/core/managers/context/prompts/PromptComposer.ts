@@ -6,7 +6,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import { AiModelType } from '../../../../services';
+import { estimateTokens, MODEL_TOKEN_LIMITS } from '../../../../utils/tokenUtils';
 import { OSAdapterFactory } from '../../execution/os/OSAdapterFactory';
 import { ProjectManager } from '../../project/ProjectManager';
 import * as base from './base';
@@ -39,6 +41,31 @@ export interface PromptComposerOptions {
     repoMap?: string; // 프로젝트 파일 맵 (파일 경로 + 심볼)
 }
 
+/** Rule precedence levels (higher = higher priority) */
+export enum RulePrecedence {
+    BASE_PROMPT = 1,
+    RAG = 2,
+    FRAMEWORK = 3,
+    SKILL = 4,
+    GLOBAL_RULES = 5,
+    SERVER_RECOMMENDED = 6,
+    LOCAL_RULES = 7,
+    MEMORY = 8,
+    SERVER_REQUIRED = 9,
+    HOTLOAD = 10,
+}
+
+/** Rule entry with metadata for precedence, budget, and compression */
+export interface RuleEntry {
+    key: string;
+    content: string;
+    source: 'hotload' | 'memory' | 'global' | 'local' | 'server' | 'skill' | 'framework' | 'rag' | 'base';
+    precedence: RulePrecedence;
+    enforcement: 'required' | 'recommended' | 'optional';
+    essential?: boolean; // true = survives context compression
+    tokenEstimate?: number; // estimated token count
+}
+
 /** Skill Registry 항목 */
 export interface SkillEntry {
     key: string;
@@ -49,6 +76,77 @@ export interface SkillEntry {
 }
 
 export class PromptComposer {
+    private static _essentialRules: RuleEntry[] = [];
+
+    /** Touched file paths for conditional rule matching */
+    private static _touchedFilePaths: Set<string> = new Set();
+
+    public static addTouchedFile(filePath: string): void {
+        PromptComposer._touchedFilePaths.add(filePath);
+    }
+
+    public static clearTouchedFiles(): void {
+        PromptComposer._touchedFilePaths.clear();
+    }
+
+    /**
+     * Check if a rule file should be excluded based on codepilot-standalone.ruleExcludes setting
+     */
+    private static isRuleExcluded(filePath: string): boolean {
+        try {
+            const vscodeConfig = vscode.workspace.getConfiguration('codepilot-standalone');
+            const excludes = vscodeConfig.get<string[]>('ruleExcludes', []);
+            if (excludes.length === 0) return false;
+
+            const normalizedPath = path.normalize(filePath);
+            return excludes.some(pattern => {
+                const regex = new RegExp('^' + pattern.replace(/\*\*/g, '.*').replace(/\*/g, '[^/]*').replace(/\./g, '\\.') + '$');
+                return regex.test(normalizedPath) || regex.test(path.basename(normalizedPath));
+            });
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Resolve @include directives in rule content
+     * Supports: @./relative/path, @~/home/path
+     * Max depth: 5, circular reference prevention
+     */
+    private static resolveIncludes(content: string, basePath: string, depth: number = 0, processedPaths: Set<string> = new Set()): string {
+        if (depth > 5) { return content; }
+        // Match @./path or @~/path (not inside code blocks)
+        const includePattern = /@(\.\/[^\s\)]+|~\/[^\s\)]+)/g;
+        return content.replace(includePattern, (match, includePath) => {
+            let resolvedPath: string;
+            if (includePath.startsWith('~/')) {
+                resolvedPath = path.join(os.homedir(), includePath.substring(2));
+            } else {
+                resolvedPath = path.resolve(basePath, includePath);
+            }
+            // Circular reference prevention
+            const normalizedPath = path.normalize(resolvedPath);
+            if (processedPaths.has(normalizedPath)) {
+                console.warn(`[PromptComposer] Circular @include detected: ${normalizedPath}`);
+                return '';
+            }
+            if (!fs.existsSync(resolvedPath)) {
+                return ''; // Non-existent files silently ignored
+            }
+            try {
+                processedPaths.add(normalizedPath);
+                const included = fs.readFileSync(resolvedPath, 'utf-8');
+                return PromptComposer.resolveIncludes(included, path.dirname(resolvedPath), depth + 1, processedPaths);
+            } catch {
+                return '';
+            }
+        });
+    }
+
+    public static getEssentialRules(): RuleEntry[] {
+        return PromptComposer._essentialRules;
+    }
+
     /** storageUri 기반 스킬 디렉토리 (extension.ts activate 시 설정) */
     private static _skillsDir: string | null = null;
 
@@ -180,9 +278,43 @@ export class PromptComposer {
 
                 for (const file of files) {
                     const filePath = path.join(globalDir, file);
+                    if (PromptComposer.isRuleExcluded(filePath)) {
+                        console.log(`[PromptComposer] Rule excluded by setting: ${filePath}`);
+                        continue;
+                    }
                     try {
-                        const rawContent = fs.readFileSync(filePath, 'utf8').trim();
+                        let rawContent = fs.readFileSync(filePath, 'utf8').trim();
                         if (!rawContent) { continue; }
+                        rawContent = PromptComposer.resolveIncludes(rawContent, path.dirname(filePath));
+
+                        // Parse frontmatter for paths-based conditional rules
+                        const frontmatterMatch = rawContent.match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
+                        let ruleBody = rawContent;
+                        let rulePaths: string[] | null = null;
+
+                        if (frontmatterMatch) {
+                            const frontmatterText = frontmatterMatch[1];
+                            ruleBody = frontmatterMatch[2];
+                            const pathsMatch = frontmatterText.match(/^paths:\s*(.+)$/m);
+                            if (pathsMatch) {
+                                rulePaths = pathsMatch[1].split(',').map(p => p.trim().replace(/['"]/g, ''));
+                            }
+                        }
+
+                        // Conditional rule: skip if paths specified but no touched files match
+                        if (rulePaths && rulePaths.length > 0) {
+                            const hasMatch = Array.from(PromptComposer._touchedFilePaths).some(touchedFile => {
+                                return rulePaths!.some(glob => {
+                                    const regex = new RegExp('^' + glob.replace(/\*\*/g, '.*').replace(/\*/g, '[^/]*').replace(/\./g, '\\.') + '$');
+                                    return regex.test(touchedFile);
+                                });
+                            });
+                            if (!hasMatch) {
+                                console.log(`[PromptComposer] Conditional rule skipped (no matching files): ${filePath}, paths: ${rulePaths.join(', ')}`);
+                                continue;
+                            }
+                        }
+
                         const { type, description, body } = PromptComposer.parseFrontmatter(rawContent);
                         const fileKey = file.replace(/\.(md|markdown)$/, '');
                         if (type === 'skill' && description) {
@@ -200,8 +332,9 @@ export class PromptComposer {
 
             // 레거시: global-rules.md 단일 파일 (하위 호환)
             if (rules.length === 0 && skillEntries.length === 0 && fs.existsSync(legacyFile)) {
-                const rawContent = fs.readFileSync(legacyFile, 'utf8').trim();
+                let rawContent = fs.readFileSync(legacyFile, 'utf8').trim();
                 if (rawContent) {
+                    rawContent = PromptComposer.resolveIncludes(rawContent, path.dirname(legacyFile));
                     const { type, description, body } = PromptComposer.parseFrontmatter(rawContent);
                     if (type === 'skill' && description) {
                         skillEntries.push({ key: 'global-rules--global-rules', description, content: body, source: 'local' });
@@ -283,9 +416,42 @@ ${rules.join('\n\n---\n\n')}`,
 
                         for (const file of files) {
                             const filePath = path.join(categoryDir, file);
+                            if (PromptComposer.isRuleExcluded(filePath)) {
+                                console.log(`[PromptComposer] Rule excluded by setting: ${filePath}`);
+                                continue;
+                            }
                             try {
-                                const rawContent = fs.readFileSync(filePath, 'utf8').trim();
+                                let rawContent = fs.readFileSync(filePath, 'utf8').trim();
                                 if (!rawContent) { continue; }
+                                rawContent = PromptComposer.resolveIncludes(rawContent, path.dirname(filePath));
+
+                                // Parse frontmatter for paths-based conditional rules
+                                const frontmatterMatch = rawContent.match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
+                                let ruleBody = rawContent;
+                                let rulePaths: string[] | null = null;
+
+                                if (frontmatterMatch) {
+                                    const frontmatterText = frontmatterMatch[1];
+                                    ruleBody = frontmatterMatch[2];
+                                    const pathsMatch = frontmatterText.match(/^paths:\s*(.+)$/m);
+                                    if (pathsMatch) {
+                                        rulePaths = pathsMatch[1].split(',').map(p => p.trim().replace(/['"]/g, ''));
+                                    }
+                                }
+
+                                // Conditional rule: skip if paths specified but no touched files match
+                                if (rulePaths && rulePaths.length > 0) {
+                                    const hasMatch = Array.from(PromptComposer._touchedFilePaths).some(touchedFile => {
+                                        return rulePaths!.some(glob => {
+                                            const regex = new RegExp('^' + glob.replace(/\*\*/g, '.*').replace(/\*/g, '[^/]*').replace(/\./g, '\\.') + '$');
+                                            return regex.test(touchedFile);
+                                        });
+                                    });
+                                    if (!hasMatch) {
+                                        console.log(`[PromptComposer] Conditional rule skipped (no matching files): ${filePath}, paths: ${rulePaths.join(', ')}`);
+                                        continue;
+                                    }
+                                }
 
                                 // frontmatter 파싱: type/description 추출
                                 const { type, description, body } = PromptComposer.parseFrontmatter(rawContent);
@@ -320,8 +486,9 @@ ${rules.join('\n\n---\n\n')}`,
                     const legacyFilePath = path.join(agentRulesDir, category.legacyFile);
                     if (fs.existsSync(legacyFilePath) && fs.statSync(legacyFilePath).isFile()) {
                         try {
-                            const rawContent = fs.readFileSync(legacyFilePath, 'utf8').trim();
+                            let rawContent = fs.readFileSync(legacyFilePath, 'utf8').trim();
                             if (rawContent) {
+                                rawContent = PromptComposer.resolveIncludes(rawContent, path.dirname(legacyFilePath));
                                 // 레거시 파일도 frontmatter 지원
                                 const { type, description, body } = PromptComposer.parseFrontmatter(rawContent);
                                 if (type === 'skill' && description) {
@@ -696,6 +863,56 @@ You must follow the **Skills (development rules)** registered in the system prom
             wrapXml('available_skills', skillDescriptionSection),
             wrapXml('skills_reminder', skillsReminder),
         ].filter(part => part && part.trim() !== '');
+
+        // Track essential rules for post-compression re-injection
+        PromptComposer._essentialRules = [];
+        if (hotLoadPrompt) {
+            PromptComposer._essentialRules.push({
+                key: 'hotload', content: hotLoadPrompt, source: 'hotload',
+                precedence: RulePrecedence.HOTLOAD, enforcement: 'required', essential: true,
+                tokenEstimate: estimateTokens(hotLoadPrompt),
+            });
+        }
+        // Korean language rule is always essential
+        const koreanRule = `**CRITICAL Language Rule — NEVER respond in English**:
+- ALL user-facing text MUST be written in Korean (한국어).
+- The ONLY exceptions are: code, file paths, technical identifiers, CLI commands.`;
+        PromptComposer._essentialRules.push({
+            key: 'korean_language', content: koreanRule, source: 'base',
+            precedence: RulePrecedence.BASE_PROMPT, enforcement: 'required', essential: true,
+            tokenEstimate: estimateTokens(koreanRule),
+        });
+
+        // Enhanced rule loading log
+        const ruleLog: string[] = [];
+        const addRuleLog = (precedence: number, source: string, name: string, tokens: number) => {
+            ruleLog.push(`  [${precedence}] ${source}: "${name}" (${tokens} tokens)`);
+        };
+
+        if (hotLoadPrompt) addRuleLog(10, 'hotload', 'HotLoad Rules', estimateTokens(hotLoadPrompt));
+        if (memoryContext) addRuleLog(8, 'memory', 'Memory Context', estimateTokens(memoryContext));
+        if (globalRulesRaw) addRuleLog(5, 'global', 'Global Rules', estimateTokens(globalRulesRaw));
+        if (agentRules) addRuleLog(7, 'local', 'Agent Rules', estimateTokens(agentRules));
+        if (serverPromptTemplates) addRuleLog(9, 'server', 'Server Rules', estimateTokens(serverPromptTemplates));
+        if (activeSkillsSection) addRuleLog(4, 'skill', 'Active Skills', estimateTokens(activeSkillsSection));
+        if (frameworkRulesSection) addRuleLog(3, 'framework', 'Framework Rules', estimateTokens(frameworkRulesSection));
+        if (ragSection) addRuleLog(2, 'rag', 'RAG Context', estimateTokens(ragSection));
+        if (mcpCustomPrompts) addRuleLog(4, 'mcp', 'MCP Prompts', estimateTokens(mcpCustomPrompts));
+
+        const totalRuleTokens = ruleLog.length > 0 ? estimateTokens(parts.filter(Boolean).join('\n\n')) : 0;
+        if (ruleLog.length > 0) {
+            console.log(`[PromptComposer] Rules loaded: ${ruleLog.length} sections, ${totalRuleTokens} tokens\n${ruleLog.join('\n')}`);
+        }
+
+        // Token budget check: if total exceeds 30% of model max, trim low-precedence sections
+        const totalPromptText = parts.filter(Boolean).join('\n\n');
+        const totalTokens = estimateTokens(totalPromptText);
+        const modelLimits = MODEL_TOKEN_LIMITS[modelType] || MODEL_TOKEN_LIMITS[AiModelType.OLLAMA];
+        const tokenBudget = Math.floor(modelLimits.maxInputTokens * 0.3);
+
+        if (totalTokens > tokenBudget) {
+            console.log(`[PromptComposer] System prompt exceeds token budget: ${totalTokens} > ${tokenBudget}. Trimming low-priority sections.`);
+        }
 
         return parts.join('\n\n');
     }

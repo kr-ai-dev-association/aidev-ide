@@ -2,7 +2,26 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.46**
+> **현재 버전: v1.0.47**
+
+---
+
+## v1.0.47 (2026-04-02)
+
+### 규칙/프롬프트 시스템 개선
+
+- **규칙 우선순위 명시화**: `RulePrecedence` enum (1-10) + `RuleEntry` 인터페이스
+- **Essential 규칙**: 압축 후 핵심 규칙 재주입 (HotLoad + 한국어 규칙)
+- **토큰 예산 체크**: 30% 초과 시 경고
+- **@include 지시자**: `@./path`, `@~/path` 참조, 순환 방지
+- **조건부 규칙**: `paths:` frontmatter로 관련 파일 터치 시만 로드
+- **규칙 제외**: `ruleExcludes` 설정
+- **상세 로깅**: precedence + 토큰 수
+
+### AGENT 모드 안정화
+
+- **FSM 강제 전환 14곳 우회**: REVIEW 전환, 도구 재촉, 텍스트 거부 등 전부 `isAgentMode` 가드
+- **도구 실패 후 루프 계속**: REVIEW 대신 재시도 기회 부여
 
 ---
 

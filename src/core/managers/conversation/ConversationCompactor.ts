@@ -16,6 +16,7 @@ import { SummarizationOptions } from "../context/types/contextHistory";
 import { AgentConfig } from "../../config/AgentConfig";
 import { StringUtils } from "../../utils/StringUtils";
 import { getCompactSummarizationPrompt } from "../context/prompts/rules";
+import { PromptComposer, RulePrecedence } from "../context/prompts/PromptComposer";
 import { Part } from "../../../services/types";
 
 export interface ConversationMessage {
@@ -171,11 +172,21 @@ export class ConversationCompactor {
 
     try {
       // LLM을 사용해 오래된 대화 요약
-      const summary = await this.generateSummary(
+      let summary = await this.generateSummary(
         messagesToSummarize,
         abortSignal,
       );
       this.lastSummary = summary;
+
+      // Re-inject essential rules after compression
+      const essentialRules = PromptComposer.getEssentialRules();
+      if (essentialRules.length > 0) {
+          const essentialText = essentialRules
+              .map(r => `[Essential Rule: ${r.key}]\n${r.content}`)
+              .join('\n\n');
+          // Prepend essential rules to the summary
+          summary = `${essentialText}\n\n${summary}`;
+      }
 
       // 요약을 새 userParts의 첫 번째 메시지로 추가
       const compactedParts = [
