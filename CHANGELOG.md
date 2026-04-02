@@ -2,7 +2,22 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.48**
+> **현재 버전: v1.0.49**
+
+---
+
+## v1.0.49 (2026-04-02)
+
+### 프롬프트 강화
+
+- **Cyber Risk / OWASP 보안 프롬프트**: SQL injection, XSS, command injection 방지 지시 + 보안 테스트 윤리 가이드라인
+- **Git 워크플로 프롬프트**: conventional commit, 파일별 staging, force push 금지, hooks skip 금지
+- **코드 품질 프롬프트**: 과도한 추상화 금지, 불필요한 에러 처리 금지, 기존 스타일 유지
+- **spawn_agent 프롬프트 강화**: sync vs background 결정 트리 (5가지 상황별 판단 가이드)
+
+### UI 한글화
+
+- **processStep 영어 → 한글**: `Preparing command` → `명령 준비 중`, `Running build/test validation` → `빌드/테스트 검증 실행 중`, `Auto-repair validation in progress` → `자동 수정 검증 진행 중`
 
 ---
 

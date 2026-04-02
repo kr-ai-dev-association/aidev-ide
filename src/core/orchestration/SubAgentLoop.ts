@@ -1146,7 +1146,7 @@ Already implemented, no additional work needed:
         }
         if (lastMatch && lastMatch.tool === 'run_command') {
             const cmd = lastMatch.file.length > 30 ? lastMatch.file.substring(0, 30) + '...' : lastMatch.file;
-            return `Preparing command: ${cmd}`;
+            return `명령 준비 중: ${cmd}`;
         }
 
         return null;

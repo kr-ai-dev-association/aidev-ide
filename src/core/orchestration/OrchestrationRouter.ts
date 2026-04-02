@@ -630,8 +630,8 @@ export class OrchestrationRouter {
             if (options.abortSignal?.aborted) { break; }
 
             const label = attempt === 0
-                ? 'Running build/test validation...'
-                : `Auto-repair validation in progress (${attempt}/${MAX_REPAIR_RETRIES})...`;
+                ? '빌드/테스트 검증 실행 중...'
+                : `자동 수정 검증 진행 중 (${attempt}/${MAX_REPAIR_RETRIES})...`;
 
             WebviewBridge.sendProcessingStep(webview, 'review');
             WebviewBridge.sendProcessingStatus(webview, 'review', label);
