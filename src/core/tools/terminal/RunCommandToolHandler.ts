@@ -10,6 +10,29 @@ import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
 import { ToolUse, ToolResponse, Tool } from '../types';
 import { HotLoadManager } from '../../managers/hotload/HotLoadManager';
 
+/** Safe read-only commands whitelist (for INVESTIGATION phase validation) */
+export const READ_ONLY_SAFE_COMMANDS = new Set([
+    'cat', 'less', 'more', 'head', 'tail', 'file', 'wc', 'stat',
+    'find', 'grep', 'rg', 'fd', 'locate', 'which', 'whereis',
+    'ls', 'du', 'df', 'ps', 'whoami', 'pwd', 'date', 'env', 'echo',
+    'git status', 'git log', 'git show', 'git diff', 'git branch',
+    'npm list', 'npm ls', 'pip list', 'pip show',
+    'node --version', 'python --version', 'python3 --version',
+    'uv --version', 'cargo --version', 'go version',
+]);
+
+export function isReadOnlySafeCommand(command: string): boolean {
+    const trimmed = command.trim();
+    const firstWord = trimmed.split(/\s+/)[0];
+    // Check if the first command word is in the safe list
+    if (READ_ONLY_SAFE_COMMANDS.has(firstWord)) return true;
+    // Check multi-word commands (git status, npm list, etc.)
+    for (const safe of READ_ONLY_SAFE_COMMANDS) {
+        if (safe.includes(' ') && trimmed.startsWith(safe)) return true;
+    }
+    return false;
+}
+
 /**
  * Command prefix -> manifest file mapping
  * If manifest is not at workspace root, auto-search in subdirectories

@@ -12,6 +12,8 @@ import {
     ExecutionOptions
 } from './types';
 
+const MAX_OUTPUT_SIZE = 10 * 1024 * 1024; // 10MB output limit
+
 // Git Bash 후보 경로 (Windows)
 const GIT_BASH_CANDIDATES = [
     'C:\\Program Files\\Git\\bin\\bash.exe',
@@ -131,6 +133,17 @@ export class ProcessManager {
         // 저장
         this.processes.set(pid, processInfo);
         this.childProcesses.set(pid, childProcess);
+
+        // Output size watchdog
+        let totalOutputSize = 0;
+        const trackSize = (data: Buffer | string) => {
+            totalOutputSize += typeof data === 'string' ? data.length : data.byteLength;
+            if (totalOutputSize > MAX_OUTPUT_SIZE) {
+                console.warn(`[ProcessManager] Output size exceeded ${MAX_OUTPUT_SIZE} bytes for PID ${pid}. Consider backgrounding.`);
+            }
+        };
+        childProcess.stdout?.on('data', trackSize);
+        childProcess.stderr?.on('data', trackSize);
 
         // 프로세스 이벤트 핸들러 등록
         this.registerProcessHandlers(pid, childProcess);

@@ -43,6 +43,21 @@ export const DEFAULT_BLOCKED_COMMANDS: DefaultRule[] = [
     { id: 'shutdown', pattern: '(shutdown|reboot|halt|poweroff)\\s', description: 'System shutdown/restart' },
     { id: 'fdisk', pattern: '\\b(fdisk|parted)\\b', description: 'Partition modification' },
     { id: 'sudo_rm', pattern: 'sudo\\s+rm\\s', description: 'File deletion with sudo privileges' },
+
+    // Zsh dangerous commands
+    { id: 'zmodload', pattern: '\\bzmodload\\b', description: 'Zsh module loading (gateway to system-level attacks)' },
+    { id: 'emulate_c', pattern: '\\bemulate\\s+-c\\b', description: 'Zsh eval-equivalent command' },
+    { id: 'sysopen', pattern: '\\bsysopen\\b', description: 'Zsh direct file I/O (bypass file permissions)' },
+    { id: 'zpty', pattern: '\\bzpty\\b', description: 'Zsh pseudo-terminal (process execution bypass)' },
+    { id: 'ztcp', pattern: '\\bztcp\\b', description: 'Zsh TCP socket (network access bypass)' },
+    { id: 'zsocket', pattern: '\\bzsocket\\b', description: 'Zsh socket (network access bypass)' },
+
+    // Command injection patterns (pipe to shell)
+    { id: 'curl_pipe_bash', pattern: 'curl\\s+.*\\|\\s*bash', description: 'Remote code execution via pipe' },
+    { id: 'wget_pipe_bash', pattern: 'wget\\s+.*\\|\\s*bash', description: 'Remote code execution via pipe' },
+
+    // Dangerous data exposure
+    { id: 'proc_environ', pattern: '\\/proc\\/\\d*\\/environ', description: 'Environment variable exposure via /proc' },
 ];
 
 /**

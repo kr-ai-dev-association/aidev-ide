@@ -171,9 +171,17 @@ export class ConversationCompactor {
     }
 
     try {
+      // Strip inline images before summarization (save tokens)
+      const strippedMessages = messagesToSummarize.map(part => {
+        if (part.inlineData) {
+          return { text: `[image: ${part.inlineData.mimeType || 'unknown'}]` };
+        }
+        return part;
+      });
+
       // LLM을 사용해 오래된 대화 요약
       let summary = await this.generateSummary(
-        messagesToSummarize,
+        strippedMessages,
         abortSignal,
       );
       this.lastSummary = summary;

@@ -62,6 +62,12 @@ export class StackDetector {
                 case ProjectType.VUE:
                     await this.detectVueStack(projectRoot, result);
                     break;
+                case ProjectType.GO:
+                    await this.detectGoStack(projectRoot, result);
+                    break;
+                case ProjectType.RUST:
+                    await this.detectRustStack(projectRoot, result);
+                    break;
                 default:
                     // 기본 Node.js/TypeScript 스택 감지
                     await this.detectNodeStack(projectRoot, result);
@@ -753,6 +759,134 @@ export class StackDetector {
                 confidence: 0.95,
                 evidence: ['NestJS found'],
             });
+        }
+    }
+
+    // ==================== Go Stack Detection ====================
+
+    private async detectGoStack(projectRoot: string, result: DetailedStack): Promise<void> {
+        const goModPath = path.join(projectRoot, 'go.mod');
+        if (!fs.existsSync(goModPath)) return;
+
+        const goMod = fs.readFileSync(goModPath, 'utf-8');
+
+        // Go version
+        const goVersionMatch = goMod.match(/^go\s+(\d+\.\d+(?:\.\d+)?)/m);
+        if (goVersionMatch) {
+            result.versions.language = goVersionMatch[1];
+            result.stacks.push({
+                name: `go ${goVersionMatch[1]}`,
+                confidence: 0.95,
+                evidence: [`go.mod: go ${goVersionMatch[1]}`],
+                version: goVersionMatch[1],
+            });
+        }
+
+        // Web frameworks
+        if (goMod.includes('github.com/gin-gonic/gin')) {
+            const ver = goMod.match(/github\.com\/gin-gonic\/gin\s+(v[\d.]+)/)?.[1];
+            result.stacks.push({ name: 'gin', confidence: 0.95, evidence: ['Gin web framework'], version: ver });
+            result.versions.framework = `gin ${ver || ''}`.trim();
+        }
+        if (goMod.includes('github.com/labstack/echo')) {
+            const ver = goMod.match(/github\.com\/labstack\/echo[\/\w]*\s+(v[\d.]+)/)?.[1];
+            result.stacks.push({ name: 'echo', confidence: 0.95, evidence: ['Echo web framework'], version: ver });
+        }
+        if (goMod.includes('github.com/gofiber/fiber')) {
+            const ver = goMod.match(/github\.com\/gofiber\/fiber[\/\w]*\s+(v[\d.]+)/)?.[1];
+            result.stacks.push({ name: 'fiber', confidence: 0.95, evidence: ['Fiber web framework'], version: ver });
+        }
+        if (goMod.includes('github.com/gorilla/mux')) {
+            result.stacks.push({ name: 'gorilla/mux', confidence: 0.9, evidence: ['Gorilla Mux router'] });
+        }
+
+        // ORM/DB
+        if (goMod.includes('gorm.io/gorm')) {
+            result.stacks.push({ name: 'gorm', confidence: 0.9, evidence: ['GORM ORM'] });
+        }
+        if (goMod.includes('github.com/jmoiron/sqlx')) {
+            result.stacks.push({ name: 'sqlx', confidence: 0.9, evidence: ['sqlx database library'] });
+        }
+        if (goMod.includes('entgo.io/ent')) {
+            result.stacks.push({ name: 'ent', confidence: 0.9, evidence: ['Ent ORM'] });
+        }
+
+        // Go workspace (monorepo)
+        const goWorkPath = path.join(projectRoot, 'go.work');
+        if (fs.existsSync(goWorkPath)) {
+            result.stacks.push({ name: 'go-workspace', confidence: 0.95, evidence: ['go.work: Go workspace (monorepo)'] });
+        }
+    }
+
+    // ==================== Rust Stack Detection ====================
+
+    private async detectRustStack(projectRoot: string, result: DetailedStack): Promise<void> {
+        const cargoPath = path.join(projectRoot, 'Cargo.toml');
+        if (!fs.existsSync(cargoPath)) return;
+
+        const cargoToml = fs.readFileSync(cargoPath, 'utf-8');
+
+        // Rust edition
+        const editionMatch = cargoToml.match(/edition\s*=\s*"(\d{4})"/);
+        if (editionMatch) {
+            result.versions.language = `rust edition ${editionMatch[1]}`;
+            result.stacks.push({
+                name: `rust-${editionMatch[1]}`,
+                confidence: 0.95,
+                evidence: [`Cargo.toml: edition = "${editionMatch[1]}"`],
+                version: editionMatch[1],
+            });
+        }
+
+        // Workspace (monorepo)
+        if (cargoToml.includes('[workspace]')) {
+            const membersMatch = cargoToml.match(/members\s*=\s*\[([\s\S]*?)\]/);
+            const memberCount = membersMatch ? (membersMatch[1].match(/"/g) || []).length / 2 : 0;
+            result.stacks.push({
+                name: 'cargo-workspace',
+                confidence: 0.95,
+                evidence: [`Cargo.toml: [workspace] with ${memberCount} members`],
+            });
+        }
+
+        // Web frameworks
+        if (cargoToml.includes('actix-web')) {
+            const ver = cargoToml.match(/actix-web\s*=\s*"([^"]+)"/)?.[1];
+            result.stacks.push({ name: 'actix-web', confidence: 0.95, evidence: ['Actix Web framework'], version: ver });
+            result.versions.framework = `actix-web ${ver || ''}`.trim();
+        }
+        if (cargoToml.includes('axum')) {
+            const ver = cargoToml.match(/axum\s*=\s*"([^"]+)"/)?.[1];
+            result.stacks.push({ name: 'axum', confidence: 0.95, evidence: ['Axum web framework'], version: ver });
+            result.versions.framework = `axum ${ver || ''}`.trim();
+        }
+        if (cargoToml.includes('rocket')) {
+            const ver = cargoToml.match(/rocket\s*=\s*"([^"]+)"/)?.[1];
+            result.stacks.push({ name: 'rocket', confidence: 0.95, evidence: ['Rocket web framework'], version: ver });
+        }
+        if (cargoToml.includes('warp')) {
+            result.stacks.push({ name: 'warp', confidence: 0.9, evidence: ['Warp web framework'] });
+        }
+
+        // ORM/DB
+        if (cargoToml.includes('diesel')) {
+            result.stacks.push({ name: 'diesel', confidence: 0.9, evidence: ['Diesel ORM'] });
+        }
+        if (cargoToml.includes('sqlx')) {
+            result.stacks.push({ name: 'sqlx', confidence: 0.9, evidence: ['SQLx async database'] });
+        }
+        if (cargoToml.includes('sea-orm')) {
+            result.stacks.push({ name: 'sea-orm', confidence: 0.9, evidence: ['SeaORM'] });
+        }
+
+        // Async runtime
+        if (cargoToml.includes('tokio')) {
+            result.stacks.push({ name: 'tokio', confidence: 0.9, evidence: ['Tokio async runtime'] });
+        }
+
+        // Serialization
+        if (cargoToml.includes('serde')) {
+            result.stacks.push({ name: 'serde', confidence: 0.85, evidence: ['Serde serialization'] });
         }
     }
 

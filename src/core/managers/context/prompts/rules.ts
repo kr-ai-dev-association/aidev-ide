@@ -466,29 +466,59 @@ export function getExecutionPhaseContextPrompt(
  * Simplified summarization prompt for compaction
  */
 export function getCompactSummarizationPrompt(): string {
-  return `You are a conversation summarization expert. Summarize the code assistant's conversation concisely.
+  return `You are a conversation summarization expert. Create a structured summary that preserves all critical context for continuing the conversation.
 
-## Summary Format:
+## Required Sections (include ALL 9 sections):
 
-### User Request
-- Main tasks requested by the user
+### 1. Primary Request and Intent
+- The user's original request and overall goal
+- Category: code generation / modification / analysis / documentation / execution
 
-### Completed Tasks
-- List of completed file creations/modifications
-- Executed commands
+### 2. Key Technical Concepts
+- Technologies, frameworks, libraries mentioned or used
+- Architecture decisions made (e.g., "using Repository pattern", "FastAPI + React")
+- Important constraints or requirements discussed
 
-### Key Context
-- Important information needed for the next task
-- Project structure, tech stack, configuration, etc.
+### 3. Files and Code Sections
+- List ALL files that were read, created, or modified with their paths
+- For modified files: note what was changed (e.g., "src/App.tsx: added Router import and routes")
+- For created files: note purpose (e.g., "backend/app/main.py: FastAPI entry point with CORS")
+- Include specific line numbers or function names when referenced
 
-### Pending Tasks
-- Tasks not yet completed
+### 4. Errors and Fixes
+- Any errors encountered and how they were resolved
+- Tool failures (e.g., "update_file SEARCH failed for X → re-read and retried")
+- Build/test errors and their fixes
+
+### 5. Problem Solving Approach
+- Key decisions made during implementation
+- Alternative approaches considered and rejected
+- Non-obvious solutions applied
+
+### 6. User Messages (ALL)
+- Reproduce every user message verbatim (or near-verbatim if very long)
+- This is critical for maintaining conversation context
+
+### 7. Pending Tasks
+- Tasks explicitly requested but not yet completed
+- Tasks implied but not started
+
+### 8. Current Work State
+- What was being worked on when the summary was created
+- Current phase: investigation / implementation / testing / review
+- Any in-progress tool executions or pending results
+
+### 9. Suggested Next Step
+- The most logical next action based on current state
+- Any blockers that need resolution
 
 ## Guidelines:
-1. Include only key information (the goal is to save tokens)
-2. Do not include code (only record file names)
-3. Write in English
-4. Keep only context essential for the next task`;
+1. Be thorough — this summary replaces the full conversation history
+2. File paths must be exact (the AI will use them for read_file/update_file)
+3. Do NOT include source code content (only file names and what changed)
+4. Write in English (technical accuracy over brevity)
+5. If a file was modified multiple times, record the final state description
+6. Preserve error messages verbatim when they are important for debugging`;
 }
 
 // ==================== Classified Error Retry Prompt ====================

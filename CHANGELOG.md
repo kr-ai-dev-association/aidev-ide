@@ -2,7 +2,30 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.47**
+> **현재 버전: v1.0.48**
+
+---
+
+## v1.0.48 (2026-04-02)
+
+### 보안 강화
+
+- **Zsh 위험 명령 차단**: `zmodload`, `emulate -c`, `sysopen`, `zpty`, `ztcp`, `zsocket` 6개 + `curl|bash`, `wget|bash`, `/proc/environ` 3개 추가 (총 +9 패턴)
+- **읽기 전용 명령 화이트리스트**: `READ_ONLY_SAFE_COMMANDS` + `isReadOnlySafeCommand()` 인프라 추가 (INVESTIGATION 단계 적용 준비)
+
+### 컨텍스트 압축 개선
+
+- **9섹션 구조화 요약 프롬프트**: 4섹션 자유 형식 → 9섹션 구조화 (사용자 요청, 기술 개념, 파일/코드, 에러/수정, 문제 해결, 사용자 메시지, 대기 작업, 현재 상태, 다음 단계)
+- **이미지 제거**: 압축 전 인라인 이미지를 `[image: mimeType]` 마커로 대체 → 토큰 절약
+
+### 프로세스 관리
+
+- **크기 감시 (watchdog)**: 프로세스 출력 10MB 초과 시 경고 로그 (stdout + stderr 모니터링)
+
+### 프로젝트 감지
+
+- **Go 스택 감지**: `go.mod` 파싱 — Go 버전, Gin/Echo/Fiber/Gorilla 프레임워크, GORM/sqlx/Ent ORM, go.work 워크스페이스 감지
+- **Rust 스택 감지**: `Cargo.toml` 파싱 — Rust edition, `[workspace]` 모노레포, Actix-web/Axum/Rocket/Warp 프레임워크, Diesel/SQLx/SeaORM, Tokio/Serde 감지
 
 ---
 
