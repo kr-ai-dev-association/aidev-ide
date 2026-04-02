@@ -250,6 +250,7 @@ export class ConversationManager implements IConversationHandler {
       this.contextGatherer.prepareUI(webviewToRespond);
 
       TestRunner.clearSubProjectCache();
+      PromptComposer.clearTouchedFiles();
       this._retryGaveUp = false;
 
       // 탈출 시도 카운터 리셋 (새 대화 시작)
@@ -1989,6 +1990,7 @@ export class ConversationManager implements IConversationHandler {
               if (
                 !hasFileChanges &&
                 !isPlanMode &&
+                !isAgentMode &&
                 executionNoToolRetryCount < maxExecutionNoToolRetries
               ) {
                 // 파일 변경 없이 도구 호출도 없음 → LLM에게 도구 호출 강제 프롬프트 추가 후 재시도
@@ -2598,6 +2600,12 @@ export class ConversationManager implements IConversationHandler {
           const remainingPlanItems = taskManager.getNextPendingItem();
           const planExistsForReview = taskManager.listPlanItems().length > 0;
           if (lastTurnHadSuccessfulToolExecution && planExistsForReview && !remainingPlanItems) {
+            if (isAgentMode) {
+              // AGENT 모드: plan 완료해도 REVIEW 전환하지 않고 LLM이 스스로 완료 결정
+              console.log(`[ConversationManager] AGENT mode: All plan items completed but continuing loop (LLM decides completion).`);
+              lastTurnHadSuccessfulToolExecution = false;
+              (this as any).naturalLanguageRetry = 0;
+            } else {
             // Case A: plan 기반 플로우 — 모든 plan item 완료
             console.log(
               `[ConversationManager] EXECUTION phase: All plan items completed. Skipping completion confirmation and transitioning to REVIEW.`,
@@ -2611,6 +2619,7 @@ export class ConversationManager implements IConversationHandler {
             lastTurnHadSuccessfulToolExecution = false; // 리셋
             (this as any).naturalLanguageRetry = 0; // 리셋
             cleanResponse = ""; // 자연어 응답은 무시 (불필요한 "완료했습니다" 메시지)
+            }
           } else if (lastTurnHadSuccessfulToolExecution && !planExistsForReview) {
             // Case C: no-plan 실행 — plan이 한 번도 생성되지 않음
             // 도구 성공만으로 완료 판정 불가, LLM에게 다음 턴을 줘서 계속 작업하게 함
@@ -3127,7 +3136,7 @@ export class ConversationManager implements IConversationHandler {
                   `[ConversationManager] EXECUTION phase: Investigation tools detected (${toolCalls.map((c) => c.name).join(", ")}). Allowing read before edit.`,
                 );
                 executionNoToolRetryCount++;
-                if (executionNoToolRetryCount > 2) {
+                if (!isAgentMode && executionNoToolRetryCount > 2) {
                   console.warn(
                     `[ConversationManager] EXECUTION phase: ${executionNoToolRetryCount} consecutive read-only turns. Nudging for modification tools.`,
                   );
@@ -3208,6 +3217,11 @@ export class ConversationManager implements IConversationHandler {
 
               // 🔥 사용자가 스킵한 경우에도 REVIEW로 전환 (무한 루프 방지)
               if (hasUserSkipped3) {
+                if (isAgentMode) {
+                  console.log(`[ConversationManager] AGENT mode: User skipped tool execution, continuing loop.`);
+                  turnCount++;
+                  continue;
+                }
                 console.log(
                   `[ConversationManager] User skipped tool execution, transitioning to REVIEW.`,
                 );
@@ -3554,7 +3568,8 @@ export class ConversationManager implements IConversationHandler {
         }
 
         // 🔥 핵심 수정: 파일이 이미 생성/수정되었다면 완료로 간주하고 REVIEW 전환
-        if (createdFiles.length > 0 || modifiedFiles.length > 0) {
+        // AGENT 모드: INVESTIGATION phase를 사용하지 않지만, 안전 가드로 REVIEW 전환 방지
+        if (!isAgentMode && (createdFiles.length > 0 || modifiedFiles.length > 0)) {
           console.log(
             `[ConversationManager] INVESTIGATION phase: Files already modified (created: ${createdFiles.length}, modified: ${modifiedFiles.length}). Transitioning to REVIEW.`,
           );
@@ -5018,6 +5033,13 @@ export class ConversationManager implements IConversationHandler {
     );
 
     if (!hasSuccessful) {
+      // AGENT 모드: 모든 도구 차단되어도 REVIEW 전환하지 않고 LLM에게 계속 맡김
+      if (this._isAgentMode) {
+        accumulatedUserParts.push({
+          text: `[시스템 알림] 다음 파일은 보안 규칙에 의해 접근이 차단되었습니다: ${blockedMessages.join(", ")}. 해당 파일을 제외하고 다른 방법으로 작업을 계속하세요.`,
+        });
+        return "continue";
+      }
       stateManager.transitionTo(AgentPhase.REVIEW);
       return "break";
     }
@@ -5246,6 +5268,17 @@ export class ConversationManager implements IConversationHandler {
       accumulatedUserParts.push({
         text: `\n[System] ⚠️ 명령 실행이 필요합니다.\n\n사용자가 명령 실행을 요청했습니다. run_command 도구를 사용하여 적절한 명령을 실행하세요.\n프로젝트 구조를 파악했다면, 이제 실제 명령을 실행하세요.`,
       });
+      return {
+        turnAction: { action: "continue" },
+        testFixAttempts,
+        pendingRetryPrompt: false,
+        pendingMCPResultInterpretation: false,
+      };
+    }
+
+    // AGENT 모드: 파일 변경 없어도 REVIEW 전환 안 함 (LLM이 재시도 또는 완료 결정)
+    if (this._isAgentMode) {
+      console.log("[ConversationManager] AGENT mode: No file changes but continuing loop (LLM decides next action).");
       return {
         turnAction: { action: "continue" },
         testFixAttempts,
@@ -5810,6 +5843,11 @@ export class ConversationManager implements IConversationHandler {
           retryDecision.giveUpReason,
         ),
       );
+    }
+    // AGENT 모드: 테스트 실패해도 REVIEW 전환하지 않고 LLM에게 계속 맡김
+    if (this._isAgentMode) {
+      console.log("[ConversationManager] AGENT mode: Test retry exceeded but continuing loop (LLM decides next action).");
+      return { turnAction: { action: "continue" }, testFixAttempts, pendingRetryPrompt: false };
     }
     const action = this.transitionToReview(
       stateManager,

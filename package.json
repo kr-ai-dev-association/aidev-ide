@@ -2,7 +2,7 @@
   "name": "codepilot",
   "displayName": "codepilot",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "1.0.46",
+  "version": "1.0.47",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -361,6 +361,12 @@
           ],
           "description": "채팅 패널의 색상 테마를 설정합니다. (dark: 다크, light: 라이트, auto: VS Code)",
           "scope": "resource"
+        },
+        "codepilot.ruleExcludes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Glob patterns for rule files to exclude (e.g., '**/legacy-rules/**', 'deprecated.md')"
         }
       }
     }

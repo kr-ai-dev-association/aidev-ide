@@ -2,7 +2,32 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.46**
+> **현재 버전: v1.0.47**
+
+---
+
+## v1.0.47 (2026-04-02)
+
+### 규칙/프롬프트 시스템 개선
+
+- **규칙 우선순위 명시화**: `RulePrecedence` enum (1-10 레벨) + `RuleEntry` 인터페이스 — 규칙 간 충돌 시 예측 가능한 동작
+- **Essential 규칙 (압축 후 보존)**: HotLoad(required) + 한국어 응답 규칙은 Tier2 압축 후에도 재주입
+- **토큰 예산 체크**: 시스템 프롬프트가 모델 입력 토큰의 30% 초과 시 경고 로그
+- **@include 지시자**: 규칙 파일에서 `@./shared/common.md`, `@~/path` 형태로 다른 파일 참조 — 순환 방지, 깊이 5 제한
+- **조건부 규칙 (paths: frontmatter)**: 규칙 파일에 `paths: "src/**/*.tsx"` 지정 시 해당 파일 터치할 때만 로드 → 토큰 절약
+- **규칙 제외 설정**: `codepilot.ruleExcludes` — glob 패턴으로 특정 규칙 파일 제외
+- **상세 로깅**: 규칙 로드 시 precedence 레벨 + 토큰 수 상세 로그 출력
+
+### AGENT 모드 안정화
+
+- **FSM 강제 전환 14곳 우회**: CODE 모드의 REVIEW 강제 전환, 도구 호출 재촉, 텍스트 거부 등이 AGENT 모드에서 발동하지 않도록 `isAgentMode` 가드 추가
+  - `transitionToReview` 8곳 가드
+  - `executionNoToolRetryCount` nudge 2곳 가드
+  - `naturalLanguageRetry` nudge 확인 (이미 도달 불가)
+  - `handleBlockedTools` REVIEW 전환 가드
+  - `consecutiveReadOnlyTurns` nudge 가드
+  - "No file changes → REVIEW" 전환 가드
+- **도구 실패 후 루프 계속**: AGENT 모드에서 도구 실패 시 REVIEW 전환 대신 LLM에게 재시도 기회 부여
 
 ---
 
