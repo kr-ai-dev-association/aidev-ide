@@ -44,6 +44,7 @@ export class SubAgentLoop {
     private thinkingEnabled: boolean;
     private disableReadDedup: boolean;
     private isRepairAgent: boolean;
+    private isAgentMode: boolean;
     private stateManager?: StateManager;
 
     constructor(
@@ -55,7 +56,7 @@ export class SubAgentLoop {
         rulesContext?: string,
         useStreaming?: boolean,
         thinkingEnabled?: boolean,
-        agentOptions?: { disableReadDedup?: boolean; isRepairAgent?: boolean },
+        agentOptions?: { disableReadDedup?: boolean; isRepairAgent?: boolean; isAgentMode?: boolean },
         stateManager?: StateManager,
     ) {
         this.subtask = subtask;
@@ -68,6 +69,7 @@ export class SubAgentLoop {
         this.thinkingEnabled = thinkingEnabled ?? true;
         this.disableReadDedup = agentOptions?.disableReadDedup ?? false;
         this.isRepairAgent = agentOptions?.isRepairAgent ?? false;
+        this.isAgentMode = agentOptions?.isAgentMode ?? false;
         this.stateManager = stateManager;
         this.llmManager = LLMManager.getInstance();
         this.toolExecutor = new ToolExecutor();
@@ -406,6 +408,14 @@ export class SubAgentLoop {
                     break;
                 }
 
+                // AGENT mode: no tools and no __done__ = text-only completion
+                if (this.isAgentMode && !doneCall && executableCalls.length === 0) {
+                    console.log(`[SubAgentLoop:${this.subtask.id}] AGENT mode: Text-only response — completing.`);
+                    completedNormally = true;
+                    doneStatus = 'completed';
+                    break;
+                }
+
                 // No tools (and no __done__): determine if actually complete
                 if (executableCalls.length === 0) {
                     // Unknown tool name -> re-prompt (prevent loop termination)
@@ -667,7 +677,7 @@ export class SubAgentLoop {
                 }
 
                 // Lightweight state management: nudge write when only read-only tools used consecutively with full permission
-                if (this.subtask.toolPermission === 'full') {
+                if (this.subtask.toolPermission === 'full' && !this.isAgentMode) {
                     if (hasWriteToolInThisTurn) {
                         consecutiveReadOnlyTurns = 0;
                     } else if (hasExecutedTools) {
@@ -888,8 +898,18 @@ export class SubAgentLoop {
             ? `\n${this.rulesContext}\n`
             : '';
 
+        const agentModeSection = this.isAgentMode ? `
+## Agent Mode
+You are operating in autonomous agent mode. You have full freedom to decide:
+- What to read, write, create, delete, and execute
+- When to stop (call __done__ or respond with text only)
+- How to handle errors (retry or report)
+No phase restrictions apply. Think and act directly.
+` : '';
+
         return `You are a coding assistant that performs a specific subtask.
 ${rulesSection}
+${agentModeSection}
 ## Task
 ${this.subtask.title}
 
@@ -969,6 +989,9 @@ Already implemented, no additional work needed:
     }
 
     private getAllowedTools(): Tool[] {
+        if (this.isAgentMode) {
+            return Object.values(Tool) as Tool[];
+        }
         if (this.subtask.toolPermission === 'full') {
             return Object.values(Tool) as Tool[];
         }
@@ -983,6 +1006,9 @@ Already implemented, no additional work needed:
     }
 
     private filterByPermission(toolCalls: ToolUse[]): ToolUse[] {
+        if (this.isAgentMode) {
+            return toolCalls;
+        }
         if (this.subtask.toolPermission === 'full') {
             return toolCalls;
         }

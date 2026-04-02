@@ -115,7 +115,7 @@ const FORBIDDEN_TOOLS: Record<AgentPhase, Tool[]> = {
  */
 const VALID_TRANSITIONS: Record<AgentPhase, AgentPhase[]> = {
     [AgentPhase.INVESTIGATION]: [AgentPhase.EXECUTION, AgentPhase.DONE], // EXECUTION 또는 DONE (파일 미존재 등 즉시 종료 케이스)
-    [AgentPhase.EXECUTION]: [AgentPhase.REVIEW], // EXECUTION 완료 시 REVIEW로 전환
+    [AgentPhase.EXECUTION]: [AgentPhase.REVIEW, AgentPhase.DONE], // EXECUTION 완료 시 REVIEW로 전환 (AGENT 모드: DONE 직접 전환)
     [AgentPhase.REVIEW]: [AgentPhase.DONE, AgentPhase.EXECUTION], // REVIEW 완료 시 DONE, 또는 미완료 시 EXECUTION으로 복귀
     [AgentPhase.DONE]: [] // DONE에서는 전환 불가 (최종 상태)
 };

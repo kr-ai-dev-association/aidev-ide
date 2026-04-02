@@ -20,6 +20,7 @@ export interface PromptComposerOptions {
     userOS: string;
     modelType: AiModelType;
     provider?: string; // API provider 키 (chat_completions, gemini, ollama). 설정 시 modelType보다 우선
+    promptType?: string; // 프롬프트 타입 (agent 모드 판별용)
     taskType?: 'code_work' | 'execution_work' | 'analysis' | 'documentation' | 'terminal';
     projectType?: string; // 프로젝트 타입 정보
     codebaseContext?: string; // 코드베이스 컨텍스트 (관련 파일 내용 등)
@@ -483,7 +484,9 @@ ${formattedRules}`;
      * 최종 시스템 프롬프트를 생성합니다.
      */
     public static composeSystemPrompt(options: PromptComposerOptions): string {
-        const { userOS, modelType, provider, taskType, codebaseContext, selectedFilesContent, terminalContextContent, diagnosticsContextContent, allowedTools, nativeMode, frameworkRulesPrompt, hotLoadPrompt, mcpCustomPrompts, ragContext, memoryContext, activeSkillKeys, subProjectStructure, repoMap } = options;
+        const { userOS, modelType, provider, promptType, taskType, codebaseContext, selectedFilesContent, terminalContextContent, diagnosticsContextContent, allowedTools, nativeMode, frameworkRulesPrompt, hotLoadPrompt, mcpCustomPrompts, ragContext, memoryContext, activeSkillKeys, subProjectStructure, repoMap } = options;
+
+        const isAgentMode = promptType === 'agent';
 
         // OS 정보 가져오기 (OSAdapter 사용)
         const osDetectionResult = OSAdapterFactory.detect();
@@ -496,12 +499,12 @@ ${formattedRules}`;
         // 베이스 프롬프트 조합
         const basePrompt = [
             base.getAgentRole(),
-            base.getObjective(),
+            isAgentMode ? '' : base.getObjective(),
             base.getBaseRules(nativeMode),
             base.getFileOperationsRules(nativeMode),
-            base.getCodeVsScriptRules(nativeMode),
+            isAgentMode ? '' : base.getCodeVsScriptRules(nativeMode),
             base.getToolsPrompt(allowedTools, nativeMode)
-        ].join('\n\n');
+        ].filter(Boolean).join('\n\n');
 
         // OS별 프롬프트
         const osPrompt = this.getOSPrompt(userOS);

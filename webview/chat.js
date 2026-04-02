@@ -2576,6 +2576,26 @@ function updateSendCancelButtons(isSending) {
       queueSendButton.classList.remove("hidden");
       queueSendButton.style.display = "inline-flex";
       queueSendButton.style.order = "99";
+      // 모드별 배경색 동기화
+      const mode = window.chatMode || "CODE";
+      const queueIcon = queueSendButton.querySelector(".icon-img");
+      if (mode === "ASK") {
+        queueSendButton.style.backgroundColor = "#10B981";
+        queueSendButton.style.borderRadius = "50%";
+        if (queueIcon) queueIcon.style.filter = "brightness(0) invert(1)";
+      } else if (mode === "PLAN") {
+        queueSendButton.style.backgroundColor = "#2563EB";
+        queueSendButton.style.borderRadius = "50%";
+        if (queueIcon) queueIcon.style.filter = "brightness(0) invert(1)";
+      } else if (mode === "AGENT") {
+        queueSendButton.style.backgroundColor = "#000000";
+        queueSendButton.style.borderRadius = "50%";
+        if (queueIcon) queueIcon.style.filter = "brightness(0) invert(1)";
+      } else {
+        queueSendButton.style.backgroundColor = "transparent";
+        queueSendButton.style.borderRadius = "6px";
+        if (queueIcon) queueIcon.style.filter = "";
+      }
     }
   } else if (isSending) {
     // 처리 중 + 입력 없음: Stop 버튼

@@ -533,7 +533,7 @@ ${JSON.stringify(errorContext, null, 2)}
                     // Standalone: 로그인 체크 불필요
 
                     // ConversationService를 통해 메시지 처리
-                    const promptType = data.mode === 'ASK' ? PromptType.GENERAL_ASK : data.mode === 'PLAN' ? PromptType.PLAN : PromptType.CODE_GENERATION;
+                    const promptType = data.mode === 'ASK' ? PromptType.GENERAL_ASK : data.mode === 'PLAN' ? PromptType.PLAN : data.mode === 'AGENT' ? PromptType.AGENT : PromptType.CODE_GENERATION;
 
                     await ConversationService.handleUserMessage({
                         userQuery: data.text,

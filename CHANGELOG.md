@@ -2,7 +2,41 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.45**
+> **현재 버전: v1.0.46**
+
+---
+
+## v1.0.46 (2026-04-02)
+
+### AGENT 모드 신규
+
+- **LLM 주도 오케스트레이션**: TaskSplitter/ResultMerger 우회, LLM이 `spawn_agent`로 직접 worker 관리
+- **spawn_agent / stop_agent 도구**: worker 스폰(동기/비동기) 및 중단
+- **AgentTaskManager**: 비동기 worker 상태 관리 + `<task-notification>` XML 알림
+- **무제한 턴 + FSM 우회**: 단계 제한 없이 LLM 자율 실행, 텍스트 응답 시 종료
+- **REVIEW 스킵**: LLM의 마지막 텍스트가 곧 리뷰
+
+### AGENT 모드 프롬프트
+
+- **시스템 프롬프트 최적화**: 불필요한 plan/FSM 지시 제외
+- **spawn_agent 사용 가이드**: worker 위임 vs 직접 실행 판단 지침
+
+### AGENT 모드 UI
+
+- **모드 순서**: CODE → AGENT → ASK → PLAN
+- **보내기 버튼**: AGENT=검정, 큐 버튼 색상 동기화
+- **코드블록 즉시 표시**: 파일 생성 시 바로 채팅에 표시
+- **스트리밍 커서 최하단 유지**
+
+### AGENT 모드 에러 처리
+
+- **수리 재시도**: AGENT=10회 / CODE=2회
+- **동일 에러 한계**: AGENT=3회 / CODE=1회
+- **non-retryable 에러 1회 시도 허용**
+
+### 멀티에이전트 한글화
+
+- **최종 요약 한글 강제**
 
 ---
 

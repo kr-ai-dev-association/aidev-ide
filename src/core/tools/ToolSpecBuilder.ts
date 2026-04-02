@@ -270,6 +270,30 @@ export class ToolSpecBuilder {
             });
         }
 
+        // spawn_agent - Spawn worker sub-agent (AGENT mode only)
+        if (!allowedTools || allowedTools.includes(Tool.SPAWN_AGENT)) {
+            specs.push({
+                name: Tool.SPAWN_AGENT,
+                description: 'Spawn a worker agent to handle a sub-task independently. Use for complex tasks that can be parallelized (e.g., frontend + backend, multiple independent features). The worker has full tool access and runs its own loop. Use run_in_background=true for parallel execution.',
+                parameters: [
+                    { name: 'description', required: true, description: 'Short description of the task (3-10 words)', type: 'string' },
+                    { name: 'prompt', required: true, description: 'Detailed instructions for the worker. Include file paths, requirements, and expected output. The worker has no context from your conversation — provide everything it needs.', type: 'string' },
+                    { name: 'run_in_background', required: false, description: 'true: async execution (returns immediately, notified on completion). false (default): sync execution (waits for result).', type: 'boolean' },
+                ]
+            });
+        }
+
+        // stop_agent - Stop a running background worker (AGENT mode only)
+        if (!allowedTools || allowedTools.includes(Tool.STOP_AGENT)) {
+            specs.push({
+                name: Tool.STOP_AGENT,
+                description: 'Stop a running background worker agent. Use when a worker is no longer needed or taking too long.',
+                parameters: [
+                    { name: 'agent_id', required: true, description: 'The agent ID returned from spawn_agent', type: 'string' },
+                ]
+            });
+        }
+
         // Add MCP tools
         const mcpSpecs = this.buildMCPToolSpecs();
         specs.push(...mcpSpecs);
