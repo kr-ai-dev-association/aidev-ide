@@ -81,7 +81,8 @@ export class OrchestrationRouter {
         const orchestrationEnabled = ConfigurationService.get<boolean>('orchestration', false) ?? false;
 
         // PLAN/ASK mode does not need multi-agent -- always use single agent
-        if (!orchestrationEnabled || options.promptType === PromptType.PLAN || options.promptType === PromptType.GENERAL_ASK) {
+        // AGENT mode: LLM-driven orchestration via spawn_agent tool (not system-level TaskSplitter)
+        if (!orchestrationEnabled || options.promptType === PromptType.PLAN || options.promptType === PromptType.GENERAL_ASK || options.promptType === PromptType.AGENT) {
             return OrchestrationRouter.routeToSingleLoop(options);
         }
 
@@ -434,7 +435,7 @@ export class OrchestrationRouter {
         taskItems?: TaskQueueItem[],
         collectedUIMessages?: UIMessageEntry[],
         rulesContext?: string,
-        agentOptions?: { disableReadDedup?: boolean; isRepairAgent?: boolean },
+        agentOptions?: { disableReadDedup?: boolean; isRepairAgent?: boolean; isAgentMode?: boolean },
     ): Promise<AgentLoopResult> {
         const webview = options.webviewToRespond;
 
@@ -512,7 +513,12 @@ export class OrchestrationRouter {
             return result === 'Execute';
         };
         const stateManager = options.extensionContext ? StateManager.getInstance(options.extensionContext) : undefined;
-        const agent = new SubAgentLoop(subtask, agentToolContext, options.abortSignal, projectContext, callbacks, rulesContext, useStreaming, thinkingEnabled, agentOptions, stateManager);
+        // AGENT 모드 전달: agentOptions에 명시적으로 없으면 promptType에서 판단
+        const mergedAgentOptions = {
+            ...agentOptions,
+            isAgentMode: agentOptions?.isAgentMode ?? (options.promptType === PromptType.AGENT),
+        };
+        const agent = new SubAgentLoop(subtask, agentToolContext, options.abortSignal, projectContext, callbacks, rulesContext, useStreaming, thinkingEnabled, mergedAgentOptions, stateManager);
         const result = await agent.run();
 
         // 5. TaskQueue status -> done/warning/failed
@@ -612,11 +618,13 @@ export class OrchestrationRouter {
             return { validated: false, testPassed: true, repairAttempts: 0 };
         }
 
-        const MAX_REPAIR_RETRIES = 2;
+        const isAgentMode = options.promptType === PromptType.AGENT;
+        const MAX_REPAIR_RETRIES = isAgentMode ? 10 : 2;
         let allCreatedFiles = [...merged.createdFiles];
         let allModifiedFiles = [...merged.modifiedFiles];
         let repairAttempts = 0;
         let lastFingerprint = '';
+        let consecutiveSameError = 0; // AGENT 모드: 동일 에러 연속 횟수 추적
 
         for (let attempt = 0; attempt <= MAX_REPAIR_RETRIES; attempt++) {
             if (options.abortSignal?.aborted) { break; }
@@ -652,19 +660,25 @@ export class OrchestrationRouter {
             const classification = testResult.classification
                 || ErrorClassifier.classifyFromMessage(testResult.errorMessage || '');
 
-            // Non-retryable category -> give up immediately
-            if (!ErrorClassifier.isRetryable(classification.dominantCategory)) {
+            // Non-retryable category -> give up immediately (AGENT 모드: 한 번은 시도)
+            if (!ErrorClassifier.isRetryable(classification.dominantCategory) && !isAgentMode) {
                 const strategy = ErrorClassifier.getResolutionStrategy(classification.dominantCategory);
                 WebviewBridge.sendProcessingStatus(webview, 'review',
                     `${strategy.userMessage} (자동 수정 불가)`);
                 return { validated: true, testPassed: false, repairAttempts };
             }
 
-            // Same error repeated -> give up
+            // Same error repeated -> give up (AGENT 모드: 3회까지 재시도)
             const currentFingerprint = classification.retryFingerprint;
             if (currentFingerprint && currentFingerprint === lastFingerprint) {
-                WebviewBridge.sendProcessingStatus(webview, 'review', '동일 에러 반복 — 자동 수정 중단');
-                return { validated: true, testPassed: false, repairAttempts };
+                consecutiveSameError++;
+                const sameErrorLimit = isAgentMode ? 3 : 1;
+                if (consecutiveSameError >= sameErrorLimit) {
+                    WebviewBridge.sendProcessingStatus(webview, 'review', '동일 에러 반복 — 자동 수정 중단');
+                    return { validated: true, testPassed: false, repairAttempts };
+                }
+            } else {
+                consecutiveSameError = 0;
             }
             lastFingerprint = currentFingerprint;
 
@@ -672,7 +686,9 @@ export class OrchestrationRouter {
             repairAttempts++;
             WebviewBridge.sendProcessingStep(webview, 'executing');
             WebviewBridge.sendProcessingStatus(webview, 'executing',
-                `자동 수정 에이전트 실행 중 (${repairAttempts}/${MAX_REPAIR_RETRIES})...`);
+                isAgentMode
+                    ? `에이전트 자동 수정 중 (${repairAttempts}차 시도)...`
+                    : `자동 수정 에이전트 실행 중 (${repairAttempts}/${MAX_REPAIR_RETRIES})...`);
 
             // Adjust repair agent's cwd to subproject when subproject is detected
             const detectedRoot = testResult.detectedSubProjectRoot;
@@ -1098,7 +1114,7 @@ Rules:
 - Summarize what was done concisely (1-3 paragraphs)
 - When providing usage instructions, include the project run commands below in \`\`\`bash code blocks (a Run button will be auto-generated)
 - Use markdown format
-- Write in the same language as the user's original request
+- **CRITICAL: ALL text MUST be written in Korean (한국어). Headings, explanations, summaries — everything in Korean. Code, file paths, CLI commands are the only exceptions.**
 - Do not use the word "agent" -- write as if a single assistant performed all the work
 - Build/test result: ${validation?.validated ? (validation.testPassed ? 'passed' : 'failed') : 'not verified'}
 - **File paths, line numbers, symbol lists, etc. specified in each task's details are already verified results. Trust and use them as-is. Never re-query or re-search them.**

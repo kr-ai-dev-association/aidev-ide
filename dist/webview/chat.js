@@ -22896,17 +22896,21 @@ function updateSendButtonStyle(sendBtn, currentMode, isLightTheme) {
   const iconImg = sendBtn.querySelector(".icon-img");
   const isAskMode = currentMode === "ASK";
   const isPlanMode = currentMode === "PLAN";
+  const isAgentMode = currentMode === "AGENT";
   if (isAskMode) {
     sendBtn.classList.add("ask-mode");
-    sendBtn.classList.remove("plan-mode");
+    sendBtn.classList.remove("plan-mode", "agent-mode");
     sendBtn.style.backgroundColor = "#10B981";
   } else if (isPlanMode) {
-    sendBtn.classList.remove("ask-mode");
+    sendBtn.classList.remove("ask-mode", "agent-mode");
     sendBtn.classList.add("plan-mode");
     sendBtn.style.backgroundColor = "#2563EB";
+  } else if (isAgentMode) {
+    sendBtn.classList.remove("ask-mode", "plan-mode");
+    sendBtn.classList.add("agent-mode");
+    sendBtn.style.backgroundColor = "#000000";
   } else {
-    sendBtn.classList.remove("ask-mode");
-    sendBtn.classList.remove("plan-mode");
+    sendBtn.classList.remove("ask-mode", "plan-mode", "agent-mode");
     sendBtn.style.backgroundColor = "transparent";
     if (iconImg) {
       iconImg.style.filter = "";
@@ -24396,25 +24400,33 @@ function updateSendButtonStyle() {
   const isAskMode = currentMode === 'ASK';
   const isPlanMode = currentMode === 'PLAN';
   const iconImg = sendBtn.querySelector('.icon-img');
+  const isAgentMode = currentMode === 'AGENT';
   if (isAskMode) {
     sendBtn.classList.add('ask-mode');
-    sendBtn.classList.remove('plan-mode');
+    sendBtn.classList.remove('plan-mode', 'agent-mode');
     sendBtn.style.backgroundColor = '#10B981';
     sendBtn.style.borderRadius = '50%';
     if (iconImg) {
       iconImg.style.filter = 'brightness(0) invert(1)';
     }
   } else if (isPlanMode) {
-    sendBtn.classList.remove('ask-mode');
+    sendBtn.classList.remove('ask-mode', 'agent-mode');
     sendBtn.classList.add('plan-mode');
     sendBtn.style.backgroundColor = '#2563EB';
     sendBtn.style.borderRadius = '50%';
     if (iconImg) {
       iconImg.style.filter = 'brightness(0) invert(1)';
     }
+  } else if (isAgentMode) {
+    sendBtn.classList.remove('ask-mode', 'plan-mode');
+    sendBtn.classList.add('agent-mode');
+    sendBtn.style.backgroundColor = '#000000';
+    sendBtn.style.borderRadius = '50%';
+    if (iconImg) {
+      iconImg.style.filter = 'brightness(0) invert(1)';
+    }
   } else {
-    sendBtn.classList.remove('ask-mode');
-    sendBtn.classList.remove('plan-mode');
+    sendBtn.classList.remove('ask-mode', 'plan-mode', 'agent-mode');
     sendBtn.style.backgroundColor = 'transparent';
     sendBtn.style.borderRadius = '6px';
     if (iconImg) {
@@ -26877,6 +26889,26 @@ function updateSendCancelButtons(isSending) {
       queueSendButton.classList.remove("hidden");
       queueSendButton.style.display = "inline-flex";
       queueSendButton.style.order = "99";
+      // 모드별 배경색 동기화
+      const mode = window.chatMode || "CODE";
+      const queueIcon = queueSendButton.querySelector(".icon-img");
+      if (mode === "ASK") {
+        queueSendButton.style.backgroundColor = "#10B981";
+        queueSendButton.style.borderRadius = "50%";
+        if (queueIcon) queueIcon.style.filter = "brightness(0) invert(1)";
+      } else if (mode === "PLAN") {
+        queueSendButton.style.backgroundColor = "#2563EB";
+        queueSendButton.style.borderRadius = "50%";
+        if (queueIcon) queueIcon.style.filter = "brightness(0) invert(1)";
+      } else if (mode === "AGENT") {
+        queueSendButton.style.backgroundColor = "#000000";
+        queueSendButton.style.borderRadius = "50%";
+        if (queueIcon) queueIcon.style.filter = "brightness(0) invert(1)";
+      } else {
+        queueSendButton.style.backgroundColor = "transparent";
+        queueSendButton.style.borderRadius = "6px";
+        if (queueIcon) queueIcon.style.filter = "";
+      }
     }
   } else if (isSending) {
     // 처리 중 + 입력 없음: Stop 버튼

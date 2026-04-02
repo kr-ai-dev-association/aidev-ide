@@ -598,7 +598,7 @@ ${JSON.stringify(errorContext, null, 2)}
                     }
 
                     // ConversationService를 통해 메시지 처리
-                    const promptType = data.mode === 'ASK' ? PromptType.GENERAL_ASK : data.mode === 'PLAN' ? PromptType.PLAN : PromptType.CODE_GENERATION;
+                    const promptType = data.mode === 'ASK' ? PromptType.GENERAL_ASK : data.mode === 'PLAN' ? PromptType.PLAN : data.mode === 'AGENT' ? PromptType.AGENT : PromptType.CODE_GENERATION;
                     console.log(`[ChatViewProvider] sendMessage mode=${data.mode}, promptType=${promptType}`);
 
                     await ConversationService.handleUserMessage({

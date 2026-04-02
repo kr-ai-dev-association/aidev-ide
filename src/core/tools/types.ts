@@ -40,6 +40,10 @@ export enum Tool {
     LOAD_SKILL = 'load_skill',
     // 사용자에게 선택지 질문
     ASK_QUESTION = 'ask_question',
+    // AGENT 모드: worker 에이전트 스폰
+    SPAWN_AGENT = 'spawn_agent',
+    // AGENT 모드: worker 에이전트 중단
+    STOP_AGENT = 'stop_agent',
 }
 
 /**

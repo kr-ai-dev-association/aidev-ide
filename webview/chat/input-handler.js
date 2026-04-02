@@ -215,17 +215,22 @@ export function updateSendButtonStyle(sendBtn, currentMode, isLightTheme) {
   const isAskMode = currentMode === "ASK";
   const isPlanMode = currentMode === "PLAN";
 
+  const isAgentMode = currentMode === "AGENT";
+
   if (isAskMode) {
     sendBtn.classList.add("ask-mode");
-    sendBtn.classList.remove("plan-mode");
+    sendBtn.classList.remove("plan-mode", "agent-mode");
     sendBtn.style.backgroundColor = "#10B981";
   } else if (isPlanMode) {
-    sendBtn.classList.remove("ask-mode");
+    sendBtn.classList.remove("ask-mode", "agent-mode");
     sendBtn.classList.add("plan-mode");
     sendBtn.style.backgroundColor = "#2563EB";
+  } else if (isAgentMode) {
+    sendBtn.classList.remove("ask-mode", "plan-mode");
+    sendBtn.classList.add("agent-mode");
+    sendBtn.style.backgroundColor = "#000000";
   } else {
-    sendBtn.classList.remove("ask-mode");
-    sendBtn.classList.remove("plan-mode");
+    sendBtn.classList.remove("ask-mode", "plan-mode", "agent-mode");
     sendBtn.style.backgroundColor = "transparent";
     if (iconImg) {
       iconImg.style.filter = "";

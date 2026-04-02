@@ -97,6 +97,7 @@ export class PromptBuilder {
     const composerOptions: PromptComposerOptions = {
       userOS: this.userOS,
       modelType: this.modelType,
+      promptType: options.promptType,
       taskType: taskType,
       projectType: currentProject?.type,
       codebaseContext: codebaseContext, // 코드베이스 컨텍스트 포함

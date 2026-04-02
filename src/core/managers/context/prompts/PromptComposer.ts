@@ -20,6 +20,7 @@ export interface PromptComposerOptions {
     userOS: string;
     modelType: AiModelType;
     provider?: string; // API provider 키 (chat_completions, gemini, ollama). 설정 시 modelType보다 우선
+    promptType?: string; // PromptType (code_generation, agent, plan, general_ask)
     taskType?: 'code_work' | 'execution_work' | 'analysis' | 'documentation' | 'terminal';
     projectType?: string; // 프로젝트 타입 정보
     codebaseContext?: string; // 코드베이스 컨텍스트 (관련 파일 내용 등)
@@ -489,7 +490,8 @@ ${formattedRules}`;
      * 최종 시스템 프롬프트를 생성합니다.
      */
     public static composeSystemPrompt(options: PromptComposerOptions): string {
-        const { userOS, modelType, provider, taskType, codebaseContext, selectedFilesContent, terminalContextContent, diagnosticsContextContent, allowedTools, nativeMode, frameworkRulesPrompt, hotLoadPrompt, mcpCustomPrompts, ragContext, memoryContext, activeSkillKeys, subProjectStructure, repoMap } = options;
+        const { userOS, modelType, provider, promptType, taskType, codebaseContext, selectedFilesContent, terminalContextContent, diagnosticsContextContent, allowedTools, nativeMode, frameworkRulesPrompt, hotLoadPrompt, mcpCustomPrompts, ragContext, memoryContext, activeSkillKeys, subProjectStructure, repoMap } = options;
+        const isAgentMode = promptType === 'agent';
 
         // OS 정보 가져오기 (OSAdapter 사용)
         const osDetectionResult = OSAdapterFactory.detect();
@@ -499,15 +501,16 @@ ${formattedRules}`;
 - Architecture: ${osDetectionResult.architecture}
 `;
 
-        // 베이스 프롬프트 조합
-        const basePrompt = [
+        // 베이스 프롬프트 조합 (AGENT 모드: plan 관련 규칙 제외, 간결화)
+        const basePromptParts = [
             base.getAgentRole(),
-            base.getObjective(),
+            isAgentMode ? '' : base.getObjective(), // AGENT: objective는 agentPrompt.ts에서 대체
             base.getBaseRules(nativeMode),
             base.getFileOperationsRules(nativeMode),
-            base.getCodeVsScriptRules(nativeMode),
+            isAgentMode ? '' : base.getCodeVsScriptRules(nativeMode), // AGENT: 불필요 (자율 판단)
             base.getToolsPrompt(allowedTools, nativeMode)
-        ].join('\n\n');
+        ].filter(Boolean);
+        const basePrompt = basePromptParts.join('\n\n');
 
         // OS별 프롬프트
         const osPrompt = this.getOSPrompt(userOS);

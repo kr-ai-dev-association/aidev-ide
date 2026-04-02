@@ -394,9 +394,10 @@
       body[data-theme="light"] .icon-img:hover {
         opacity: 1 !important;
       }
-      /* ASK/PLAN 모드 send 버튼 아이콘은 흰색 (배경색이 있을 때만) */
+      /* ASK/PLAN/AGENT 모드 send 버튼 아이콘은 흰색 (배경색이 있을 때만) */
       body[data-theme="light"] #send-button.ask-mode .icon-img,
-      body[data-theme="light"] #send-button.plan-mode .icon-img {
+      body[data-theme="light"] #send-button.plan-mode .icon-img,
+      body[data-theme="light"] #send-button.agent-mode .icon-img {
         filter: brightness(0) invert(1) !important;
         opacity: 1 !important;
       }
@@ -3197,6 +3198,18 @@
             </div>
             <div
               class="dropdown-option"
+              data-mode="AGENT"
+              style="
+                padding: 4px 8px;
+                cursor: pointer;
+                font-size: 10px;
+                border-radius: 4px;
+              "
+            >
+              AGENT
+            </div>
+            <div
+              class="dropdown-option"
               data-mode="ASK"
               style="
                 padding: 4px 8px;
@@ -3469,7 +3482,7 @@
         window.chatMode = window.chatMode || "CODE";
 
         const applyMode = (mode) => {
-          const normalized = mode === "ASK" ? "ASK" : mode === "PLAN" ? "PLAN" : "CODE";
+          const normalized = mode === "ASK" ? "ASK" : mode === "PLAN" ? "PLAN" : mode === "AGENT" ? "AGENT" : "CODE";
           window.chatMode = normalized;
           modeLabel.textContent = normalized;
           // 모드에 따라 버튼의 data-mode 속성 설정 (색상 포인트용)

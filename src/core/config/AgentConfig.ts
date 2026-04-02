@@ -6,6 +6,9 @@
 export class AgentConfig {
     // 루프 및 재시도 설정
     static readonly MAX_TURNS = 15;
+    static readonly AGENT_MAX_TURNS = 25;
+    static readonly AGENT_MAX_CONSECUTIVE_ERRORS = 3;
+    static readonly AGENT_MAX_NO_PROGRESS_TURNS = 5;
     static readonly MAX_TEST_FIX_ATTEMPTS = 5; // 기본값 (실제로는 SettingsManager에서 가져옴)
     static readonly MAX_NUDGE_COUNT = 1; // INVESTIGATION 단계에서 최대 nudge 횟수
     static readonly MAX_NUDGE_COUNT_EXECUTION = 1; // EXECUTION 단계에서 최대 nudge 횟수

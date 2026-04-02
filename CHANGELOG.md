@@ -2,7 +2,57 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.45**
+> **현재 버전: v1.0.46**
+
+---
+
+## v1.0.46 (2026-04-02)
+
+### AGENT 모드 신규
+
+- **LLM 주도 오케스트레이션**: AGENT 모드는 TaskSplitter/ResultMerger를 우회하고, LLM이 `spawn_agent` 도구로 직접 worker를 스폰·관리
+- **spawn_agent 도구**: 동기(blocking) / 비동기(background) worker 스폰 지원 — SubAgentLoop 재사용
+- **stop_agent 도구**: 실행 중인 background worker 중단
+- **AgentTaskManager**: 비동기 worker 상태 관리, `<task-notification>` XML 알림 큐
+- **worker 알림 자동 주입**: 매 턴 시작 시 완료된 worker의 알림을 LLM 컨텍스트에 주입
+- **worker 완료 대기**: LLM이 텍스트만 응답 + worker 실행 중 → 자동 대기 후 다음 턴
+- **무제한 턴**: AGENT 모드는 턴 제한 없음 (LLM이 텍스트만 응답하면 종료)
+- **FSM 완전 우회**: INVESTIGATION/EXECUTION/REVIEW 단계 없음, EXECUTION → DONE 직접 전환
+- **REVIEW 스킵**: LLM의 마지막 텍스트 응답이 곧 리뷰 (별도 요약 LLM 호출 없음)
+- **도구 제한 없음**: 모든 도구 항상 사용 가능, FSM 도구 필터링 비활성화
+- **텍스트 재요청 방지**: EXECUTION에서 텍스트만 응답 시 CODE 모드의 강제 재촉 비활성화
+
+### AGENT 모드 프롬프트
+
+- **시스템 프롬프트 최적화**: AGENT 모드에서 `getObjective()`, `getCodeVsScriptRules()` 제외 (불필요한 plan/FSM 지시 절감)
+- **spawn_agent 사용 가이드**: 언제 worker를 위임하고 언제 직접 할지 상세 지시
+- **promptType 전달**: PromptBuilder → PromptComposer까지 promptType 파이프라인 연결
+
+### AGENT 모드 UI
+
+- **모드 드롭다운 순서**: CODE → AGENT → ASK → PLAN
+- **보내기 버튼 색상**: AGENT=검정(#000000), ASK=초록, PLAN=파란
+- **큐 전송 버튼 색상 동기화**: 대기 중 전송 버튼에도 모드별 배경색 적용
+- **스트리밍 코드블록 즉시 표시**: 파일 생성 시 바로바로 코드블록 채팅에 표시 (post-stream 일괄 전송 → 즉시 전송)
+- **스트리밍 커서 최하단 유지**: 코드블록 전송 전 커서 닫기 → 전송 후 재열기
+- **shouldStreamToUI 활성화**: AGENT 모드에서 LLM 텍스트/코드블록 실시간 스트리밍
+
+### AGENT 모드 에러 처리
+
+- **runTestsAndTransition REVIEW 방지**: 테스트 통과해도 REVIEW 전환 안 함 (LLM이 완료 결정)
+- **조기 REVIEW 전환 방지**: plan 완료 시 자동 REVIEW 전환 비활성화
+- **멀티에이전트 수리 재시도**: AGENT=10회 / CODE=2회
+- **동일 에러 반복 한계**: AGENT=3회 / CODE=1회
+- **non-retryable 에러**: AGENT 모드는 한 번 수정 시도 허용
+
+### 멀티에이전트 한글화
+
+- **최종 요약 한글 강제**: `generateUnifiedSummary` 프롬프트에 한국어 CRITICAL 규칙 추가
+
+### 기타
+
+- **EXECUTION → DONE 직접 전환 허용**: AgentStateManager VALID_TRANSITIONS 추가
+- **스트리밍 커서 도구 실행 전 닫기**: AGENT 모드에서 도구 실행 시작 시 `endStreamingMessage` 호출
 
 ---
 
