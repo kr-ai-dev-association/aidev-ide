@@ -50,6 +50,22 @@ export class AskQuestionToolHandler implements IToolHandler {
             }
         }
 
+        // Validate uniqueness of question prompts
+        const questionPrompts = questions.map(q => q.prompt);
+        const duplicatePrompts = questionPrompts.filter((p, i) => questionPrompts.indexOf(p) !== i);
+        if (duplicatePrompts.length > 0) {
+            return { success: false, message: `Duplicate question prompts: ${duplicatePrompts.join(', ')}`, error: { code: 'DUPLICATE_QUESTION', message: 'Each question prompt must be unique' } };
+        }
+
+        // Validate uniqueness of option labels within each question
+        for (const q of questions) {
+            const labels = q.options.map(o => o.label);
+            const duplicateLabels = labels.filter((l, i) => labels.indexOf(l) !== i);
+            if (duplicateLabels.length > 0) {
+                return { success: false, message: `Duplicate option labels in question "${q.id}": ${duplicateLabels.join(', ')}`, error: { code: 'DUPLICATE_OPTION', message: 'Option labels must be unique within each question' } };
+            }
+        }
+
         const webview = context.webview;
         if (!webview) {
             return { success: false, message: 'No webview available', error: { code: 'NO_WEBVIEW', message: 'Cannot display questions without webview' } };

@@ -587,6 +587,15 @@ export class ConversationManager implements IConversationHandler {
         const currentSession = sessionManager.getCurrentSession();
 
         if (currentSession && currentSession.conversationHistory.length > 0) {
+          // Cross-session continuation: inject compacted summary from previous sessions
+          if (currentSession.compactedSummaries && currentSession.compactedSummaries.length > 0) {
+            const lastSummary = currentSession.compactedSummaries[currentSession.compactedSummaries.length - 1];
+            if (lastSummary && lastSummary.summary) {
+              userParts.push({ text: `[Previous session context]\n${lastSummary.summary}\n[End of previous context]` });
+              console.log('[ConversationManager] Injected previous session summary for continuation');
+            }
+          }
+
           // 최근 대화 히스토리 (구조화된 메타데이터)
           const history = currentSession.conversationHistory.slice(
             -AgentConfig.MAX_HISTORY_ENTRIES,
@@ -2019,6 +2028,23 @@ export class ConversationManager implements IConversationHandler {
                     if (approval === '승인') {
                       console.log('[ConversationManager] PLAN approved — auto-executing in CODE mode');
                       WebviewBridge.receiveMessage(webviewToRespond, 'System', '✓ 계획이 승인되었습니다.');
+                      // Save plan to globalStorage
+                      try {
+                        const globalStoragePath = options.extensionContext?.globalStorageUri?.fsPath;
+                        if (globalStoragePath && planTextResponse) {
+                          const plansDir = path.join(globalStoragePath, 'plans');
+                          if (!fsSync.existsSync(plansDir)) {
+                            fsSync.mkdirSync(plansDir, { recursive: true });
+                          }
+                          const sessionId = options.extensionContext ? (await import('../state/SessionManager')).SessionManager.getInstance(options.extensionContext).getCurrentSession()?.id : undefined;
+                          const planFileName = sessionId ? `plan_${sessionId}.md` : `plan_${Date.now()}.md`;
+                          const planFilePath = path.join(plansDir, planFileName);
+                          fsSync.writeFileSync(planFilePath, planTextResponse, 'utf-8');
+                          console.log(`[ConversationManager] Plan saved: ${planFilePath}`);
+                        }
+                      } catch (planSaveError) {
+                        console.warn('[ConversationManager] Failed to save plan file:', planSaveError);
+                      }
                       setTimeout(() => {
                         webviewToRespond.postMessage({
                           command: 'autoPlanExecute',
@@ -2670,6 +2696,24 @@ export class ConversationManager implements IConversationHandler {
                   if (approval === '승인') {
                     console.log('[ConversationManager] PLAN approved — auto-executing in CODE mode');
                     WebviewBridge.receiveMessage(webviewToRespond, 'System', '✓ 계획이 승인되었습니다.');
+                    // Save plan to globalStorage
+                    try {
+                      const globalStoragePath = options.extensionContext?.globalStorageUri?.fsPath;
+                      if (globalStoragePath && planTextResponse) {
+                        const plansDir = path.join(globalStoragePath, 'plans');
+                        if (!fsSync.existsSync(plansDir)) {
+                          fsSync.mkdirSync(plansDir, { recursive: true });
+                        }
+                        const sessionId = options.extensionContext ? (await import('../state/SessionManager')).SessionManager.getInstance(options.extensionContext).getCurrentSession()?.id : undefined;
+                        const planFileName = sessionId ? `plan_${sessionId}.md` : `plan_${Date.now()}.md`;
+                        const planFilePath = path.join(plansDir, planFileName);
+                        fsSync.writeFileSync(planFilePath, planTextResponse, 'utf-8');
+                        console.log(`[ConversationManager] Plan saved: ${planFilePath}`);
+                      }
+                    } catch (planSaveError) {
+                      console.warn('[ConversationManager] Failed to save plan file:', planSaveError);
+                    }
+                    // Queue a CODE mode execution with the plan context
                     setTimeout(() => {
                       webviewToRespond.postMessage({
                         command: 'autoPlanExecute',

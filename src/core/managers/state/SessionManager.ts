@@ -212,6 +212,27 @@ export class SessionManager {
     }
 
     /**
+     * Check if the last session was interrupted (user message was last, no assistant response)
+     */
+    public wasLastSessionInterrupted(): { interrupted: boolean; lastUserQuery?: string; sessionId?: string } {
+        const currentSession = this.getCurrentSession();
+        if (!currentSession || !currentSession.conversationHistory || currentSession.conversationHistory.length === 0) {
+            return { interrupted: false };
+        }
+
+        const lastEntry = currentSession.conversationHistory[currentSession.conversationHistory.length - 1];
+        // If last entry has user request but no assistant response, session was likely interrupted
+        if (lastEntry && lastEntry.userRequest && !lastEntry.assistantResponse) {
+            return {
+                interrupted: true,
+                lastUserQuery: lastEntry.userRequest.substring(0, 200),
+                sessionId: currentSession.id
+            };
+        }
+        return { interrupted: false };
+    }
+
+    /**
      * 세션을 삭제합니다
      */
     public deleteSession(sessionId: string): boolean {
