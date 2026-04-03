@@ -2,7 +2,44 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.51**
+> **현재 버전: v1.0.52**
+
+---
+
+## v1.0.52 (2026-04-03)
+
+### 명령 실행 개선
+
+- **자동 백그라운드 허용리스트**: `npm run dev`, `uvicorn`, `flask run` 등 12개 패턴 자동 백그라운드 전환 (30초 대기 제거)
+- **sleep 명령 차단**: `sleep ≥2s` 차단 — `DEFAULT_BLOCKED_COMMANDS`에 추가
+- **Stall Detection (멈춤 감지)**: 5초 간격 출력 모니터링, 45초 무응답 시 대화형 프롬프트 패턴 감지 → 사용자 알림
+- **pytest exit code 5 통과 처리**: "no tests collected"는 에러가 아닌 통과로 처리 (불필요한 retry 방지)
+
+### 도구 개선
+
+- **Semantic Boolean Parsing**: `semanticBoolean()` 유틸 — `'true'`, `'yes'`, `1` 등 다양한 LLM boolean 출력 처리
+- **LSP 도구 확장 (9/9)**: `prepareCallHierarchy`, `incomingCalls`, `outgoingCalls` 3개 operation 추가
+- **Fuzzy Content Matching**: update_file 5단계 매칭 — 포맷터 줄바꿈 변경에도 매칭 가능
+- **update_file SEARCH 블록 최소화 프롬프트**: "변경 부분 + 전후 2-3줄만" 유도 (파일 전체 SEARCH 방지)
+
+### 압축 / 토큰
+
+- **Ollama 기본 컨텍스트**: 65,536 → 131,072 (context length 미감지 시)
+- **압축 threshold**: 0.8 → 0.9 (90%에서 압축)
+- **AUTOCOMPACT_BUFFER_TOKENS**: 13,000 추가 (압축 후 바로 재압축 방지)
+- **요약 maxTokens 제한**: `min(입력의 50%, 2000)` → Ollama `num_predict`로 강제 전달
+
+### AGENT 모드 안정성
+
+- **execution_run 재촉 AGENT 제외**: `run_command` 없으면 재촉하는 FSM 로직이 AGENT에서 발동 안 되도록 수정
+- **게이지 실제 컨텍스트 표시**: ASK 경로에서 세션 누적 대신 실제 LLM 컨텍스트 토큰 표시
+- **새 파일 UNDO 시 삭제**: 생성된 파일의 마지막 UNDO → 파일 자체 삭제
+
+### 기타
+
+- **ruleExcludes 기능 제거**
+- **중복 프롬프트 제거**: `getNoInternalMonologueRules` 삭제
+- **모델 라우팅 설명 추가**: "CODE 모드 전용, AGENT는 메인 모델만"
 
 ---
 

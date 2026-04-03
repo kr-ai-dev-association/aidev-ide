@@ -3,12 +3,15 @@
  * Code intelligence tool via VSCode Language Server Protocol API
  *
  * operations:
- *   goToDefinition   -- Go to symbol definition
- *   findReferences   -- Search all symbol references
- *   hover            -- Symbol type/documentation info
- *   documentSymbol   -- List all symbols in a file
- *   workspaceSymbol  -- Search symbols across workspace
- *   goToImplementation -- Search interface implementations
+ *   goToDefinition       -- Go to symbol definition
+ *   findReferences       -- Search all symbol references
+ *   hover                -- Symbol type/documentation info
+ *   documentSymbol       -- List all symbols in a file
+ *   workspaceSymbol      -- Search symbols across workspace
+ *   goToImplementation   -- Search interface implementations
+ *   prepareCallHierarchy -- Get call hierarchy items at a position
+ *   incomingCalls        -- Get incoming calls for a symbol
+ *   outgoingCalls        -- Get outgoing calls for a symbol
  */
 
 import * as vscode from 'vscode';
@@ -22,7 +25,10 @@ type LspOperation =
     | 'hover'
     | 'documentSymbol'
     | 'workspaceSymbol'
-    | 'goToImplementation';
+    | 'goToImplementation'
+    | 'prepareCallHierarchy'
+    | 'incomingCalls'
+    | 'outgoingCalls';
 
 export class LspToolHandler implements IToolHandler {
     readonly name = Tool.LSP;
@@ -38,7 +44,7 @@ export class LspToolHandler implements IToolHandler {
         if (!operation) {
             return {
                 success: false,
-                message: 'operation parameter is required. (goToDefinition, findReferences, hover, documentSymbol, workspaceSymbol, goToImplementation)',
+                message: 'operation parameter is required. (goToDefinition, findReferences, hover, documentSymbol, workspaceSymbol, goToImplementation, prepareCallHierarchy, incomingCalls, outgoingCalls)',
                 error: { code: 'MISSING_PARAM', message: 'operation is required' }
             };
         }
@@ -49,7 +55,10 @@ export class LspToolHandler implements IToolHandler {
                 case 'findReferences':
                 case 'hover':
                 case 'documentSymbol':
-                case 'goToImplementation': {
+                case 'goToImplementation':
+                case 'prepareCallHierarchy':
+                case 'incomingCalls':
+                case 'outgoingCalls': {
                     if (!filePath) {
                         return {
                             success: false,
@@ -98,6 +107,41 @@ export class LspToolHandler implements IToolHandler {
                             'vscode.executeImplementationProvider', uri, position
                         );
                         return this.formatLocations(result || [], 'Implementations', context.projectRoot);
+                    }
+
+                    if (operation === 'prepareCallHierarchy') {
+                        const items = await vscode.commands.executeCommand<vscode.CallHierarchyItem[]>(
+                            'vscode.prepareCallHierarchy', uri, position
+                        );
+                        return this.formatCallHierarchyItems(items || [], context.projectRoot);
+                    }
+
+                    if (operation === 'incomingCalls') {
+                        // First prepare the call hierarchy item at the position
+                        const items = await vscode.commands.executeCommand<vscode.CallHierarchyItem[]>(
+                            'vscode.prepareCallHierarchy', uri, position
+                        );
+                        if (!items || items.length === 0) {
+                            return { success: true, message: 'No call hierarchy item found at this position' };
+                        }
+                        const incoming = await vscode.commands.executeCommand<vscode.CallHierarchyIncomingCall[]>(
+                            'vscode.provideIncomingCalls', items[0]
+                        );
+                        return this.formatIncomingCalls(incoming || [], context.projectRoot);
+                    }
+
+                    if (operation === 'outgoingCalls') {
+                        // First prepare the call hierarchy item at the position
+                        const items = await vscode.commands.executeCommand<vscode.CallHierarchyItem[]>(
+                            'vscode.prepareCallHierarchy', uri, position
+                        );
+                        if (!items || items.length === 0) {
+                            return { success: true, message: 'No call hierarchy item found at this position' };
+                        }
+                        const outgoing = await vscode.commands.executeCommand<vscode.CallHierarchyOutgoingCall[]>(
+                            'vscode.provideOutgoingCalls', items[0]
+                        );
+                        return this.formatOutgoingCalls(outgoing || [], context.projectRoot);
                     }
 
                     break;
@@ -229,6 +273,70 @@ export class LspToolHandler implements IToolHandler {
         return {
             success: true,
             message: `Workspace symbols (${Math.min(symbols.length, MAX)}):\n${lines.join('\n')}${truncated}`
+        };
+    }
+
+    private formatCallHierarchyItems(
+        items: vscode.CallHierarchyItem[],
+        projectRoot: string
+    ): ToolResponse {
+        if (items.length === 0) {
+            return { success: true, message: 'No call hierarchy items found' };
+        }
+
+        const lines = items.map(item => {
+            const kind = vscode.SymbolKind[item.kind]?.toLowerCase() || 'symbol';
+            const rel = path.relative(projectRoot, item.uri.fsPath);
+            return `${kind} ${item.name} — ${rel}:${item.range.start.line + 1}`;
+        });
+
+        return {
+            success: true,
+            message: `Call hierarchy items (${items.length}):\n${lines.join('\n')}`
+        };
+    }
+
+    private formatIncomingCalls(
+        calls: vscode.CallHierarchyIncomingCall[],
+        projectRoot: string
+    ): ToolResponse {
+        if (calls.length === 0) {
+            return { success: true, message: 'No incoming calls found' };
+        }
+
+        const lines = calls.map(call => {
+            const from = call.from;
+            const kind = vscode.SymbolKind[from.kind]?.toLowerCase() || 'symbol';
+            const rel = path.relative(projectRoot, from.uri.fsPath);
+            const ranges = call.fromRanges.map(r => `line ${r.start.line + 1}`).join(', ');
+            return `${kind} ${from.name} — ${rel}:${from.range.start.line + 1} (calls at ${ranges})`;
+        });
+
+        return {
+            success: true,
+            message: `Incoming calls (${calls.length}):\n${lines.join('\n')}`
+        };
+    }
+
+    private formatOutgoingCalls(
+        calls: vscode.CallHierarchyOutgoingCall[],
+        projectRoot: string
+    ): ToolResponse {
+        if (calls.length === 0) {
+            return { success: true, message: 'No outgoing calls found' };
+        }
+
+        const lines = calls.map(call => {
+            const to = call.to;
+            const kind = vscode.SymbolKind[to.kind]?.toLowerCase() || 'symbol';
+            const rel = path.relative(projectRoot, to.uri.fsPath);
+            const ranges = call.fromRanges.map(r => `line ${r.start.line + 1}`).join(', ');
+            return `${kind} ${to.name} — ${rel}:${to.range.start.line + 1} (called at ${ranges})`;
+        });
+
+        return {
+            success: true,
+            message: `Outgoing calls (${calls.length}):\n${lines.join('\n')}`
         };
     }
 

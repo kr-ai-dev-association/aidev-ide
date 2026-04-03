@@ -9,6 +9,27 @@ import * as fs from 'fs';
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
 import { ToolUse, ToolResponse, Tool } from '../types';
 import { HotLoadManager } from '../../managers/hotload/HotLoadManager';
+import { semanticBoolean } from '../../../utils/semanticBoolean';
+
+/** Auto-background commands — long-running processes that should run in background automatically */
+const AUTO_BACKGROUND_PATTERNS = [
+    /\bnpm\s+run\s+(dev|start|serve)\b/,
+    /\byarn\s+(dev|start|serve)\b/,
+    /\bpnpm\s+(dev|start|serve)\b/,
+    /\bnpx\s+(vite|next|nuxt)\b/,
+    /\buvicorn\b/,
+    /\bgunicorn\b/,
+    /\bpython\s+.*manage\.py\s+runserver\b/,
+    /\bflask\s+run\b/,
+    /\bgo\s+run\b.*--.*server/,
+    /\bcargo\s+run\b/,
+    /\bdocker\s+compose\s+up\b/,
+    /\bdocker-compose\s+up\b/,
+];
+
+function isAutoBackgroundCommand(command: string): boolean {
+    return AUTO_BACKGROUND_PATTERNS.some(p => p.test(command));
+}
 
 /** Safe read-only commands whitelist (for INVESTIGATION phase validation) */
 export const READ_ONLY_SAFE_COMMANDS = new Set([
@@ -156,12 +177,16 @@ export class RunCommandToolHandler implements IToolHandler {
         }
 
         const timeoutSeconds = toolUse.params.timeout ? parseInt(toolUse.params.timeout) : undefined;
-        const isBackground = String(toolUse.params.is_background) === 'true';
+        const isBackground = semanticBoolean(toolUse.params.is_background) || isAutoBackgroundCommand(command);
+
+        if (!isBackground && isAutoBackgroundCommand(command)) {
+            console.log(`[RunCommandToolHandler] Auto-background detected: ${command}`);
+        }
 
         // -- Sub-project auto-detection: search subdirectories if no manifest --
         const effectiveCwd = this.resolveCommandCwd(command, context.projectRoot);
 
-        // Phase 0: LLM explicitly requested background execution
+        // Phase 0: LLM explicitly requested or auto-detected background execution
         if (isBackground) {
             console.log(`[RunCommandToolHandler] Background mode requested: ${command}`);
             const bgResult = await context.executionManager.executeCommand(command, {

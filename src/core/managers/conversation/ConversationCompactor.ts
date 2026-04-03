@@ -112,7 +112,8 @@ export class ConversationCompactor {
     }
 
     const SUMMARY_RESERVED_TOKENS = 20000;
-    const effectiveMaxTokens = maxTokens - SUMMARY_RESERVED_TOKENS;
+    const AUTOCOMPACT_BUFFER_TOKENS = 13000; // Extra buffer to prevent frequent re-compaction
+    const effectiveMaxTokens = maxTokens - SUMMARY_RESERVED_TOKENS - AUTOCOMPACT_BUFFER_TOKENS;
     const totalTokens = this.calculateTotalTokens(userParts, systemPrompt);
     const threshold = effectiveMaxTokens * this.config.tokenThreshold;
 

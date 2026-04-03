@@ -5317,8 +5317,8 @@ export class ConversationManager implements IConversationHandler {
       };
     }
 
-    // execution_run intent일 때는 run_command가 실행될 때까지 계속 진행
-    if (isExecutionRunIntent && !hasRunCommandInHistory) {
+    // execution_run intent일 때는 run_command가 실행될 때까지 계속 진행 (CODE 모드만 — AGENT는 LLM 자율)
+    if (isExecutionRunIntent && !hasRunCommandInHistory && !this._isAgentMode) {
       console.log(
         "[ConversationManager] EXECUTION phase: execution_run intent requires run_command. Continuing.",
       );

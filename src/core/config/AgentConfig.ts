@@ -134,7 +134,7 @@ export class AgentConfig {
     };
 
     // ===== 대화 압축 =====
-    static readonly COMPACTION_TOKEN_THRESHOLD = 0.8; // 압축 트리거 토큰 임계값 (80%)
+    static readonly COMPACTION_TOKEN_THRESHOLD = 0.9; // 압축 트리거 토큰 임계값 (90%)
 
     // ===== 메모리 누수 방지 =====
     static readonly MAX_DELETED_FILES = 100; // deletedFiles 배열 최대 크기
