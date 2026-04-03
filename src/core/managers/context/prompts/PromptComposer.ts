@@ -90,25 +90,6 @@ export class PromptComposer {
     }
 
     /**
-     * Check if a rule file should be excluded based on codepilot.ruleExcludes setting
-     */
-    private static isRuleExcluded(filePath: string): boolean {
-        try {
-            const vscodeConfig = vscode.workspace.getConfiguration('codepilot');
-            const excludes = vscodeConfig.get<string[]>('ruleExcludes', []);
-            if (excludes.length === 0) return false;
-
-            const normalizedPath = path.normalize(filePath);
-            return excludes.some(pattern => {
-                const regex = new RegExp('^' + pattern.replace(/\*\*/g, '.*').replace(/\*/g, '[^/]*').replace(/\./g, '\\.') + '$');
-                return regex.test(normalizedPath) || regex.test(path.basename(normalizedPath));
-            });
-        } catch {
-            return false;
-        }
-    }
-
-    /**
      * Resolve @include directives in rule content
      * Supports: @./relative/path, @~/home/path
      * Max depth: 5, circular reference prevention
@@ -284,10 +265,6 @@ export class PromptComposer {
 
                 for (const file of files) {
                     const filePath = path.join(globalDir, file);
-                    if (PromptComposer.isRuleExcluded(filePath)) {
-                        console.log(`[PromptComposer] Rule excluded by setting: ${filePath}`);
-                        continue;
-                    }
                     try {
                         let rawContent = fs.readFileSync(filePath, 'utf8').trim();
                         if (!rawContent) { continue; }
@@ -422,10 +399,6 @@ ${rules.join('\n\n---\n\n')}`,
 
                         for (const file of files) {
                             const filePath = path.join(categoryDir, file);
-                            if (PromptComposer.isRuleExcluded(filePath)) {
-                                console.log(`[PromptComposer] Rule excluded by setting: ${filePath}`);
-                                continue;
-                            }
                             try {
                                 let rawContent = fs.readFileSync(filePath, 'utf8').trim();
                                 if (!rawContent) { continue; }

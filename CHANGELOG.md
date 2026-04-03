@@ -2,7 +2,48 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.50**
+> **현재 버전: v1.0.51**
+
+---
+
+## v1.0.51 (2026-04-03)
+
+### AGENT 모드 개선
+
+- **자동 검증 스킵**: AGENT 모드에서 시스템 자동 tsc 검증 제거 — LLM이 직접 `run_command`로 검증 (Claude Code 방식)
+- **work_plan 도구**: AGENT 모드 전용 작업 계획 도구 — 기존 작업큐 UI 재사용, 매 턴 시스템 메시지에 상태 주입
+- **검증 에이전트**: 복잡한 작업(3+ 파일) 완료 후 `spawn_agent`로 검증 worker 스폰 — 빌드/테스트 실행 + 회의적 검증
+- **세션 저장 로그**: `Saving AGENT mode entry` (이전: `CODE mode entry`)
+
+### 코드 품질 / 정확성
+
+- **`<analysis>` 태그 요약**: 압축 시 LLM이 `<analysis>` 블록에서 사고 정리 후 요약 → 요약 품질 향상, analysis 블록은 자동 제거
+- **NEVER 규칙 3개**: 파일 읽기 전 수정 금지, 파괴적 명령 금지, 시크릿 코드 포함 금지
+- **프롬프트 인젝션 방어**: 도구 결과의 외부 데이터를 비신뢰 입력으로 취급하라는 지시 추가
+- **ruleExcludes 기능 제거**: 불필요한 설정 항목 삭제
+- **중복 프롬프트 제거**: `getNoInternalMonologueRules` 삭제 (`getNoThinkingLeakageRules`에 통합)
+
+### 안전성
+
+- **continuation line 보안**: 백슬래시 줄바꿈으로 위험 명령 숨기기 감지 (`hasSuspiciousContinuation`)
+- **리다이렉트 대상 검증**: `> $HOME`, `> $(cmd)` 등 동적 리다이렉트 대상 차단 (`unsafe_redirect` 패턴)
+
+### 에러 처리
+
+- **압축 실패 차단기**: 3회 연속 압축 실패 시 중단 (무한 API 호출 방지)
+- **buildTimeoutCount 리셋**: 빌드 성공 시 타임아웃 카운터 초기화 (`onValidationSuccess`)
+
+### 토큰 절약
+
+- **요약 토큰 예약**: 압축 시 maxTokens에서 20,000 토큰 예약 (요약 출력 공간 확보)
+- **요약 토큰 상한 제한**: `maxTokens = min(입력의 50%, 2000)` → Ollama `num_predict`로 강제 전달
+- **게이지 실제 토큰 표시**: ASK 경로에서 세션 누적 대신 실제 LLM 컨텍스트 토큰 표시
+
+### UI
+
+- **모델 라우팅 설명**: "CODE 모드에서 단계별로 다른 모델 사용. AGENT 모드에서는 메인 모델만 사용"
+- **파일 생성 UNDO 시 삭제**: 새로 생성된 파일의 마지막 UNDO → 파일 자체 삭제
+- **스트리밍 코드블록**: CODE + AGENT 공통으로 스트리밍 중 즉시 코드블록 표시
 
 ---
 
@@ -75,7 +116,6 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 - **토큰 예산 체크**: 시스템 프롬프트가 모델 입력 토큰의 30% 초과 시 경고 로그
 - **@include 지시자**: 규칙 파일에서 `@./shared/common.md`, `@~/path` 형태로 다른 파일 참조 — 순환 방지, 깊이 5 제한
 - **조건부 규칙 (paths: frontmatter)**: 규칙 파일에 `paths: "src/**/*.tsx"` 지정 시 해당 파일 터치할 때만 로드 → 토큰 절약
-- **규칙 제외 설정**: `codepilot.ruleExcludes` — glob 패턴으로 특정 규칙 파일 제외
 - **상세 로깅**: 규칙 로드 시 precedence 레벨 + 토큰 수 상세 로그 출력
 
 ### AGENT 모드 안정화

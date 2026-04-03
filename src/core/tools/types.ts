@@ -40,6 +40,8 @@ export enum Tool {
     LOAD_SKILL = 'load_skill',
     // 사용자에게 선택지 질문
     ASK_QUESTION = 'ask_question',
+    // AGENT 모드: 작업 계획 관리
+    WORK_PLAN = 'work_plan',
     // AGENT 모드: worker 에이전트 스폰
     SPAWN_AGENT = 'spawn_agent',
     // AGENT 모드: worker 에이전트 중단
@@ -65,6 +67,7 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
     Tool.MEMORY_SAVE,
     Tool.MEMORY_DELETE,
     Tool.ASK_QUESTION,
+    Tool.WORK_PLAN,
 ]);
 
 /**

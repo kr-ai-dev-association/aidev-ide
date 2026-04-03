@@ -270,6 +270,17 @@ export class ToolSpecBuilder {
             });
         }
 
+        // work_plan - AGENT mode task planning (AGENT mode only)
+        if (!allowedTools || allowedTools.includes(Tool.WORK_PLAN)) {
+            specs.push({
+                name: Tool.WORK_PLAN,
+                description: 'Create or update a work plan for complex tasks. Use when a task involves 3+ files or multiple steps. Each call REPLACES the entire plan — always include all tasks with their current status. The plan is displayed in the task queue UI.',
+                parameters: [
+                    { name: 'tasks', required: true, description: 'JSON array of tasks. Each task: { "id": "unique_id", "title": "Task description in Korean", "status": "pending" | "in_progress" | "done" }. Send the FULL list every time — completed tasks should have status "done".', type: 'string' },
+                ]
+            });
+        }
+
         // spawn_agent - Spawn worker sub-agent (AGENT mode only)
         if (!allowedTools || allowedTools.includes(Tool.SPAWN_AGENT)) {
             specs.push({

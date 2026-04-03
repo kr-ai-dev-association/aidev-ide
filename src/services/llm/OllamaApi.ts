@@ -6,7 +6,7 @@ import { StateManager } from '../../core/managers/state/StateManager';
 import { DEFAULT_OLLAMA_URL } from '../../core/config/ApiDefaults';
 import { Tool } from '../../core/tools/types';
 
-type SendOptions = { signal?: AbortSignal; retries?: number; xmlRetry?: boolean; disableThinking?: boolean; thinkingLevel?: string; nativeTools?: any[]; onNativeToolComplete?: (toolName: string, args: Record<string, any>) => void };
+type SendOptions = { signal?: AbortSignal; retries?: number; xmlRetry?: boolean; disableThinking?: boolean; thinkingLevel?: string; nativeTools?: any[]; onNativeToolComplete?: (toolName: string, args: Record<string, any>) => void; maxTokens?: number };
 type OllamaMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 type MessageBuilder = (userContent: string) => OllamaMessage[];
 
@@ -310,7 +310,7 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
             model: this.modelName,
             messages,
             stream: false,
-            options: { num_predict: 16384 },
+            options: { num_predict: options?.maxTokens || 16384 },
         };
 
         if (options?.disableThinking) {
@@ -582,7 +582,7 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
             model: this.modelName,
             messages,
             stream: true,
-            options: { num_predict: 16384 },
+            options: { num_predict: options?.maxTokens || 16384 },
         };
 
         if (options?.disableThinking) {

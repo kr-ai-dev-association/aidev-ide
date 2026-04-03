@@ -64,6 +64,7 @@ import { LoadSkillToolHandler } from "./core/tools/skill/LoadSkillToolHandler";
 import { AskQuestionToolHandler } from "./core/tools/interaction/AskQuestionToolHandler";
 import { SpawnAgentToolHandler } from "./core/tools/agent/SpawnAgentToolHandler";
 import { StopAgentToolHandler } from "./core/tools/agent/StopAgentToolHandler";
+import { WorkPlanToolHandler } from "./core/tools/agent/WorkPlanToolHandler";
 import { AuthService } from "./services/auth/AuthService";
 import { DEFAULT_OLLAMA_URL } from './core/config/ApiDefaults';
 import {
@@ -591,7 +592,8 @@ export async function activate(context: vscode.ExtensionContext) {
   toolRegistry.register(new LoadSkillToolHandler());
   // 사용자 질문 도구
   toolRegistry.register(new AskQuestionToolHandler());
-  // AGENT 모드: worker 에이전트 스폰/중단 도구
+  // AGENT 모드: 작업 계획 + worker 에이전트 스폰/중단 도구
+  toolRegistry.register(new WorkPlanToolHandler());
   toolRegistry.register(new SpawnAgentToolHandler());
   toolRegistry.register(new StopAgentToolHandler());
   // MCP Manager 초기화 및 도구 등록 브릿지
