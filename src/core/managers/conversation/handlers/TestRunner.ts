@@ -667,9 +667,14 @@ export class TestRunner {
         { cwd: workspaceRoot, timeout },
       );
 
-      if (result.exitCode === 0) {
+      // Exit code 5 = pytest "no tests collected" — not an error, just no tests exist
+      const isNoTestsCollected = result.exitCode === 5 && /no tests/i.test(result.stderr || result.stdout || '');
+      if (result.exitCode === 0 || isNoTestsCollected) {
+        if (isNoTestsCollected) {
+          console.log(`[TestRunner] pytest exit code 5 (no tests collected) — treating as pass`);
+        }
         const message = `${validationCmd.description} 통과: 문법 오류가 없습니다.`;
-        WebviewBridge.sendProcessingStatus(
+        WebviewBridge.sendProcessingStep(
           webview,
           uiStep,
           `${validationCmd.description} 통과`,

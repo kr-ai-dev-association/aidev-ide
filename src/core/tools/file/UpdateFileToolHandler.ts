@@ -230,6 +230,17 @@ export class UpdateFileToolHandler implements IToolHandler {
         }
       }
 
+      // Match strategy 5: Fuzzy line-content matching (handles formatter line-break changes)
+      if (!matchResult) {
+        const fuzzyMatch = this.fuzzyContentMatch(fileContent, replacement.search);
+        if (fuzzyMatch) {
+          matchResult = fuzzyMatch;
+          console.log(
+            `[UpdateFileToolHandler] Fuzzy content match found for ${filePath}`,
+          );
+        }
+      }
+
       // Add to apply list on successful match
       if (matchResult) {
         replacementsToApply.push({
@@ -632,6 +643,53 @@ export class UpdateFileToolHandler implements IToolHandler {
     }
 
     return false;
+  }
+
+  /**
+   * Strategy 5: Fuzzy content matching
+   * Handles cases where formatter changes line breaks, indentation, or code structure.
+   * Compares non-whitespace tokens to find the best matching region.
+   */
+  private fuzzyContentMatch(
+    fileContent: string,
+    searchContent: string,
+  ): [number, number] | false {
+    // Tokenize: extract non-whitespace tokens
+    const searchTokens = searchContent.match(/\S+/g);
+    if (!searchTokens || searchTokens.length < 5) return false; // too short = risky
+
+    const fileLines = fileContent.split('\n');
+
+    // Use first 3 + last 3 tokens as anchors
+    const headTokens = searchTokens.slice(0, 3).map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const tailTokens = searchTokens.slice(-3).map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+
+    // Find first token position
+    const headPattern = new RegExp(headTokens.join('\\s+'));
+    const headMatch = headPattern.exec(fileContent);
+    if (!headMatch) return false;
+
+    // Find last token position (search after head)
+    const tailPattern = new RegExp(tailTokens.join('\\s+'));
+    const searchAfterHead = fileContent.substring(headMatch.index);
+    const tailMatch = tailPattern.exec(searchAfterHead);
+    if (!tailMatch) return false;
+
+    const startIndex = headMatch.index;
+    const endIndex = headMatch.index + tailMatch.index + tailMatch[0].length;
+
+    // Verify: matched region should have similar token count (within 30% tolerance)
+    const matchedRegion = fileContent.substring(startIndex, endIndex);
+    const matchedTokens = matchedRegion.match(/\S+/g) || [];
+    const tokenRatio = matchedTokens.length / searchTokens.length;
+
+    if (tokenRatio < 0.7 || tokenRatio > 1.3) return false; // too different in size
+
+    console.log(
+      `[UpdateFileToolHandler] Fuzzy match: ${searchTokens.length} search tokens, ${matchedTokens.length} file tokens (ratio: ${tokenRatio.toFixed(2)})`,
+    );
+
+    return [startIndex, endIndex];
   }
 
   getDescription(toolUse: ToolUse): string {

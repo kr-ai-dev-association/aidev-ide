@@ -2,7 +2,42 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.51**
+> **현재 버전: v1.0.52**
+
+---
+
+## v1.0.52 (2026-04-03)
+
+### 명령 실행 개선
+
+- **자동 백그라운드 허용리스트**: `npm run dev`, `uvicorn`, `flask run` 등 12개 패턴 자동 백그라운드 전환
+- **sleep 명령 차단**: `sleep ≥2s` 차단
+- **Stall Detection**: 5초 간격 모니터링, 45초 무응답 시 대화형 프롬프트 감지
+- **pytest exit code 5 통과 처리**: "no tests collected" 통과 처리
+
+### 도구 개선
+
+- **Semantic Boolean**: `semanticBoolean()` 유틸 적용
+- **LSP 확장 (9/9)**: callHierarchy 3개 operation 추가
+- **Fuzzy Content Matching**: update_file 5단계 매칭
+- **SEARCH 블록 최소화 프롬프트**
+
+### 압축 / 토큰
+
+- **Ollama 기본 컨텍스트**: 65K → 131K
+- **압축 threshold**: 0.8 → 0.9
+- **AUTOCOMPACT_BUFFER_TOKENS**: 13K 추가
+- **요약 maxTokens 제한**: Ollama `num_predict`로 전달
+
+### AGENT 모드 안정성
+
+- **execution_run 재촉 AGENT 제외**
+- **게이지 실제 컨텍스트 표시**
+- **새 파일 UNDO 시 삭제**
+
+### 기타
+
+- **ruleExcludes 제거**, **중복 프롬프트 제거**, **모델 라우팅 설명**
 
 ---
 

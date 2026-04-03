@@ -9,6 +9,30 @@ import * as fs from 'fs';
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
 import { ToolUse, ToolResponse, Tool } from '../types';
 import { HotLoadManager } from '../../managers/hotload/HotLoadManager';
+import { semanticBoolean } from '../../../utils/semanticBoolean';
+
+/** Commands that should always run in background mode automatically */
+const AUTO_BACKGROUND_PATTERNS: RegExp[] = [
+    /\bnpm\s+(start|run\s+dev|run\s+start|run\s+serve)\b/,
+    /\byarn\s+(start|dev|serve)\b/,
+    /\bpnpm\s+(start|dev|serve)\b/,
+    /\bbun\s+(run\s+dev|dev)\b/,
+    /\bnpx\s+(next\s+dev|vite|nuxt\s+dev|remix\s+dev)\b/,
+    /\bpython3?\s+-m\s+(http\.server|flask\s+run|uvicorn|gunicorn)\b/,
+    /\buvicorn\b/,
+    /\bgunicorn\b/,
+    /\bflask\s+run\b/,
+    /\bdjango.*runserver\b/,
+    /\bcargo\s+run\b/,
+    /\bgo\s+run\b/,
+    /\bdocker\s+compose\s+up\b/,
+    /\bdocker-compose\s+up\b/,
+    /\btail\s+-f\b/,
+];
+
+function isAutoBackgroundCommand(command: string): boolean {
+    return AUTO_BACKGROUND_PATTERNS.some(pattern => pattern.test(command));
+}
 
 /** Safe read-only commands whitelist (for INVESTIGATION phase validation) */
 export const READ_ONLY_SAFE_COMMANDS = new Set([
@@ -156,12 +180,17 @@ export class RunCommandToolHandler implements IToolHandler {
         }
 
         const timeoutSeconds = toolUse.params.timeout ? parseInt(toolUse.params.timeout) : undefined;
-        const isBackground = String(toolUse.params.is_background) === 'true';
+        const isBackground = semanticBoolean(toolUse.params.is_background) || isAutoBackgroundCommand(command);
+
+        // Log auto-background detection
+        if (isBackground && String(toolUse.params.is_background) !== 'true') {
+            console.log(`[RunCommandToolHandler] Auto-background detected for: ${command}`);
+        }
 
         // -- Sub-project auto-detection: search subdirectories if no manifest --
         const effectiveCwd = this.resolveCommandCwd(command, context.projectRoot);
 
-        // Phase 0: LLM explicitly requested background execution
+        // Phase 0: LLM explicitly requested (or auto-detected) background execution
         if (isBackground) {
             console.log(`[RunCommandToolHandler] Background mode requested: ${command}`);
             const bgResult = await context.executionManager.executeCommand(command, {

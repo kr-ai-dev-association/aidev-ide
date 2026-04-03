@@ -14,6 +14,15 @@ import {
 
 const MAX_OUTPUT_SIZE = 10 * 1024 * 1024; // 10MB output limit
 
+/** Stall detection tracking data per process */
+interface StallTracker {
+    lastOutputSize: number;
+    stallStartTime: number;
+    recentStdout: string;
+    recentStderr: string;
+    interval: ReturnType<typeof setInterval>;
+}
+
 // Git Bash 후보 경로 (Windows)
 const GIT_BASH_CANDIDATES = [
     'C:\\Program Files\\Git\\bin\\bash.exe',
@@ -42,6 +51,7 @@ if (process.platform === 'win32') {
 export class ProcessManager {
     private processes: Map<number, Process> = new Map();
     private childProcesses: Map<number, ChildProcess> = new Map();
+    private stallTrackers: Map<number, StallTracker> = new Map();
 
     constructor() {
     }
@@ -147,6 +157,32 @@ export class ProcessManager {
 
         // 프로세스 이벤트 핸들러 등록
         this.registerProcessHandlers(pid, childProcess);
+
+        // Stall detection setup
+        const stallTracker: StallTracker = {
+            lastOutputSize: 0,
+            stallStartTime: Date.now(),
+            recentStdout: '',
+            recentStderr: '',
+            interval: setInterval(() => this.checkForStall(pid), 5000),
+        };
+        this.stallTrackers.set(pid, stallTracker);
+
+        // Track recent output for stall detection
+        childProcess.stdout?.on('data', (data: Buffer | string) => {
+            const tracker = this.stallTrackers.get(pid);
+            if (tracker) {
+                const text = typeof data === 'string' ? data : data.toString();
+                tracker.recentStdout = (tracker.recentStdout + text).slice(-1024);
+            }
+        });
+        childProcess.stderr?.on('data', (data: Buffer | string) => {
+            const tracker = this.stallTrackers.get(pid);
+            if (tracker) {
+                const text = typeof data === 'string' ? data : data.toString();
+                tracker.recentStderr = (tracker.recentStderr + text).slice(-1024);
+            }
+        });
 
         // 시작 완료
         this.updateStatus(pid, ProcessStatus.RUNNING);
@@ -284,6 +320,9 @@ export class ProcessManager {
         childProcess.on('exit', (code, signal) => {
             console.log(`[ProcessManager] Process ${pid} exited: code=${code}, signal=${signal}`);
 
+            // Clear stall detection interval
+            this.clearStallTracker(pid);
+
             if (signal === 'SIGKILL' || signal === 'SIGTERM') {
                 this.updateStatus(pid, ProcessStatus.KILLED);
             } else if (code === 0) {
@@ -299,6 +338,42 @@ export class ProcessManager {
         childProcess.on('close', (code, signal) => {
             console.log(`[ProcessManager] Process ${pid} closed: code=${code}, signal=${signal}`);
         });
+    }
+
+    /**
+     * Check if a process is stalled waiting for interactive input
+     */
+    private checkForStall(pid: number): void {
+        const proc = this.processes.get(pid);
+        const tracker = this.stallTrackers.get(pid);
+        if (!proc || !tracker || proc.status !== ProcessStatus.RUNNING) return;
+
+        const currentSize = tracker.recentStdout.length + tracker.recentStderr.length;
+        if (currentSize > tracker.lastOutputSize) {
+            tracker.lastOutputSize = currentSize;
+            tracker.stallStartTime = Date.now();
+            return;
+        }
+
+        // No output growth for 45s
+        if (Date.now() - tracker.stallStartTime > 45000) {
+            const recentOutput = tracker.recentStdout.slice(-1024) + tracker.recentStderr.slice(-1024);
+            const interactivePatterns = /\(y\/n\)|\(Y\/n\)|Continue\?|Press Enter|\[yes\/no\]|password:|Are you sure/i;
+            if (interactivePatterns.test(recentOutput)) {
+                console.warn(`[ProcessManager] Stall detected: process PID ${pid} may be waiting for user input`);
+            }
+        }
+    }
+
+    /**
+     * Clear stall detection tracker for a process
+     */
+    private clearStallTracker(pid: number): void {
+        const tracker = this.stallTrackers.get(pid);
+        if (tracker) {
+            clearInterval(tracker.interval);
+            this.stallTrackers.delete(pid);
+        }
     }
 
     /**
@@ -334,6 +409,11 @@ export class ProcessManager {
         const stopPromises = runningProcesses.map(p => this.stopProcess(p.pid));
 
         await Promise.all(stopPromises);
+
+        // Clear all stall trackers
+        for (const [pid] of this.stallTrackers) {
+            this.clearStallTracker(pid);
+        }
 
         this.processes.clear();
         this.childProcesses.clear();

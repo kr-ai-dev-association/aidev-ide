@@ -152,7 +152,7 @@ export class ModelConnectionService {
             }
 
             // context length 정보 없으면 보수적 기본값 사용
-            const DEFAULT_OLLAMA_CONTEXT = 65536;
+            const DEFAULT_OLLAMA_CONTEXT = 131072;
             console.log(`[ModelConnectionService] Ollama ${modelName}: context length 정보 없음, 기본값 ${DEFAULT_OLLAMA_CONTEXT} 사용`);
             return DEFAULT_OLLAMA_CONTEXT;
         } catch (error) {

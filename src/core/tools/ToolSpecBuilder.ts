@@ -63,7 +63,7 @@ export class ToolSpecBuilder {
                 description: 'Modifies only specific parts of an existing file. Does not overwrite the entire file. **CRITICAL: You must read the latest file content with read_file before using update_file.**',
                 parameters: [
                     { name: 'path', required: true, description: 'File path to modify', type: 'string' },
-                    { name: 'diff', required: true, description: 'SEARCH/REPLACE block format:\n<<<<<<< SEARCH\n[exact current file content]\n=======\n[new content]\n>>>>>>> REPLACE\n\n**Important:** The content in the SEARCH block must exactly match the latest file content read via read_file. Whitespace, indentation, and line breaks must match exactly.', type: 'string' }
+                    { name: 'diff', required: true, description: 'SEARCH/REPLACE block format:\n<<<<<<< SEARCH\n[exact current file content]\n=======\n[new content]\n>>>>>>> REPLACE\n\n**CRITICAL rules:**\n1. SEARCH block must be MINIMAL — include ONLY the lines being changed plus 2-3 lines of surrounding context. NEVER include the entire file.\n2. For multiple changes in one file, use MULTIPLE separate SEARCH/REPLACE blocks in a single diff (they are applied sequentially).\n3. The SEARCH content must exactly match the latest file content from read_file.\n\nExample (multiple blocks in one diff):\n<<<<<<< SEARCH\nimport React from "react";\n=======\nimport React, { useState } from "react";\n>>>>>>> REPLACE\n\n<<<<<<< SEARCH\nreturn <div>Hello</div>;\n=======\nreturn <div onClick={handleClick}>Hello</div>;\n>>>>>>> REPLACE', type: 'string' }
                 ]
             });
         }
@@ -185,9 +185,9 @@ export class ToolSpecBuilder {
         if (!allowedTools || allowedTools.includes(Tool.LSP)) {
             specs.push({
                 name: Tool.LSP,
-                description: 'Queries code intelligence information via Language Server Protocol (LSP). Provides symbol definition locations, reference search, type information, file/workspace symbol lists, and more.',
+                description: 'Queries code intelligence information via Language Server Protocol (LSP). Provides symbol definition locations, reference search, type information, file/workspace symbol lists, call hierarchy analysis, and more.',
                 parameters: [
-                    { name: 'operation', required: true, description: 'Operation to perform: goToDefinition (go to definition) | findReferences (find references) | hover (type/documentation info) | documentSymbol (list symbols in file) | workspaceSymbol (search workspace symbols) | goToImplementation (find implementations)', type: 'string' },
+                    { name: 'operation', required: true, description: 'Operation to perform: goToDefinition (go to definition) | findReferences (find references) | hover (type/documentation info) | documentSymbol (list symbols in file) | workspaceSymbol (search workspace symbols) | goToImplementation (find implementations) | prepareCallHierarchy (get call hierarchy items at position) | incomingCalls (get incoming calls at position) | outgoingCalls (get outgoing calls at position)', type: 'string' },
                     { name: 'file_path', required: false, description: 'Target file path (required except for workspaceSymbol)', type: 'string' },
                     { name: 'line', required: false, description: 'Cursor line number (1-based, required for position-based operations)', type: 'string' },
                     { name: 'character', required: false, description: 'Cursor column number (0-based, required for position-based operations)', type: 'string' },
