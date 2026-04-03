@@ -246,7 +246,7 @@ export class LLMManager {
                 await this.loadOllamaSettingsSafe();
                 response = await this.ollamaApi.sendMessageWithSystemPrompt(
                     systemPrompt, LLMManager.normalizeParts(userParts),
-                    { signal, disableThinking, thinkingLevel: options?.thinkingLevel, nativeTools: options?.nativeTools }
+                    { signal, disableThinking, thinkingLevel: options?.thinkingLevel, nativeTools: options?.nativeTools, maxTokens: options?.maxTokens }
                 );
             }
 

@@ -2,7 +2,40 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.50**
+> **현재 버전: v1.0.51**
+
+---
+
+## v1.0.51 (2026-04-03)
+
+### AGENT 모드 개선
+
+- **자동 검증 스킵**: AGENT 모드에서 시스템 자동 tsc 검증 제거 — LLM이 직접 `run_command`로 검증 (Claude Code 방식)
+- **work_plan 도구**: AGENT 모드 전용 작업 계획 도구 — 기존 작업큐 UI 재사용, 매 턴 시스템 메시지에 상태 주입
+- **검증 에이전트**: 복잡한 작업(3+ 파일) 완료 후 `spawn_agent`로 검증 worker 스폰 — 빌드/테스트 실행 + 회의적 검증
+- **세션 저장 로그**: `Saving AGENT mode entry` (이전: `CODE mode entry`)
+
+### 코드 품질 / 안전성
+
+- **`<analysis>` 태그 요약**: 압축 요약 품질 향상 (사고 정리 후 요약)
+- **NEVER 규칙 3개 + 프롬프트 인젝션 방어**
+- **continuation line + 리다이렉트 보안**: 위험 명령 숨기기/동적 리다이렉트 차단
+- **ruleExcludes 기능 제거**: 불필요한 설정 항목 삭제
+- **중복 프롬프트 제거**: `getNoInternalMonologueRules` 삭제 (`getNoThinkingLeakageRules`에 통합)
+
+### 에러 / 토큰
+
+- **압축 차단기**: 3회 실패 시 중단
+- **buildTimeout 리셋**: 성공 시 카운터 초기화
+- **요약 토큰 20K 예약**
+- **요약 토큰 상한 제한**: `maxTokens = min(입력의 50%, 2000)` → Ollama `num_predict`로 강제 전달
+- **게이지 실제 토큰 표시**: ASK 경로에서 세션 누적 대신 실제 LLM 컨텍스트 토큰 표시
+
+### UI
+
+- **모델 라우팅 설명**: "CODE 모드에서 단계별로 다른 모델 사용. AGENT 모드에서는 메인 모델만 사용"
+- **파일 생성 UNDO 시 삭제**: 새로 생성된 파일의 마지막 UNDO → 파일 자체 삭제
+- **스트리밍 코드블록**: CODE + AGENT 공통으로 스트리밍 중 즉시 코드블록 표시
 
 ---
 
@@ -64,7 +97,6 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 - **토큰 예산 체크**: 30% 초과 시 경고
 - **@include 지시자**: `@./path`, `@~/path` 참조, 순환 방지
 - **조건부 규칙**: `paths:` frontmatter로 관련 파일 터치 시만 로드
-- **규칙 제외**: `ruleExcludes` 설정
 - **상세 로깅**: precedence + 토큰 수
 
 ### AGENT 모드 안정화

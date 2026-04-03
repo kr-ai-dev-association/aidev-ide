@@ -255,6 +255,14 @@ export class RetryCoordinator {
         this.samePatternCount = 0;
         this._pendingFallbackModel = false;
         this._excludedValidationCommands = [];
+        this.buildTimeoutCount = 0;
+    }
+
+    /**
+     * 검증 성공 시 호출 — buildTimeoutCount 리셋
+     */
+    onValidationSuccess(): void {
+        this.buildTimeoutCount = 0;
     }
 
     /**

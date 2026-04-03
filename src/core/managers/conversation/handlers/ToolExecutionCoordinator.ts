@@ -73,6 +73,7 @@ export class ToolExecutionCoordinator {
             [Tool.RIPGREP_SEARCH]: '코드 검색',
             [Tool.RUN_COMMAND]: '명령 실행',
             [Tool.ASK_QUESTION]: '사용자 확인 대기',
+            [Tool.WORK_PLAN]: '작업 계획',
             [Tool.SPAWN_AGENT]: '에이전트 스폰',
             [Tool.STOP_AGENT]: '에이전트 중단',
             'plan': '계획 수립',

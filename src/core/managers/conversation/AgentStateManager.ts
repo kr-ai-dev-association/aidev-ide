@@ -36,6 +36,7 @@ const ALLOWED_TOOLS: Record<AgentPhase, Tool[]> = {
         Tool.MEMORY_SAVE,
         Tool.MEMORY_DELETE,
         Tool.ASK_QUESTION,
+        Tool.WORK_PLAN,
     ],
     [AgentPhase.EXECUTION]: [
         Tool.CREATE_FILE,
@@ -57,6 +58,7 @@ const ALLOWED_TOOLS: Record<AgentPhase, Tool[]> = {
         Tool.MEMORY_SAVE,
         Tool.MEMORY_DELETE,
         Tool.ASK_QUESTION,
+        Tool.WORK_PLAN,
     ],
     [AgentPhase.REVIEW]: [], // REVIEW 단계에서는 도구 사용 불가 (시스템이 요약 생성)
     [AgentPhase.DONE]: [] // DONE 단계에서는 도구 사용 불가

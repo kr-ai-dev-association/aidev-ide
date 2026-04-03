@@ -68,6 +68,7 @@ export class ConversationCompactor {
     originalTokens: number;
     compactedTokens: number;
   }> = [];
+  private consecutiveCompactFailures = 0;
 
   private constructor(
     llmManager: LLMManager,
@@ -110,8 +111,10 @@ export class ConversationCompactor {
       return false;
     }
 
+    const SUMMARY_RESERVED_TOKENS = 20000;
+    const effectiveMaxTokens = maxTokens - SUMMARY_RESERVED_TOKENS;
     const totalTokens = this.calculateTotalTokens(userParts, systemPrompt);
-    const threshold = maxTokens * this.config.tokenThreshold;
+    const threshold = effectiveMaxTokens * this.config.tokenThreshold;
 
     console.log(
       `[ConversationCompactor] Token check: ${totalTokens}/${maxTokens} (threshold: ${threshold})`,
@@ -134,6 +137,21 @@ export class ConversationCompactor {
     maxTokens: number,
     abortSignal?: AbortSignal,
   ): Promise<CompactionResult> {
+    // Circuit breaker: skip compaction after 3 consecutive failures
+    if (this.consecutiveCompactFailures >= 3) {
+      console.warn(
+        `[ConversationCompactor] Circuit breaker: skipping compaction after ${this.consecutiveCompactFailures} consecutive failures`,
+      );
+      const skipTokens = this.calculateTotalTokens(userParts, systemPrompt);
+      return {
+        compacted: false,
+        originalTokens: skipTokens,
+        compactedTokens: skipTokens,
+        recentMessages: userParts,
+        savedTokens: 0,
+      };
+    }
+
     const originalTokens = this.calculateTotalTokens(userParts, systemPrompt);
 
     // 압축이 필요없으면 원본 반환
@@ -217,6 +235,8 @@ export class ConversationCompactor {
         compactedTokens,
       });
 
+      this.consecutiveCompactFailures = 0;
+
       console.log(
         `[ConversationCompactor] Compaction complete. Saved ${savedTokens} tokens (${originalTokens} -> ${compactedTokens})`,
       );
@@ -230,8 +250,9 @@ export class ConversationCompactor {
         savedTokens,
       };
     } catch (error) {
+      this.consecutiveCompactFailures++;
       console.error(
-        "[ConversationCompactor] Compaction failed, using fallback strategy:",
+        `[ConversationCompactor] Compaction failed (consecutiveFailures=${this.consecutiveCompactFailures}), using fallback strategy:`,
         error,
       );
 
@@ -356,8 +377,10 @@ export class ConversationCompactor {
       .join("\n\n");
 
     const inputTokens = estimateTokens(conversationText);
+    // 요약 토큰 상한: 입력의 50% 또는 최대 2000토큰 (Claude Code: 20K이지만 로컬 모델은 더 작게)
+    const maxSummaryTokens = Math.min(Math.floor(inputTokens * 0.5), 2000);
     console.log(
-      `[ConversationCompactor] 요약 입력 토큰: ${inputTokens.toLocaleString()}`,
+      `[ConversationCompactor] 요약 입력 토큰: ${inputTokens.toLocaleString()}, 요약 상한: ${maxSummaryTokens}`,
     );
 
     // 요약 프롬프트 생성
@@ -371,18 +394,19 @@ export class ConversationCompactor {
 
     // StateManager가 있으면 compactorModel 사용, 없으면 메인 모델 사용
     let response: string;
+    const llmOptions = { signal: abortSignal, maxTokens: maxSummaryTokens };
     if (this.stateManager) {
       response = await this.llmManager.sendMessageWithCompactorModel(
         summarizationPrompt,
         userParts,
         this.stateManager,
-        { signal: abortSignal },
+        llmOptions,
       );
     } else {
       response = await this.llmManager.sendMessageWithSystemPrompt(
         summarizationPrompt,
         userParts,
-        { signal: abortSignal },
+        llmOptions,
       );
     }
 
@@ -410,6 +434,9 @@ export class ConversationCompactor {
     } catch (e) {
       // JSON 파싱 실패 시 원본 사용
     }
+
+    // Strip <analysis> blocks (used for chain-of-thought, not kept in summary)
+    response = response.replace(/<analysis>[\s\S]*?<\/analysis>/gi, '').trim();
 
     // StringUtils를 사용하여 thinking 태그 및 기타 불필요한 내용 제거
     return StringUtils.cleanText(response, {
@@ -719,20 +746,25 @@ export class ConversationCompactor {
       { text: `Summarize the following conversation:\n\n${conversationText}` },
     ];
 
+    // 요약 토큰 상한: 입력의 50% 또는 최대 2000토큰
+    const inputTokens = estimateTokens(conversationText);
+    const maxSummaryTokens = Math.min(Math.floor(inputTokens * 0.5), 2000);
+
     // StateManager가 있으면 compactorModel 사용, 없으면 메인 모델 사용
     let response: string;
+    const llmOptions = { signal: abortSignal, maxTokens: maxSummaryTokens };
     if (this.stateManager) {
       response = await this.llmManager.sendMessageWithCompactorModel(
         summarizationPrompt,
         userParts,
         this.stateManager,
-        { signal: abortSignal },
+        llmOptions,
       );
     } else {
       response = await this.llmManager.sendMessageWithSystemPrompt(
         summarizationPrompt,
         userParts,
-        { signal: abortSignal },
+        llmOptions,
       );
     }
 

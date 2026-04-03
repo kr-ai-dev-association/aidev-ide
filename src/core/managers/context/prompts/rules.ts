@@ -468,6 +468,18 @@ export function getExecutionPhaseContextPrompt(
 export function getCompactSummarizationPrompt(): string {
   return `You are a conversation summarization expert. Create a structured summary that preserves all critical context for continuing the conversation.
 
+Before providing your final summary, wrap your analysis in <analysis> tags to organize your thoughts:
+
+<analysis>
+Chronologically analyze each message. For each, identify:
+- User's explicit requests
+- Your approach and key decisions
+- File names, function signatures, edits made
+- Errors encountered and how they were fixed
+</analysis>
+
+Then provide your summary in the 9 sections below. The <analysis> block will be stripped — only the summary is kept.
+
 ## Required Sections (include ALL 9 sections):
 
 ### 1. Primary Request and Intent

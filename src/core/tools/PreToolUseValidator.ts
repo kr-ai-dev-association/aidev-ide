@@ -58,6 +58,9 @@ export const DEFAULT_BLOCKED_COMMANDS: DefaultRule[] = [
 
     // Dangerous data exposure
     { id: 'proc_environ', pattern: '\\/proc\\/\\d*\\/environ', description: 'Environment variable exposure via /proc' },
+
+    // Redirect to dynamic/variable target
+    { id: 'unsafe_redirect', pattern: '[>|]\\s*[\\$`~]', description: 'Redirect to dynamic/variable target (injection risk)' },
 ];
 
 /**
@@ -393,11 +396,37 @@ export class PreToolUseValidator {
         }
     }
 
+    // Continuation line security: detect backslash-newline that could hide commands
+    private static hasSuspiciousContinuation(command: string): boolean {
+        const lines = command.split('\n');
+        for (let i = 0; i < lines.length - 1; i++) {
+            const match = lines[i].match(/\\+$/);
+            if (match && match[0].length % 2 === 1) {
+                // Odd number of backslashes = real continuation
+                // Check if next line starts with a dangerous command
+                const nextLine = lines[i + 1]?.trim();
+                if (nextLine && /^(rm|chmod|dd|mkfs|curl|wget|eval)/.test(nextLine)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     /**
      * Command validation
      * v9.4.0: Enhanced shell metacharacter and variable expansion pattern detection
      */
     private static validateCommand(command: string): ValidationResult {
+        // Block suspicious continuation lines (backslash-newline hiding dangerous commands)
+        if (this.hasSuspiciousContinuation(command)) {
+            return {
+                allowed: false,
+                reason: `Suspicious continuation line detected: backslash-newline hiding dangerous command`,
+                severity: 'error'
+            };
+        }
+
         // Block dangerous commands
         for (const pattern of this.DANGEROUS_COMMANDS) {
             if (pattern.test(command)) {

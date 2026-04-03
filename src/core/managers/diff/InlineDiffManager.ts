@@ -2895,8 +2895,16 @@ export class InlineDiffManager {
 
                 const restored = filesToRestore.get(fp)!;
                 if (restored === '') {
+                    // 새로 생성된 파일 → UNDO 시 파일 삭제
                     this.shadow.delete(fp);
                     this.disk.delete(fp);
+                    try {
+                        const fileUri = vscode.Uri.file(fp);
+                        await vscode.workspace.fs.delete(fileUri);
+                        console.log(`[InlineDiffManager] Deleted newly created file on undo: ${fp}`);
+                    } catch (delErr) {
+                        console.warn(`[InlineDiffManager] Failed to delete file on undo: ${fp}`, delErr);
+                    }
                 } else {
                     this.shadow.set(fp, restored);
                     this.disk.set(fp, restored);
