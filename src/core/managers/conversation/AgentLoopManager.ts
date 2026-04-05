@@ -470,6 +470,22 @@ export class AgentLoopManager {
       } catch (e) {
         console.warn("[AgentLoopManager] Failed to save AGENT mode entry:", e);
       }
+
+      // Session Memory auto-extraction
+      try {
+        const { SessionMemoryExtractor } = await import("../../memory/SessionMemoryExtractor");
+        const extractor = SessionMemoryExtractor.getInstance(this.llmManager);
+        const compactorForExtraction = ConversationCompactor.getInstance(this.llmManager);
+        const extractionTokens = compactorForExtraction.calculateTotalTokens(accumulatedUserParts, activeSystemPrompt);
+        if (extractor.shouldExtract(extractionTokens, turnCount)) {
+          const summary = compactorForExtraction.getLastSummary();
+          if (summary) {
+            await extractor.extractAndSave(summary, turnCount);
+          }
+        }
+      } catch (e) {
+        console.warn("[AgentLoopManager] Session memory extraction failed:", e);
+      }
     }
 
     // Commit transaction

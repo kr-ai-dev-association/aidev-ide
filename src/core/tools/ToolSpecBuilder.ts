@@ -39,9 +39,25 @@ export interface FunctionCall {
 
 export class ToolSpecBuilder {
     /**
+     * Cached tool specs to avoid rebuilding on every LLM call
+     */
+    private static _specCache = new Map<string, ToolSpec[]>();
+
+    /**
+     * Clear the tool spec cache (call when tools change, e.g., MCP tools added/removed)
+     */
+    static clearSpecCache(): void {
+        this._specCache.clear();
+    }
+
+    /**
      * Build all tool specs (included in prompt)
      */
     static buildToolSpecs(allowedTools?: Tool[]): ToolSpec[] {
+        const cacheKey = allowedTools ? [...allowedTools].sort().join(',') : '__all__';
+        const cached = this._specCache.get(cacheKey);
+        if (cached) return cached;
+
         const specs: ToolSpec[] = [];
 
         // create_file
@@ -309,6 +325,7 @@ export class ToolSpecBuilder {
         const mcpSpecs = this.buildMCPToolSpecs();
         specs.push(...mcpSpecs);
 
+        this._specCache.set(cacheKey, specs);
         return specs;
     }
 
