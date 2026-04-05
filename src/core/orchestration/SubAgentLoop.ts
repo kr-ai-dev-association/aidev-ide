@@ -988,12 +988,21 @@ Already implemented, no additional work needed:
 **Important: To use a tool, output the JSON format above directly in your response. Output only JSON without explanatory text. Do not put tool calls inside thinking. Always call the __done__ tool when the task is finished.**`}`;
     }
 
+    // Tools exclusive to main loop — sub-agents should not use these
+    private static readonly MAIN_LOOP_ONLY_TOOLS = new Set([
+        Tool.WORK_PLAN,
+        Tool.SPAWN_AGENT,
+        Tool.STOP_AGENT,
+    ]);
+
     private getAllowedTools(): Tool[] {
+        const exclude = (tools: Tool[]) => tools.filter(t => !SubAgentLoop.MAIN_LOOP_ONLY_TOOLS.has(t));
+
         if (this.isAgentMode) {
-            return Object.values(Tool) as Tool[];
+            return exclude(Object.values(Tool) as Tool[]);
         }
         if (this.subtask.toolPermission === 'full') {
-            return Object.values(Tool) as Tool[];
+            return exclude(Object.values(Tool) as Tool[]);
         }
 
         const readOnly = Array.from(READ_ONLY_TOOLS) as Tool[];

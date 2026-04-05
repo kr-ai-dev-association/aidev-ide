@@ -2,7 +2,30 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.52**
+> **현재 버전: v1.0.53**
+
+---
+
+## v1.0.53 (2026-04-05)
+
+### AGENT 모드 아키텍처 리팩토링
+
+- **AgentLoopManager 클래스 분리**: ConversationManager에서 AGENT 전용 루프를 별도 클래스(`AgentLoopManager.ts`)로 분리 — FSM 없는 순수 `while(true)` 자율 루프
+- **CODE 모드 코드 정리**: `isAgentMode` 체크 20곳+ 제거 — AGENT가 별도 클래스로 가서 더 이상 불필요
+- **SubAgentLoop 도구 제한**: `work_plan`, `spawn_agent`, `stop_agent`를 서브에이전트 도구 목록에서 제외 (메인 루프 전용)
+- **work_plan 채팅 표시 제거**: work_plan 결과는 작업큐 UI에만 표시, 채팅에 JSON 텍스트로 안 보임
+
+### AGENT 기능 보완
+
+- **참조 문서 표시**: 완료 시 RAG/Rules/Skills 참조 정보 채팅에 표시
+- **파일 변경 요약**: Created/Updated 파일 목록 완료 시 표시
+- **FileTransactionManager 통합**: 트랜잭션 시작/커밋으로 롤백 지원
+- **processing step 완료 표시**: 루프 종료 시 `done` step 전송
+
+### 기타
+
+- **sleep 차단 완화**: `sleep ≥2s` → `sleep ≥30s`로 변경 (`sleep 3 && curl` 허용)
+- **pytest no tests 통과 처리**: exit code 5 (no tests collected) → 에러가 아닌 통과로 처리
 
 ---
 

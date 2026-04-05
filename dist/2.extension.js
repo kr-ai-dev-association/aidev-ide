@@ -3,7 +3,7 @@ exports.id = 2;
 exports.ids = [2];
 exports.modules = {
 
-/***/ 798:
+/***/ 799:
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -143,7 +143,7 @@ class CodePilotApiClient {
     static getAgent() {
         if (!CodePilotApiClient._agent) {
             try {
-                const { Agent } = __webpack_require__(799);
+                const { Agent } = __webpack_require__(800);
                 CodePilotApiClient._agent = new Agent({
                     connect: { timeout: CodePilotApiClient.TIMEOUT_MS },
                 });
@@ -160,7 +160,7 @@ class CodePilotApiClient {
         };
         // JWT 토큰 첨부
         try {
-            const { AuthService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 757));
+            const { AuthService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 758));
             const auth = AuthService.getInstance();
             const token = await auth.getAccessToken();
             if (token) {
@@ -174,7 +174,7 @@ class CodePilotApiClient {
         // 401 → 토큰 리프레시 시도 (auth 엔드포인트 자체는 재귀 방지)
         if (response.status === 401 && !url.includes("/auth/refresh/") && !url.includes("/auth/logout/")) {
             try {
-                const { AuthService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 757));
+                const { AuthService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 758));
                 const auth = AuthService.getInstance();
                 const newToken = await auth.refreshAccessToken();
                 if (newToken) {

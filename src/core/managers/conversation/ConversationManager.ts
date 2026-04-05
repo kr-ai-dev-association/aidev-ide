@@ -43,9 +43,8 @@ import { PromptComposer } from "../context/prompts/PromptComposer";
 import { FetchUrlToolHandler } from "../../tools/web/FetchUrlToolHandler";
 import { StringUtils } from "../../utils/StringUtils";
 import { getExecutionPhasePrompt } from "../context/prompts/phase";
-import { getAgentModePrompt } from "../context/prompts/agent/agentPrompt";
-import { getAgentTaskManager, resetAgentTaskManager } from "../../tools/agent/SpawnAgentToolHandler";
-import { getWorkPlanStatus, resetWorkPlan } from "../../tools/agent/WorkPlanToolHandler";
+import { resetAgentTaskManager } from "../../tools/agent/SpawnAgentToolHandler";
+import { resetWorkPlan } from "../../tools/agent/WorkPlanToolHandler";
 import {
   getExecutionFirstRulePrompt,
   getTestRetryExceededMessage,
@@ -69,6 +68,7 @@ import { LoopStateTracker } from "./handlers/LoopStateTracker";
 import { ContextGatherer } from "./handlers/ContextGatherer";
 import { getGeneralAnalysisPrompt } from "../context/prompts/analysis/generalAnalysis";
 import { ConversationCompactor } from "./ConversationCompactor";
+import { AgentLoopManager } from "./AgentLoopManager";
 import { MODEL_TOKEN_LIMITS } from "../../../utils/tokenUtils";
 import { estimateTokens } from "../../../utils";
 import { TurnContext, TurnAction, LoopState, UserPart, CollectedAction, CollectedUIMessage } from "./types/TurnContext";
@@ -128,7 +128,7 @@ export class ConversationManager implements IConversationHandler {
   private currentAbortController: AbortController | null = null;
   private stateManager: StateManager | null = null;
   private _retryGaveUp = false; // RetryCoordinator가 동일 에러 반복으로 포기한 경우
-  private _isAgentMode = false; // AGENT 모드 플래그 (runTestsAndTransition에서 참조)
+  private _isAgentMode = false; // AGENT 모드 플래그 (dispatch 및 finally에서 참조)
   private deletedFiles: string[] = []; // 파일 삭제 추적 (import 정리용)
   private _pendingImportCleanupMsg: string | null = null; // 삭제 후 import 정리 메시지
   private _pendingTokenInfo: { tokens: number; model?: string } | null = null; // CODE 모드 토큰 누적
@@ -393,9 +393,39 @@ export class ConversationManager implements IConversationHandler {
       }
 
       // 5. 작업 타입에 따른 실행 분기
-      if (optionsWithAbort.promptType === PromptType.CODE_GENERATION || optionsWithAbort.promptType === PromptType.PLAN || optionsWithAbort.promptType === PromptType.AGENT) {
-        // v9.5.0: AGENT 모드에서도 이전 대화 히스토리 포함 (대화 연속성 유지)
-        // PLAN 모드도 동일 에이전트 루프 사용 (단, 쓰기 도구는 차단)
+      if (optionsWithAbort.promptType === PromptType.AGENT) {
+        // AGENT 모드: AgentLoopManager로 디스패치 (FSM 없는 순수 자율 루프)
+        const userParts = await this.buildUserPartsWithUrlsAndHistory(
+          userQuery,
+          autoFetchedUrlContents,
+          optionsWithAbort,
+        );
+        this._isAgentMode = true;
+        resetAgentTaskManager();
+        resetWorkPlan();
+
+        // Pre-load project inventory for AGENT mode
+        try {
+          const projectManager = ProjectManager.getInstance();
+          const inventory = await projectManager.buildProjectInventorySection(
+            AgentConfig.MAX_PROJECT_INVENTORY_FILES,
+          );
+          if (inventory) {
+            userParts.push({
+              text: `${inventory}\n\n**중요**: 위 프로젝트 파일 구조를 참고하여 필요한 파일만 선택적으로 읽으세요. 모든 파일을 읽을 필요는 없습니다.`,
+            });
+          }
+        } catch (error) {
+          console.warn(`[ConversationManager] Failed to pre-load project inventory for AGENT:`, error);
+        }
+
+        const agentLoop = new AgentLoopManager(this.llmManager);
+        await agentLoop.execute(optionsWithAbort, systemPrompt, userParts);
+        return;
+      }
+
+      if (optionsWithAbort.promptType === PromptType.CODE_GENERATION || optionsWithAbort.promptType === PromptType.PLAN) {
+        // CODE/PLAN 모드: 기존 FSM 기반 에이전트 루프
         const userParts = await this.buildUserPartsWithUrlsAndHistory(
           userQuery,
           autoFetchedUrlContents,
@@ -675,10 +705,8 @@ export class ConversationManager implements IConversationHandler {
     // 🔥 참고: executionIntent는 더 이상 INVESTIGATION→EXECUTION 전환에 사용되지 않음
     // 실행 도구 자체가 실행 의도의 증거이므로 조건 없이 전환됨
     const { webviewToRespond, abortSignal, userQuery } = options;
-    const isAgentMode = options.promptType === PromptType.AGENT;
-    this._isAgentMode = isAgentMode;
-    if (isAgentMode) { resetAgentTaskManager(); resetWorkPlan(); } // 새 세션마다 worker + work_plan 상태 초기화
-    const maxTurns = isAgentMode ? Infinity : AgentConfig.MAX_TURNS;
+    // AGENT mode uses AgentLoopManager and never reaches executeAgentLoop
+    const maxTurns = AgentConfig.MAX_TURNS;
     let turnCount = 0;
     let nativeToolCallingNoticeShown = false; // 네이티브 툴 콜링 미지원 안내 한 번만 표시
     // thinking 레벨 설정 (세션 시작 시 1회 로드)
@@ -979,12 +1007,9 @@ export class ConversationManager implements IConversationHandler {
       isSimpleTask && (intent?.category === "execution" || intent?.category === "code");
 
     const isPlanMode = options.promptType === PromptType.PLAN;
-    // isAgentMode is declared earlier (before maxTurns) for turn limit decision
 
     const initialState = isPlanMode
       ? AgentPhase.INVESTIGATION  // PLAN mode always starts with investigation
-      : isAgentMode
-        ? AgentPhase.EXECUTION  // AGENT mode: no FSM phases, always execution
       : hasActivePlan
         ? AgentPhase.EXECUTION
         : isDirectExecutionTask || (isExecutionFirstTask && !hasExistingProject)
@@ -992,11 +1017,7 @@ export class ConversationManager implements IConversationHandler {
           : AgentPhase.INVESTIGATION;
     const stateManager = new AgentStateManager(initialState);
 
-    if (isAgentMode) {
-      console.log(
-        `[ConversationManager] AGENT mode: Starting in EXECUTION phase (no FSM phases, unlimited turns).`,
-      );
-    } else if (isDirectResponseTask) {
+    if (isDirectResponseTask) {
       console.log(
         `[ConversationManager] Direct response task detected (${intent.category}). Starting in INVESTIGATION for immediate response.`,
       );
@@ -1017,7 +1038,7 @@ export class ConversationManager implements IConversationHandler {
     }
 
     // 파일 목록은 시스템이 먼저 제공: 첫 LLM 호출 전에 프로젝트 파일 인벤토리 제공 ([D] [F] 형식)
-    if ((initialState === AgentPhase.INVESTIGATION || isAgentMode) && !hasActivePlan) {
+    if (initialState === AgentPhase.INVESTIGATION && !hasActivePlan) {
       try {
         const projectManager = ProjectManager.getInstance();
         const inventory = await projectManager.buildProjectInventorySection(
@@ -1064,24 +1085,6 @@ export class ConversationManager implements IConversationHandler {
     while (turnCount < maxTurns) {
       if (abortSignal?.aborted) {
         break;
-      }
-
-      // AGENT 모드: 비동기 worker 알림 주입
-      if (isAgentMode) {
-        const agentTaskMgr = getAgentTaskManager();
-        const notifications = agentTaskMgr.consumePendingNotifications();
-        if (notifications.length > 0) {
-          for (const notifXml of notifications) {
-            accumulatedUserParts.push({ text: notifXml });
-          }
-          console.log(`[ConversationManager] AGENT mode: Injected ${notifications.length} task notification(s)`);
-        }
-
-        // work_plan 상태 주입 (매 턴 시스템 메시지에 현재 계획 포함)
-        const workPlanStatus = getWorkPlanStatus();
-        if (workPlanStatus) {
-          accumulatedUserParts.push({ text: workPlanStatus });
-        }
       }
 
       // 각 턴마다 새로운 conversationTurnId 생성 (턴 단위 변경 그룹화)
@@ -1195,7 +1198,7 @@ export class ConversationManager implements IConversationHandler {
 
       // [수정] 루프 시작 시점에 현재 계획 상태를 UI에 즉시 동기화 (PLAN 모드에서는 숨김)
       const allItems = taskManager.listPlanItems();
-      if (allItems.length > 0 && !isPlanMode && !isAgentMode) {
+      if (allItems.length > 0 && !isPlanMode) {
         WebviewBridge.updateTaskQueue(webviewToRespond, allItems);
       }
 
@@ -1205,7 +1208,7 @@ export class ConversationManager implements IConversationHandler {
       // 실행 시작 시 in_progress로 전환 (UI에 파란색 표시, PLAN 모드 제외)
       if (currentPlanItem && currentPlanItem.status === 'pending') {
         taskManager.updatePlanItemStatus(currentPlanItem.id, 'in_progress');
-        if (!isPlanMode && !isAgentMode) {
+        if (!isPlanMode) {
           WebviewBridge.updateTaskQueue(webviewToRespond, taskManager.listPlanItems());
         }
       }
@@ -1218,12 +1221,6 @@ export class ConversationManager implements IConversationHandler {
       );
 
       // REVIEW 또는 DONE 단계는 LLM 호출 없이 시스템이 처리
-      // AGENT 모드: REVIEW 스킵 — LLM의 텍스트 응답이 곧 리뷰
-      if (isAgentMode && currentPhase === AgentPhase.REVIEW) {
-        console.log("[ConversationManager] AGENT mode: Skipping REVIEW phase (LLM text response is the review).");
-        stateManager.transitionTo(AgentPhase.DONE, {});
-        break;
-      }
       if (currentPhase === AgentPhase.REVIEW) {
         const reviewResult = await this.handleReviewPhase(
           stateManager,
@@ -1379,9 +1376,6 @@ export class ConversationManager implements IConversationHandler {
           // PLAN 모드: execution phase prompt 금지 (planPrompt 지시와 충돌)
           // 탐색 완료 후 텍스트로 계획 출력하도록 remind
           activeSystemPrompt += `\n\n⚠️ **PLAN 모드**: 탐색이 완료되었습니다. 지금 즉시 구현 계획 Markdown을 텍스트로 출력하세요. 도구 호출 금지.`;
-        } else if (isAgentMode) {
-          // AGENT 모드: 자율 루프 — 모든 도구 사용 가능, 도구 호출 없으면 완료
-          activeSystemPrompt += '\n\n' + getAgentModePrompt(maxTestFixAttempts);
         } else {
           // ⚠️ EXECUTION 단계에서는 설명 금지, 도구 호출만 허용
           // 🔥 핵심: LLM을 "DSL 컴파일러"처럼 사용 - Planning/Reasoning 금지, Execution만 허용
@@ -1393,10 +1387,8 @@ export class ConversationManager implements IConversationHandler {
       // "완료 확인" 호출 제거 - 불필요한 LLM 호출 방지
       // ⚠️ plan이 한 번도 생성되지 않은 경우(no-plan 실행): 조기 종료 금지, 다음 턴으로 계속
       // ⚠️ retry 프롬프트 또는 MCP 결과 해석이 대기 중이면 스킵하지 않음
-      // ⚠️ AGENT 모드: 조기 REVIEW 전환 하지 않음 — LLM이 스스로 완료 결정
       const currentPhaseForExecution = stateManager.getCurrentState();
       if (
-        !isAgentMode &&
         currentPhaseForExecution === AgentPhase.EXECUTION &&
         lastTurnHadSuccessfulToolExecution &&
         !pendingRetryPrompt &&
@@ -1997,22 +1989,9 @@ export class ConversationManager implements IConversationHandler {
               const hasFileChanges =
                 createdFiles.length > 0 || modifiedFiles.length > 0;
 
-              // AGENT 모드: 도구 호출 없이 텍스트만 응답 = 작업 완료
-              if (isAgentMode) {
-                console.log(`[ConversationManager] AGENT mode: No tool calls in response — task completed.`);
-                if (textResponse && textResponse.trim().length > 0) {
-                  await WebviewBridge.streamText(webviewToRespond, "CODEPILOT", textResponse);
-                }
-                // REVIEW/DONE으로 전환하지 않고 바로 break
-                stateManager.transitionTo(AgentPhase.REVIEW, { hasPlan: false, toolCallsInTurn: [], hasInvestigationHistory: false });
-                stateManager.transitionTo(AgentPhase.DONE, { hasPlan: false, toolCallsInTurn: [], hasInvestigationHistory: false });
-                break;
-              }
-
               if (
                 !hasFileChanges &&
                 !isPlanMode &&
-                !isAgentMode &&
                 executionNoToolRetryCount < maxExecutionNoToolRetries
               ) {
                 // 파일 변경 없이 도구 호출도 없음 → LLM에게 도구 호출 강제 프롬프트 추가 후 재시도
@@ -2560,13 +2539,9 @@ export class ConversationManager implements IConversationHandler {
           }
         } else {
           // 도구 호출이 없으면 자연어 응답으로 간주
-          if (isAgentMode) {
-            console.log(`[ConversationManager] AGENT mode: Text-only response received.`);
-          } else {
-            console.warn(
-              `[ConversationManager] EXECUTION phase: No tool calls found. LLM provided natural language instead of tool calls.`,
-            );
-          }
+          console.warn(
+            `[ConversationManager] EXECUTION phase: No tool calls found. LLM provided natural language instead of tool calls.`,
+          );
 
           // ⚠️ MCP 도구 결과 해석 대기 중이면 → 텍스트를 사용자에게 표시 후 종료
           if (pendingMCPResultInterpretation) {
@@ -2643,12 +2618,6 @@ export class ConversationManager implements IConversationHandler {
           const remainingPlanItems = taskManager.getNextPendingItem();
           const planExistsForReview = taskManager.listPlanItems().length > 0;
           if (lastTurnHadSuccessfulToolExecution && planExistsForReview && !remainingPlanItems) {
-            if (isAgentMode) {
-              // AGENT 모드: plan 완료해도 REVIEW 전환하지 않고 LLM이 스스로 완료 결정
-              console.log(`[ConversationManager] AGENT mode: All plan items completed but continuing loop (LLM decides completion).`);
-              lastTurnHadSuccessfulToolExecution = false;
-              (this as any).naturalLanguageRetry = 0;
-            } else {
             // Case A: plan 기반 플로우 — 모든 plan item 완료
             console.log(
               `[ConversationManager] EXECUTION phase: All plan items completed. Skipping completion confirmation and transitioning to REVIEW.`,
@@ -2662,7 +2631,6 @@ export class ConversationManager implements IConversationHandler {
             lastTurnHadSuccessfulToolExecution = false; // 리셋
             (this as any).naturalLanguageRetry = 0; // 리셋
             cleanResponse = ""; // 자연어 응답은 무시 (불필요한 "완료했습니다" 메시지)
-            }
           } else if (lastTurnHadSuccessfulToolExecution && !planExistsForReview) {
             // Case C: no-plan 실행 — plan이 한 번도 생성되지 않음
             // 도구 성공만으로 완료 판정 불가, LLM에게 다음 턴을 줘서 계속 작업하게 함
@@ -2685,29 +2653,6 @@ export class ConversationManager implements IConversationHandler {
             // cleanResponse는 유지하지 않음 (자연어 응답 무시하고 다음 plan item으로)
             cleanResponse = "";
           } else {
-            // AGENT 모드: 도구 호출 없이 텍스트만 = 작업 완료 (write 이력 무관)
-            if (isAgentMode) {
-              const agentTaskMgr = getAgentTaskManager();
-              if (agentTaskMgr.hasRunningTasks()) {
-                // Worker가 아직 실행 중 → 완료 대기 후 다음 턴
-                console.log(`[ConversationManager] AGENT mode: Text-only but ${agentTaskMgr.getRunningTaskCount()} worker(s) still running. Waiting...`);
-                if (cleanResponse.trim()) {
-                  await WebviewBridge.streamText(webviewToRespond, "CODEPILOT", cleanResponse);
-                }
-                WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `에이전트 작업 대기 중 (${agentTaskMgr.getRunningTaskCount()}개 실행 중)...`);
-                await agentTaskMgr.waitForAnyTaskCompletion();
-                turnCount++;
-                continue;
-              }
-              console.log(`[ConversationManager] AGENT mode: Text-only response, no running workers — task completed.`);
-              // AGENT 모드: shouldStreamToUI=false이므로 스트리밍 안 됨 → streamText로 직접 표시
-              if (cleanResponse.trim()) {
-                await WebviewBridge.streamText(webviewToRespond, "CODEPILOT", cleanResponse);
-              }
-              stateManager.transitionTo(AgentPhase.DONE, {});
-              break;
-            }
-
             // 자연어 응답 (도구 호출 없음) — write tool 이력 기반 종료 판정
             const hasWriteHistory = createdFiles.length > 0 || modifiedFiles.length > 0;
 
@@ -2887,8 +2832,7 @@ export class ConversationManager implements IConversationHandler {
 
       // 🔥 EXECUTION phase에서 텍스트만 나오면 즉시 재요청 (핵심 개선)
       // PLAN 모드는 텍스트 계획 출력이 목적이므로 도구 호출 강제 금지
-      // AGENT 모드: 텍스트만 응답 = 작업 완료이므로 재요청 하지 않음
-      if (currentPhase === AgentPhase.EXECUTION && !isPlanMode && !isAgentMode && llmResponse.trim()) {
+      if (currentPhase === AgentPhase.EXECUTION && !isPlanMode && llmResponse.trim()) {
         // 도구 호출이 있는지 확인 (새 형식: { "tool": "..." })
         // ⚠️ llmResponse (원본)에서 체크 - cleanResponse는 자연어 필터링으로 JSON이 손상될 수 있음
         const hasToolCallInExecution = /\{\s*["']tool["']\s*:\s*["']/.test(
@@ -2973,7 +2917,7 @@ export class ConversationManager implements IConversationHandler {
         registeredMCPTools.some((handler) =>
           llmResponse.includes(handler.name),
         );
-      if (hasJsonPlanInResponse && (!isTextOnlyIntent || hasMCPToolInPlan) && !isPlanMode && !isAgentMode) {
+      if (hasJsonPlanInResponse && (!isTextOnlyIntent || hasMCPToolInPlan) && !isPlanMode) {
         if (hasMCPToolInPlan && isTextOnlyIntent) {
           console.log(
             `[ConversationManager] JSON plan contains MCP tools - overriding ${intent?.category} intent to execute plan`,
@@ -3135,8 +3079,8 @@ export class ConversationManager implements IConversationHandler {
           });
 
           if (toolCalls.length > 0) {
-            // FSM을 사용한 도구 허용 여부 검증 (AGENT 모드: 모든 도구 허용)
-            const blockedCalls = isAgentMode ? [] : toolCalls.filter(
+            // FSM을 사용한 도구 허용 여부 검증
+            const blockedCalls = toolCalls.filter(
               (call) => !stateManager.isToolAllowed(call.name),
             );
 
@@ -3197,7 +3141,7 @@ export class ConversationManager implements IConversationHandler {
                   `[ConversationManager] EXECUTION phase: Investigation tools detected (${toolCalls.map((c) => c.name).join(", ")}). Allowing read before edit.`,
                 );
                 executionNoToolRetryCount++;
-                if (!isAgentMode && executionNoToolRetryCount > 2) {
+                if (executionNoToolRetryCount > 2) {
                   console.warn(
                     `[ConversationManager] EXECUTION phase: ${executionNoToolRetryCount} consecutive read-only turns. Nudging for modification tools.`,
                   );
@@ -3222,11 +3166,6 @@ export class ConversationManager implements IConversationHandler {
                 `[ConversationManager] JSON: Executing ${toolCalls.length} tool(s):`,
                 toolCalls.map((c) => c.name),
               );
-
-              // AGENT 모드: 도구 실행 전 스트리밍 커서 닫기
-              if (isAgentMode && isStreamingEnabled) {
-                WebviewBridge.endStreamingMessage(webviewToRespond);
-              }
 
               // 도구 실행
               WebviewBridge.sendProcessingStep(webviewToRespond, "executing");
@@ -3278,11 +3217,6 @@ export class ConversationManager implements IConversationHandler {
 
               // 🔥 사용자가 스킵한 경우에도 REVIEW로 전환 (무한 루프 방지)
               if (hasUserSkipped3) {
-                if (isAgentMode) {
-                  console.log(`[ConversationManager] AGENT mode: User skipped tool execution, continuing loop.`);
-                  turnCount++;
-                  continue;
-                }
                 console.log(
                   `[ConversationManager] User skipped tool execution, transitioning to REVIEW.`,
                 );
@@ -3629,8 +3563,7 @@ export class ConversationManager implements IConversationHandler {
         }
 
         // 🔥 핵심 수정: 파일이 이미 생성/수정되었다면 완료로 간주하고 REVIEW 전환
-        // AGENT 모드: INVESTIGATION phase를 사용하지 않지만, 안전 가드로 REVIEW 전환 방지
-        if (!isAgentMode && (createdFiles.length > 0 || modifiedFiles.length > 0)) {
+        if (createdFiles.length > 0 || modifiedFiles.length > 0) {
           console.log(
             `[ConversationManager] INVESTIGATION phase: Files already modified (created: ${createdFiles.length}, modified: ${modifiedFiles.length}). Transitioning to REVIEW.`,
           );
@@ -3867,30 +3800,6 @@ export class ConversationManager implements IConversationHandler {
         break;
       }
       pendingMCPResultInterpretation = false; // 해석 턴이 아닌 경우 리셋
-
-      // AGENT 모드: 메인 응답에서 도구 호출 없이 텍스트만 = 작업 완료
-      if (
-        isAgentMode &&
-        currentPhase === AgentPhase.EXECUTION &&
-        totalToolCalls.length === 0 &&
-        totalResponseText.trim()
-      ) {
-        const agentTaskMgr2 = getAgentTaskManager();
-        if (agentTaskMgr2.hasRunningTasks()) {
-          console.log(`[ConversationManager] AGENT mode: Text-only in main loop but ${agentTaskMgr2.getRunningTaskCount()} worker(s) running. Waiting...`);
-          WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `에이전트 작업 대기 중 (${agentTaskMgr2.getRunningTaskCount()}개 실행 중)...`);
-          await agentTaskMgr2.waitForAnyTaskCompletion();
-          turnCount++;
-          continue;
-        }
-        console.log(`[ConversationManager] AGENT mode: Text-only response in main loop, no workers — task completed.`);
-        // AGENT 모드: shouldStreamToUI=false이므로 streamText로 직접 표시
-        if (totalResponseText.trim()) {
-          await WebviewBridge.streamText(webviewToRespond, "CODEPILOT", totalResponseText);
-        }
-        stateManager.transitionTo(AgentPhase.DONE, {});
-        break;
-      }
 
       // EXECUTION phase에서 도구 호출 없이 텍스트만 출력한 경우, plan item 완료 처리
       // (요약은 REVIEW 단계에서 시스템이 생성)
@@ -4437,7 +4346,7 @@ export class ConversationManager implements IConversationHandler {
             ? planTextResponse
             : finalSummary;
 
-          const modeLabel = isAgentMode ? 'AGENT' : isPlanMode ? 'PLAN' : 'CODE';
+          const modeLabel = isPlanMode ? 'PLAN' : 'CODE';
           console.log(`[ConversationManager] Saving ${modeLabel} mode entry (loop end) - userQuery: "${userQuery?.substring(0, 50)}..."`);
           await sessionManager.addConversationEntry(currentSession.id, {
             id: `conv_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
@@ -5096,13 +5005,6 @@ export class ConversationManager implements IConversationHandler {
     );
 
     if (!hasSuccessful) {
-      // AGENT 모드: 모든 도구 차단되어도 REVIEW 전환하지 않고 LLM에게 계속 맡김
-      if (this._isAgentMode) {
-        accumulatedUserParts.push({
-          text: `[시스템 알림] 다음 파일은 보안 규칙에 의해 접근이 차단되었습니다: ${blockedMessages.join(", ")}. 해당 파일을 제외하고 다른 방법으로 작업을 계속하세요.`,
-        });
-        return "continue";
-      }
       stateManager.transitionTo(AgentPhase.REVIEW);
       return "break";
     }
@@ -5318,7 +5220,7 @@ export class ConversationManager implements IConversationHandler {
     }
 
     // execution_run intent일 때는 run_command가 실행될 때까지 계속 진행 (CODE 모드만 — AGENT는 LLM 자율)
-    if (isExecutionRunIntent && !hasRunCommandInHistory && !this._isAgentMode) {
+    if (isExecutionRunIntent && !hasRunCommandInHistory) {
       console.log(
         "[ConversationManager] EXECUTION phase: execution_run intent requires run_command. Continuing.",
       );
@@ -5331,17 +5233,6 @@ export class ConversationManager implements IConversationHandler {
       accumulatedUserParts.push({
         text: `\n[System] ⚠️ 명령 실행이 필요합니다.\n\n사용자가 명령 실행을 요청했습니다. run_command 도구를 사용하여 적절한 명령을 실행하세요.\n프로젝트 구조를 파악했다면, 이제 실제 명령을 실행하세요.`,
       });
-      return {
-        turnAction: { action: "continue" },
-        testFixAttempts,
-        pendingRetryPrompt: false,
-        pendingMCPResultInterpretation: false,
-      };
-    }
-
-    // AGENT 모드: 파일 변경 없어도 REVIEW 전환 안 함 (LLM이 재시도 또는 완료 결정)
-    if (this._isAgentMode) {
-      console.log("[ConversationManager] AGENT mode: No file changes but continuing loop (LLM decides next action).");
       return {
         turnAction: { action: "continue" },
         testFixAttempts,
@@ -5803,22 +5694,7 @@ export class ConversationManager implements IConversationHandler {
     testFixAttempts: number;
     pendingRetryPrompt: boolean;
   }> {
-    // AGENT 모드: 자동 검증 스킵 — LLM이 직접 run_command로 검증 (Claude Code 방식)
-    if (this._isAgentMode) {
-      console.log("[ConversationManager] AGENT mode: Skipping auto-validation (LLM decides when to verify).");
-      return { turnAction: { action: "continue" }, testFixAttempts, pendingRetryPrompt: false };
-    }
-
     const hasFileChanges = createdFiles.length > 0 || modifiedFiles.length > 0;
-
-    // AGENT 모드: REVIEW 전환 대신 루프 계속 (LLM이 스스로 완료 결정)
-    if (this._isAgentMode) {
-      if (!hasFileChanges) {
-        return { turnAction: { action: "continue" }, testFixAttempts, pendingRetryPrompt: false };
-      }
-      // 테스트는 돌리되, 통과해도 REVIEW 전환하지 않고 continue
-      // 실패하면 에러를 LLM에 피드백하여 자율 수정
-    }
 
     if (!hasFileChanges) {
       const action = this.transitionToReview(
@@ -5864,10 +5740,6 @@ export class ConversationManager implements IConversationHandler {
 
     if (testResult.success) {
       retryCoordinator.onValidationSuccess();
-      if (this._isAgentMode) {
-        console.log("[ConversationManager] AGENT mode: Tests passed. Continuing loop (LLM decides completion).");
-        return { turnAction: { action: "continue" }, testFixAttempts, pendingRetryPrompt: false };
-      }
       console.log(
         "[ConversationManager] Tests passed. Transitioning to REVIEW phase.",
       );
@@ -5913,11 +5785,6 @@ export class ConversationManager implements IConversationHandler {
           retryDecision.giveUpReason,
         ),
       );
-    }
-    // AGENT 모드: 테스트 실패해도 REVIEW 전환하지 않고 LLM에게 계속 맡김
-    if (this._isAgentMode) {
-      console.log("[ConversationManager] AGENT mode: Test retry exceeded but continuing loop (LLM decides next action).");
-      return { turnAction: { action: "continue" }, testFixAttempts, pendingRetryPrompt: false };
     }
     const action = this.transitionToReview(
       stateManager,

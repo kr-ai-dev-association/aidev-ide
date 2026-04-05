@@ -60,7 +60,7 @@ export const DEFAULT_BLOCKED_COMMANDS: DefaultRule[] = [
     { id: 'proc_environ', pattern: '\\/proc\\/\\d*\\/environ', description: 'Environment variable exposure via /proc' },
 
     // Sleep command (unnecessary wait)
-    { id: 'sleep_standalone', pattern: '\\bsleep\\s+[2-9]\\d*\\b', description: 'Standalone sleep ≥2s (unnecessary wait — use is_background instead)' },
+    { id: 'sleep_standalone', pattern: '\\bsleep\\s+[3-9]\\d{1,}\\b', description: 'Standalone sleep ≥30s (unnecessary long wait)' },
 
     // Redirect to dynamic/variable target
     { id: 'unsafe_redirect', pattern: '[>|]\\s*[\\$`~]', description: 'Redirect to dynamic/variable target (injection risk)' },
