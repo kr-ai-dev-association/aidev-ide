@@ -2,7 +2,35 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.55**
+> **현재 버전: v1.0.56**
+
+---
+
+## v1.0.56 (2026-04-06)
+
+### 안전성
+
+- **Pre-execution Validation**: 빈 파라미터/짧은 diff 조기 차단
+- **따옴표 정규화**: curly → straight quote 자동 정규화
+- **No-op 편집 감지**: search === replace 거부
+- **Cleanup Registry**: 전역 cleanup + 5초 timeout 종료
+- **Query Source Retry**: 백그라운드 쿼리 429/529 즉시 실패
+
+### 성능
+
+- **파일타입별 토큰 추정**: JSON(2B), YAML(3B), 코드(4B), 텍스트(5B)
+- **바이너리 파일 감지**: 8KB 샘플링
+- **시간 기반 MicroCompaction**: 오래된 메시지 공격적 축약
+
+### 컨텍스트 / 응답
+
+- **컨텍스트 우선순위 예산**: 파일 5개/50K, 도구 5K→2K
+- **오버플로우 자동 조절**: 400 에러 시 max_tokens 25% 축소 재시도
+- **파일 읽기 토큰 가드**: 대용량 파일 가이드 메시지
+
+### 파일 I/O
+
+- **Git Diff 편집 검증**: update_file 후 git diff 로깅
 
 ---
 

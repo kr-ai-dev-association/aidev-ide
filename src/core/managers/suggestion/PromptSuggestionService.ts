@@ -72,7 +72,7 @@ Example output:
             const response = await this.llmManager.sendMessageWithSystemPrompt(
                 'You are a JSON-only assistant. Output only valid JSON arrays.',
                 [{ text: prompt }],
-                { maxTokens: 300 },
+                { maxTokens: 300, retry: { querySource: 'background' } },
             );
 
             const jsonMatch = response.match(/\[[\s\S]*\]/);

@@ -78,7 +78,7 @@ ${conversationSummary}`;
             const response = await this.llmManager.sendMessageWithSystemPrompt(
                 'You are a JSON-only extraction assistant. Output only valid JSON arrays.',
                 [{ text: extractionPrompt }],
-                { signal: abortSignal, maxTokens: this.config.maxExtractionTokens },
+                { signal: abortSignal, maxTokens: this.config.maxExtractionTokens, retry: { querySource: 'background' } },
             );
 
             // Parse response

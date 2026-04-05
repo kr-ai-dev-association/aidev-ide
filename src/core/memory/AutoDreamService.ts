@@ -118,7 +118,7 @@ ${currentMemories}`;
             const response = await this.llmManager.sendMessageWithSystemPrompt(
                 'You are a JSON-only assistant. Output only valid JSON arrays.',
                 [{ text: consolidationPrompt }],
-                { maxTokens: this.config.maxConsolidationTokens },
+                { maxTokens: this.config.maxConsolidationTokens, retry: { querySource: 'background' } },
             );
 
             // Parse actions

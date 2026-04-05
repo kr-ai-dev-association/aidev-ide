@@ -72,6 +72,7 @@ import {
   registerSessionCommands,
   registerDiagnosticCommands,
 } from "./commands";
+import { runCleanupFunctions, registerCleanup } from './utils/cleanupRegistry';
 
 // 전역 변수
 let ollamaApi: OllamaApi;
@@ -604,6 +605,14 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // 터미널 매니저에 오류 수정 서비스 설정은 각 웹뷰 프로바이더에서 수행됨
 
+  // Graceful shutdown: register cleanup functions for ExecutionManager and MCPManager
+  registerCleanup(async () => {
+    await execManager.cleanup();
+  });
+  registerCleanup(async () => {
+    await mcpManager.dispose();
+  });
+
   const autoCorrectionEnabled = await stateManager.getAutoCorrectionEnabled();
   const errorRetryCount = await settingsManager.getErrorRetryCount();
 
@@ -775,6 +784,8 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 }
 
-export function deactivate() {
-  // 터미널 정리는 TerminalManager에서 처리됨
+export async function deactivate(): Promise<void> {
+  console.log('[Extension] Deactivating...');
+  await runCleanupFunctions(5000);
+  console.log('[Extension] Deactivated');
 }

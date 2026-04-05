@@ -19,6 +19,12 @@ import { getCompactSummarizationPrompt } from "../context/prompts/rules";
 import { PromptComposer, RulePrecedence } from "../context/prompts/PromptComposer";
 import { Part } from "../../../services/types";
 
+// C-1: Post-compaction context priority token budget constants
+const POST_COMPACT_MAX_FILES = 5;
+const POST_COMPACT_FILE_TOKEN_BUDGET = 50000;
+const POST_COMPACT_MAX_TOOL_RESULT_TOKENS = 5000;
+const POST_COMPACT_TOOL_RESULT_TRUNCATE = 2000;
+
 export interface ConversationMessage {
   role: "user" | "assistant" | "system";
   content: string;
@@ -216,12 +222,15 @@ export class ConversationCompactor {
       }
 
       // 요약을 새 userParts의 첫 번째 메시지로 추가
-      const compactedParts = [
+      let compactedParts = [
         {
           text: `[Previous conversation summary]\n${summary}\n\n[End of summary - recent conversation follows below]`,
         },
         ...recentMessages,
       ];
+
+      // C-1: Apply post-compaction token budget to recent messages
+      compactedParts = this.applyPostCompactTokenBudget(compactedParts);
 
       const compactedTokens = this.calculateTotalTokens(
         compactedParts,
@@ -512,6 +521,11 @@ export class ConversationCompactor {
     }
 
     // Step 2: Trim old tool results (non-protected area)
+    // A-2: Time-based micro-compaction — first 30% of messages are "old" and get
+    // aggressive truncation (200 chars), remaining non-protected messages keep normal limits.
+    const oldMessageBoundary = Math.floor(userParts.length * 0.3);
+    const AGGRESSIVE_TRUNCATE_CHARS = 200;
+
     const toolResultPatterns = [
       { pattern: /^```[\s\S]{500,}```/m, label: 'code block' },
       { pattern: /^(Search results|Found \d+)/m, label: 'search results' },
@@ -529,6 +543,19 @@ export class ConversationCompactor {
       const filePathMatch = part.text.match(/(?:file|path)[:\s]*[`"]?([^\s`"]+\.\w+)/i)
         || part.text.match(/^([^\s]+\.\w{1,5})\s*[\(:|]/m);
       const filePath = filePathMatch ? filePathMatch[1] : '';
+
+      const isOldMessage = i < oldMessageBoundary;
+
+      // A-2: Old messages (first 30%) get aggressive truncation regardless of pattern
+      if (isOldMessage && part.text.length > AGGRESSIVE_TRUNCATE_CHARS) {
+        const preview = part.text.substring(0, AGGRESSIVE_TRUNCATE_CHARS);
+        const lineCount = part.text.split('\n').length;
+        newParts[i] = {
+          text: `${preview}\n... [truncated - old result, ${lineCount} lines]`,
+        };
+        trimmed = true;
+        continue;
+      }
 
       let matched = false;
       for (const { pattern, label } of toolResultPatterns) {
@@ -588,6 +615,71 @@ export class ConversationCompactor {
     );
 
     return { trimmed: true, parts: newParts, savedTokens };
+  }
+
+  /**
+   * C-1: Post-compaction token budget enforcement
+   * Limits restored context by type after LLM summary:
+   * - Max 5 file read results (oldest removed first)
+   * - Max 50K tokens for file content total
+   * - Tool results > 5K tokens each get truncated to 2K
+   */
+  private applyPostCompactTokenBudget(parts: Part[]): Part[] {
+    const result = [...parts];
+    const fileReadPattern = /^\d+[→│|]/m;
+    const filePathPattern = /(?:file|path)[:\s]*[`"]?([^\s`"]+\.\w{1,6})/i;
+
+    // Track file read results (indices, newest first)
+    const fileReadIndices: number[] = [];
+    for (let i = result.length - 1; i >= 0; i--) {
+      const text = result[i].text || '';
+      if (fileReadPattern.test(text) && filePathPattern.test(text)) {
+        fileReadIndices.push(i);
+      }
+    }
+
+    // Enforce max file count: keep only POST_COMPACT_MAX_FILES newest file reads
+    if (fileReadIndices.length > POST_COMPACT_MAX_FILES) {
+      const toRemove = fileReadIndices.slice(POST_COMPACT_MAX_FILES);
+      for (const idx of toRemove) {
+        const fp = (result[idx].text || '').match(filePathPattern)?.[1] || 'unknown';
+        result[idx] = { text: `[File content removed (budget): ${fp}]` };
+      }
+      console.log(`[ConversationCompactor] C-1: Removed ${toRemove.length} excess file reads (kept ${POST_COMPACT_MAX_FILES})`);
+    }
+
+    // Enforce total file content token budget
+    let fileTokensUsed = 0;
+    for (const idx of fileReadIndices) {
+      const text = result[idx].text || '';
+      if (text.startsWith('[File content removed')) continue;
+      const tokens = estimateTokens(text);
+      fileTokensUsed += tokens;
+      if (fileTokensUsed > POST_COMPACT_FILE_TOKEN_BUDGET) {
+        const fp = text.match(filePathPattern)?.[1] || 'unknown';
+        result[idx] = { text: `[File content removed (token budget exceeded): ${fp}]` };
+        console.log(`[ConversationCompactor] C-1: File content removed for ${fp} (budget: ${POST_COMPACT_FILE_TOKEN_BUDGET} exceeded)`);
+      }
+    }
+
+    // Truncate oversized tool results (non-file content)
+    for (let i = 0; i < result.length; i++) {
+      const text = result[i].text || '';
+      if (!text || text.startsWith('[Previous conversation summary]') || text.startsWith('[File content removed')) continue;
+      // Skip file reads (already handled above)
+      if (fileReadPattern.test(text) && filePathPattern.test(text)) continue;
+
+      const tokens = estimateTokens(text);
+      if (tokens > POST_COMPACT_MAX_TOOL_RESULT_TOKENS) {
+        // Truncate to POST_COMPACT_TOOL_RESULT_TRUNCATE tokens worth of chars (~4 chars/token)
+        const truncateChars = POST_COMPACT_TOOL_RESULT_TRUNCATE * 4;
+        const truncated = text.substring(0, truncateChars);
+        result[i] = { text: `${truncated}\n\n... [truncated: ${tokens} tokens -> ~${POST_COMPACT_TOOL_RESULT_TRUNCATE} tokens]` };
+        console.log(`[ConversationCompactor] C-1: Tool result truncated from ${tokens} to ~${POST_COMPACT_TOOL_RESULT_TRUNCATE} tokens`);
+      }
+    }
+
+    return result;
   }
 
   /**

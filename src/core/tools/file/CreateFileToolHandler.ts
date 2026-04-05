@@ -50,6 +50,11 @@ export class CreateFileToolHandler implements IToolHandler {
             };
         }
 
+        // B-3: Warn on empty content (but allow — empty files are valid)
+        if (!content || content.length === 0) {
+            console.log(`[CreateFileToolHandler] Warning: creating file with empty content: ${filePath}`);
+        }
+
         if (!allowEmpty && this.isPlaceholderContent(trimmedContent)) {
             console.warn(`[CreateFileToolHandler] Placeholder content rejected for ${filePath} (${trimmedContent.length} chars)`);
             return {

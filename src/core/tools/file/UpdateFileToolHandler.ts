@@ -37,6 +37,22 @@ export class UpdateFileToolHandler implements IToolHandler {
     const filePath = parseResult.data.path;
     let diff = parseResult.data.diff;
 
+    // B-3: Pre-execution validation
+    if (!filePath || filePath.trim().length === 0) {
+      return {
+        success: false,
+        message: 'Path parameter is empty',
+        error: { code: 'EMPTY_PARAM', message: 'path parameter must not be empty' },
+      };
+    }
+    if (diff && diff.trim().length < 10) {
+      return {
+        success: false,
+        message: 'Diff parameter is too short (< 10 chars). Provide a valid SEARCH/REPLACE block.',
+        error: { code: 'INVALID_DIFF', message: 'diff is too short to contain a valid SEARCH/REPLACE block' },
+      };
+    }
+
     // Handle case where LLM sent content instead of diff
     if (!diff && parseResult.data.content) {
       const content = parseResult.data.content;
@@ -90,6 +106,18 @@ export class UpdateFileToolHandler implements IToolHandler {
           message: "Diff must contain SEARCH/REPLACE blocks",
         },
       };
+    }
+
+    // B-5: No-op edit detection (search === replace)
+    for (const replacement of replacements) {
+      if (replacement.search === replacement.replace) {
+        console.log(`[UpdateFileToolHandler] No-op edit detected (search === replace), skipping: ${filePath}`);
+        return {
+          success: true,
+          message: `No changes needed for ${filePath} — search and replace content are identical.`,
+          filePath,
+        };
+      }
     }
 
     // Ellipsis pattern detection: fail early if LLM uses "... (omitted)", "// ...", etc. in SEARCH blocks
@@ -183,6 +211,19 @@ export class UpdateFileToolHandler implements IToolHandler {
         console.log(
           `[UpdateFileToolHandler] Exact match found for ${filePath}`,
         );
+      }
+
+      // B-4: Quote normalization fallback for exact match
+      if (!matchResult) {
+        const normalizedFile = this.normalizeQuotes(fileContent);
+        const normalizedSearch = this.normalizeQuotes(replacement.search);
+        const normalizedIndex = normalizedFile.indexOf(normalizedSearch);
+        if (normalizedIndex !== -1) {
+          matchResult = [normalizedIndex, normalizedIndex + normalizedSearch.length];
+          console.log(
+            `[UpdateFileToolHandler] Quote-normalized exact match found for ${filePath}`,
+          );
+        }
       }
 
       // Match strategy 2: Line-trimmed match (when exact match fails)
@@ -365,6 +406,18 @@ export class UpdateFileToolHandler implements IToolHandler {
 
     // Show diff (based on current document state)
     await inlineDiffManager.showInlineDiff(absolutePath, currentDocumentContent, newContent, context.conversationTurnId);
+
+    // E-1: Git diff verification (fire and forget)
+    try {
+        const { execSync } = require('child_process');
+        const gitRoot = context.projectRoot;
+        const diffOutput = execSync(`git diff --stat -- "${absolutePath}"`, { cwd: gitRoot, timeout: 3000 }).toString().trim();
+        if (diffOutput) {
+            console.log(`[UpdateFileToolHandler] Git diff for ${filePath}: ${diffOutput}`);
+        }
+    } catch {
+        // Not a git repo or git not available — ignore
+    }
 
     return {
       success: true,
@@ -690,6 +743,15 @@ export class UpdateFileToolHandler implements IToolHandler {
     );
 
     return [startIndex, endIndex];
+  }
+
+  /**
+   * B-4: Normalize curly/smart quotes to straight quotes for matching
+   */
+  private normalizeQuotes(str: string): string {
+    return str
+      .replace(/[\u2018\u2019]/g, "'")   // curly single quotes -> straight
+      .replace(/[\u201C\u201D]/g, '"');   // curly double quotes -> straight
   }
 
   getDescription(toolUse: ToolUse): string {
