@@ -1773,14 +1773,16 @@ ${JSON.stringify(errorContext, null, 2)}
                     this._view?.webview.postMessage({
                         command: isPrepend ? 'prependMessage' : 'receiveMessage',
                         sender: msg.sender,
-                        text: msg.text
+                        text: msg.text,
+                        ...(entry.conversationTurnId ? { conversationTurnId: entry.conversationTurnId } : {}),
                     });
                 });
             } else if (entry.assistantResponse) {
                 this._view?.webview.postMessage({
                     command: isPrepend ? 'prependMessage' : 'receiveMessage',
                     sender: 'CODEPILOT',
-                    text: entry.assistantResponse
+                    text: entry.assistantResponse,
+                    ...(entry.conversationTurnId ? { conversationTurnId: entry.conversationTurnId } : {}),
                 });
             } else if (entry.actions && entry.actions.length > 0) {
                 const actionSummary = this.generateActionSummary(entry);

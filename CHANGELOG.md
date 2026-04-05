@@ -2,7 +2,22 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.53**
+> **현재 버전: v1.0.54**
+
+---
+
+## v1.0.54 (2026-04-05)
+
+### 기능 추가
+
+- **Session Memory 자동 추출**: 대화 완료 후 자동으로 중요 정보 메모리 저장 (20K토큰 + 5턴 임계값, 최대 3개 항목) — CODE + AGENT 공통
+- **Diagnostic Tracker**: LSP 진단 베이스라인 캡처 + delta 감지 (수정 전/후 에러 변화 추적)
+- **File Checkpoint UUID 매칭**: `conversationTurnId`를 세션 엔트리에 저장 → 재시작 후에도 UNDO 정상 동작
+
+### 성능 / 캐시
+
+- **ToolSpecBuilder 캐시**: 도구 스펙 빌드 결과 캐싱 (동일 allowedTools → 즉시 반환)
+- **Cache Break Detection**: 시스템 프롬프트 변경 시 ToolSpec 캐시 자동 클리어 (PromptComposer 해시 비교)
 
 ---
 

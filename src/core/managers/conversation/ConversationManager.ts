@@ -4359,11 +4359,28 @@ export class ConversationManager implements IConversationHandler {
             uiMessages: collectedUIMessages,
             result: "success",
             model: options.currentModelType,
+            conversationTurnId: lastExecutionTurnId, // Undo 복원 시 turnCheckpointStack 매칭용
           });
           console.log(`[ConversationManager] ${modeLabel} mode entry saved successfully (loop end)`);
         }
       } catch (e) {
         console.warn("[ConversationManager] Failed to save CODE mode entry (loop end):", e);
+      }
+
+      // Session Memory auto-extraction
+      try {
+        const { SessionMemoryExtractor } = await import("../../memory/SessionMemoryExtractor");
+        const extractor = SessionMemoryExtractor.getInstance(this.llmManager);
+        const compactorForExtraction = ConversationCompactor.getInstance(this.llmManager);
+        const extractionTokens = compactorForExtraction.calculateTotalTokens(accumulatedUserParts, systemPrompt);
+        if (extractor.shouldExtract(extractionTokens, turnCount)) {
+          const summary = compactorForExtraction.getLastSummary();
+          if (summary) {
+            await extractor.extractAndSave(summary, turnCount);
+          }
+        }
+      } catch (e) {
+        console.warn("[ConversationManager] Session memory extraction failed:", e);
       }
     }
   }

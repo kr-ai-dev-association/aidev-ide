@@ -16,6 +16,7 @@ import { getOSPrompt as getOSPromptByName } from './osPrompts';
 import { getLLMPrompt as getLLMPromptByKey } from './llmPrompts';
 import { getCodeWorkPrompt, getExecutionWorkPrompt } from './task';
 import { Tool } from '../../../tools/types';
+import { ToolSpecBuilder } from '../../../tools/ToolSpecBuilder';
 import { ReferenceItem } from '../../../webview/types';
 
 export interface PromptComposerOptions {
@@ -76,6 +77,7 @@ export interface SkillEntry {
 }
 
 export class PromptComposer {
+    private static _lastPromptHash: string = '';
     private static _essentialRules: RuleEntry[] = [];
 
     /** Touched file paths for conditional rule matching */
@@ -896,7 +898,30 @@ You must follow the **Skills (development rules)** registered in the system prom
             // So just log the warning for now - actual trimming would need the precedence-sorted structure
         }
 
-        return parts.join('\n\n');
+        const result = parts.join('\n\n');
+
+        // P4: Cache break detection — invalidate ToolSpecBuilder cache when system prompt changes
+        const currentHash = this.simpleHash(result);
+        if (currentHash !== PromptComposer._lastPromptHash) {
+            PromptComposer._lastPromptHash = currentHash;
+            ToolSpecBuilder.clearSpecCache();
+            console.log('[PromptComposer] System prompt changed — ToolSpec cache cleared');
+        }
+
+        return result;
+    }
+
+    /**
+     * Simple hash for prompt change detection
+     */
+    private static simpleHash(str: string): string {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash |= 0;
+        }
+        return hash.toString(36);
     }
 
     /**

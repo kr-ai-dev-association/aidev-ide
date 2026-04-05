@@ -94,6 +94,9 @@ export interface ConversationEntry {
     tokensUsed?: number;
     durationMs?: number;           // 실행 시간
 
+    // 턴 단위 변경 추적 (Undo 복원용)
+    conversationTurnId?: string;   // InlineDiffManager turnCheckpointStack과 매칭되는 UUID
+
     // 요약 참조 (압축 후)
     compactedSummaryId?: string;   // 요약으로 대체되면 요약 ID 참조
 }
