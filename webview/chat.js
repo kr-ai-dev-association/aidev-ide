@@ -2492,8 +2492,59 @@ window.addEventListener("message", (event) => {
       console.log("[Streaming] Removing last message (natural language retry)");
       removeLastMessage();
       break;
+
+    case "showSuggestions":
+      renderSuggestions(message.suggestions);
+      break;
   }
 });
+
+// --- Prompt Suggestion 렌더링 ---
+function renderSuggestions(suggestions) {
+  // Remove existing suggestions
+  const existing = document.querySelector('.suggestion-container');
+  if (existing) existing.remove();
+
+  if (!suggestions || suggestions.length === 0) return;
+
+  const container = document.createElement('div');
+  container.className = 'suggestion-container';
+  container.style.cssText = 'display: flex; gap: 8px; flex-wrap: wrap; padding: 8px 16px; margin-top: 4px;';
+
+  suggestions.forEach(s => {
+    const btn = document.createElement('button');
+    btn.className = 'suggestion-btn';
+    btn.textContent = s.text;
+    btn.title = s.prompt;
+    btn.style.cssText = 'background: var(--vscode-button-secondaryBackground, #3a3d41); color: var(--vscode-button-secondaryForeground, #cccccc); border: 1px solid var(--vscode-panel-border, #404040); border-radius: 12px; padding: 4px 12px; font-size: 11px; cursor: pointer; white-space: nowrap;';
+    btn.addEventListener('click', () => {
+      // Remove suggestions
+      container.remove();
+      // Set input and send
+      const input = document.getElementById('chat-input');
+      if (input) {
+        input.value = s.prompt;
+        // Trigger send
+        const sendBtn = document.getElementById('send-button');
+        if (sendBtn) sendBtn.click();
+      }
+    });
+    btn.addEventListener('mouseenter', () => {
+      btn.style.background = 'var(--vscode-button-hoverBackground, #505357)';
+    });
+    btn.addEventListener('mouseleave', () => {
+      btn.style.background = 'var(--vscode-button-secondaryBackground, #3a3d41)';
+    });
+    container.appendChild(btn);
+  });
+
+  // Insert at end of chat messages
+  const chatMessages = document.getElementById('chat-messages');
+  if (chatMessages) {
+    chatMessages.appendChild(container);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+}
 
 // --- UI 업데이트 및 마크다운 렌더링 관련 함수 정의 ---
 // 메시지 표시 함수들 - 모듈 래퍼

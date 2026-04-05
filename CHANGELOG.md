@@ -2,7 +2,21 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.54**
+> **현재 버전: v1.0.55**
+
+---
+
+## v1.0.55 (2026-04-05)
+
+### 기능 추가
+
+- **Prompt Suggestion (다음 질의 제안)**: 대화 완료 후 2-3개 후속 작업을 클릭 가능한 버튼으로 제안 — 클릭 시 자동 전송
+- **autoDream (메모리 자동 통합)**: 24시간 + 5세션 임계값 충족 시 백그라운드에서 메모리 통합/정리 — 중복 병합, 오래된 정보 삭제, 날짜 정규화
+
+### Claude Code 기능 TODO 완료
+
+- 이번 세션에서 `CLAUDE_CODE_FEATURES_TODO.md`의 **모든 항목 완료** (미진행 0개)
+- 총 적용: File Checkpoint, Session Memory 자동 추출, Diagnostic Tracker, autoDream, Prompt Suggestion, ToolSpecBuilder 캐시, Cache Break Detection, Semantic Boolean, LSP 9/9, Stall Detection, 자동 백그라운드, sleep 차단
 
 ---
 

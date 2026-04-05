@@ -1,16 +1,3 @@
-"use strict";
-exports.id = 6;
-exports.ids = [6];
-exports.modules = {
-
-/***/ 897:
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   AutoDreamService: () => (/* binding */ AutoDreamService)
-/* harmony export */ });
-/* harmony import */ var _MemoryManager__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(390);
 /**
  * AutoDream — Automatic Memory Consolidation
  * Periodically consolidates/merges/cleans up memories in the background.
@@ -23,59 +10,75 @@ __webpack_require__.r(__webpack_exports__);
  * Claude Code reference: src/services/autoDream/
  */
 
-const DEFAULT_CONFIG = {
+import { LLMManager } from '../managers/model/LLMManager';
+import { MemoryManager } from './MemoryManager';
+
+interface AutoDreamConfig {
+    minHoursSinceLastDream: number;
+    minSessionsSinceLastDream: number;
+    maxConsolidationTokens: number;
+}
+
+const DEFAULT_CONFIG: AutoDreamConfig = {
     minHoursSinceLastDream: 24,
     minSessionsSinceLastDream: 5,
     maxConsolidationTokens: 2000,
 };
-class AutoDreamService {
-    static instance;
-    llmManager;
-    config;
-    lastDreamTime = 0;
-    sessionsSinceLastDream = 0;
-    isRunning = false;
-    constructor(llmManager) {
+
+export class AutoDreamService {
+    private static instance: AutoDreamService;
+    private llmManager: LLMManager;
+    private config: AutoDreamConfig;
+    private lastDreamTime: number = 0;
+    private sessionsSinceLastDream: number = 0;
+    private isRunning: boolean = false;
+
+    private constructor(llmManager: LLMManager) {
         this.llmManager = llmManager;
         this.config = DEFAULT_CONFIG;
         this.loadState();
     }
-    static getInstance(llmManager) {
+
+    static getInstance(llmManager?: LLMManager): AutoDreamService {
         if (!this.instance && llmManager) {
             this.instance = new AutoDreamService(llmManager);
         }
         return this.instance;
     }
+
     /**
      * Called after each session completes to increment session counter
      */
-    onSessionComplete() {
+    onSessionComplete(): void {
         this.sessionsSinceLastDream++;
         console.log(`[AutoDreamService] Session completed. Count since last dream: ${this.sessionsSinceLastDream}`);
     }
+
     /**
      * Check if consolidation should run
      */
-    shouldConsolidate() {
-        if (this.isRunning)
-            return false;
+    shouldConsolidate(): boolean {
+        if (this.isRunning) return false;
+
         const hoursSinceLastDream = (Date.now() - this.lastDreamTime) / (1000 * 60 * 60);
-        if (hoursSinceLastDream < this.config.minHoursSinceLastDream)
-            return false;
-        if (this.sessionsSinceLastDream < this.config.minSessionsSinceLastDream)
-            return false;
+        if (hoursSinceLastDream < this.config.minHoursSinceLastDream) return false;
+        if (this.sessionsSinceLastDream < this.config.minSessionsSinceLastDream) return false;
+
         return true;
     }
+
     /**
      * Run memory consolidation
      */
-    async consolidate() {
+    async consolidate(): Promise<void> {
         if (this.isRunning) {
             console.log('[AutoDreamService] Already running, skipping');
             return;
         }
-        const memoryManager = _MemoryManager__WEBPACK_IMPORTED_MODULE_0__.MemoryManager.getInstance();
+
+        const memoryManager = MemoryManager.getInstance();
         const currentMemories = await memoryManager.loadForPrompt();
+
         if (!currentMemories || currentMemories.trim().length < 100) {
             console.log('[AutoDreamService] Not enough memories to consolidate');
             this.lastDreamTime = Date.now();
@@ -83,8 +86,10 @@ class AutoDreamService {
             this.saveState();
             return;
         }
+
         this.isRunning = true;
         console.log('[AutoDreamService] Starting memory consolidation...');
+
         try {
             const consolidationPrompt = `You are a memory consolidation assistant. Review the existing memories below and improve their quality.
 
@@ -109,20 +114,29 @@ Rules:
 
 Current memories:
 ${currentMemories}`;
-            const response = await this.llmManager.sendMessageWithSystemPrompt('You are a JSON-only assistant. Output only valid JSON arrays.', [{ text: consolidationPrompt }], { maxTokens: this.config.maxConsolidationTokens });
+
+            const response = await this.llmManager.sendMessageWithSystemPrompt(
+                'You are a JSON-only assistant. Output only valid JSON arrays.',
+                [{ text: consolidationPrompt }],
+                { maxTokens: this.config.maxConsolidationTokens },
+            );
+
             // Parse actions
             const jsonMatch = response.match(/\[[\s\S]*\]/);
             if (!jsonMatch) {
                 console.log('[AutoDreamService] No valid JSON in response');
                 return;
             }
+
             const actions = JSON.parse(jsonMatch[0]);
             if (!Array.isArray(actions) || actions.length === 0) {
                 console.log('[AutoDreamService] No consolidation actions needed');
                 return;
             }
+
             let deleteCount = 0;
             let updateCount = 0;
+
             for (const action of actions.slice(0, 10)) {
                 if (action.action === 'delete' && action.name) {
                     const exists = await memoryManager.exists(action.name);
@@ -131,8 +145,7 @@ ${currentMemories}`;
                         deleteCount++;
                         console.log(`[AutoDreamService] Deleted: ${action.name}`);
                     }
-                }
-                else if (action.action === 'update' && action.name && action.content) {
+                } else if (action.action === 'update' && action.name && action.content) {
                     const exists = await memoryManager.exists(action.name);
                     if (exists) {
                         await memoryManager.save({
@@ -146,43 +159,37 @@ ${currentMemories}`;
                     }
                 }
             }
-            console.log(`[AutoDreamService] Consolidation complete: ${deleteCount} deleted, ${updateCount} updated, ${actions.filter((a) => a.action === 'keep').length} kept`);
-        }
-        catch (error) {
+
+            console.log(`[AutoDreamService] Consolidation complete: ${deleteCount} deleted, ${updateCount} updated, ${actions.filter((a: any) => a.action === 'keep').length} kept`);
+        } catch (error) {
             console.warn('[AutoDreamService] Consolidation failed:', error);
-        }
-        finally {
+        } finally {
             this.isRunning = false;
             this.lastDreamTime = Date.now();
             this.sessionsSinceLastDream = 0;
             this.saveState();
         }
     }
-    loadState() {
+
+    private loadState(): void {
         try {
             // Use a simple in-memory approach — state resets on extension restart
             // For persistence, could use globalState or a file
             this.lastDreamTime = 0;
             this.sessionsSinceLastDream = 0;
-        }
-        catch {
+        } catch {
             // Ignore
         }
     }
-    saveState() {
+
+    private saveState(): void {
         // In-memory only for now
         console.log(`[AutoDreamService] State saved: lastDream=${new Date(this.lastDreamTime).toISOString()}, sessions=${this.sessionsSinceLastDream}`);
     }
-    reset() {
+
+    reset(): void {
         this.lastDreamTime = 0;
         this.sessionsSinceLastDream = 0;
         this.isRunning = false;
     }
 }
-
-
-/***/ })
-
-};
-;
-//# sourceMappingURL=6.extension.js.map
