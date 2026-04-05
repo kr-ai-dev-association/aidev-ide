@@ -4339,6 +4339,26 @@ export class ConversationManager implements IConversationHandler {
         console.warn("[ConversationManager] Failed to save CODE mode entry (loop end):", e);
       }
 
+      // Prompt Suggestions
+      try {
+        const { PromptSuggestionService } = await import("../suggestion/PromptSuggestionService");
+        const suggestionService = PromptSuggestionService.getInstance(this.llmManager);
+        const suggestions = await suggestionService.generateSuggestions(
+          userQuery || '',
+          createdFiles,
+          modifiedFiles,
+          '',
+        );
+        if (suggestions.length > 0 && webviewToRespond) {
+          webviewToRespond.postMessage({
+            command: 'showSuggestions',
+            suggestions,
+          });
+        }
+      } catch (e) {
+        console.warn("[ConversationManager] Prompt suggestions failed:", e);
+      }
+
       // Session Memory auto-extraction
       try {
         const { SessionMemoryExtractor } = await import("../../memory/SessionMemoryExtractor");
@@ -4353,6 +4373,21 @@ export class ConversationManager implements IConversationHandler {
         }
       } catch (e) {
         console.warn("[ConversationManager] Session memory extraction failed:", e);
+      }
+
+      // AutoDream: increment session counter and check for consolidation
+      try {
+        const { AutoDreamService } = await import("../../memory/AutoDreamService");
+        const dreamService = AutoDreamService.getInstance(this.llmManager);
+        dreamService.onSessionComplete();
+        if (dreamService.shouldConsolidate()) {
+          // Run in background (don't block the UI)
+          dreamService.consolidate().catch(e =>
+            console.warn("[ConversationManager] AutoDream consolidation failed:", e)
+          );
+        }
+      } catch (e) {
+        console.warn("[ConversationManager] AutoDream check failed:", e);
       }
     }
   }

@@ -2,7 +2,18 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.54**
+> **현재 버전: v1.0.55**
+
+---
+
+## v1.0.55 (2026-04-05)
+
+### 기능 추가
+
+- **Prompt Suggestion**: 대화 완료 후 후속 작업 제안 버튼
+- **autoDream**: 메모리 자동 통합/정리 (24h + 5세션)
+
+### Claude Code 기능 TODO 전체 완료
 
 ---
 
