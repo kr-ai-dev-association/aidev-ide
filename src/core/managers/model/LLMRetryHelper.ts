@@ -2,7 +2,12 @@
  * LLMRetryHelper
  * LLM API 호출 재시도 로직
  * v9.4.0: 네트워크 오류 및 rate limit 재시도 지원
+ * D-1: Context overflow auto-adjustment (400 errors with token/context messages)
+ * B-2: Query source retry awareness (foreground vs background)
  */
+
+/** Query source type for retry behavior differentiation */
+export type QuerySource = 'foreground' | 'background';
 
 /**
  * 재시도 설정
@@ -18,6 +23,8 @@ export interface LLMRetryConfig {
     backoffMultiplier: number;
     /** Jitter 사용 여부 (기본: true) */
     useJitter: boolean;
+    /** B-2: Query source — 'background' queries fail fast on 429/529 */
+    querySource?: QuerySource;
 }
 
 /**
@@ -126,12 +133,42 @@ export function isRetryableError(error: unknown): boolean {
         return true;
     }
 
+    // D-1: Context overflow detection (400 errors mentioning context/token limits)
+    if (message.includes('400')) {
+        if (message.includes('context') || message.includes('max_tokens') || message.includes('token') || message.includes('input length')) {
+            console.log('[LLMRetryHelper] Context overflow detected (400). Retryable with reduced max_tokens.');
+            return true;
+        }
+    }
+
     // AbortError는 재시도하지 않음 (사용자 취소)
     if (name === 'AbortError') {
         return false;
     }
 
     return false;
+}
+
+/**
+ * D-1: Context overflow 에러인지 확인
+ */
+export function isContextOverflowError(error: unknown): boolean {
+    if (!(error instanceof Error)) return false;
+    const message = error.message.toLowerCase();
+    if (message.includes('400')) {
+        return message.includes('context') || message.includes('max_tokens') || message.includes('token') || message.includes('input length');
+    }
+    return false;
+}
+
+/**
+ * D-1: Context overflow 시 max_tokens를 줄여서 반환
+ * 25% 감소 + 1000 토큰 safety buffer
+ */
+export function reduceMaxTokensForOverflow(currentMaxTokens: number): number {
+    const SAFETY_BUFFER = 1000;
+    const reduced = Math.floor(currentMaxTokens * 0.75) - SAFETY_BUFFER;
+    return Math.max(reduced, 256); // minimum 256 tokens
 }
 
 /**
@@ -202,9 +239,11 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 
 /**
  * 재시도 로직으로 함수 실행
+ * D-1: Context overflow 시 max_tokens 자동 축소
+ * B-2: querySource 'background'인 경우 429/529에서 즉시 실패
  */
 export async function withRetry<T>(
-    fn: () => Promise<T>,
+    fn: (overrideMaxTokens?: number) => Promise<T>,
     config: Partial<LLMRetryConfig> = {},
     signal?: AbortSignal,
     onRetry?: (attempt: number, error: Error, delayMs: number) => void,
@@ -213,6 +252,7 @@ export async function withRetry<T>(
     let lastError: Error | undefined;
     let attempts = 0;
     let totalDelayMs = 0;
+    let overrideMaxTokens: number | undefined;
 
     for (let attempt = 0; attempt <= fullConfig.maxRetries; attempt++) {
         attempts = attempt + 1;
@@ -227,7 +267,7 @@ export async function withRetry<T>(
         }
 
         try {
-            const result = await fn();
+            const result = await fn(overrideMaxTokens);
             return {
                 success: true,
                 result,
@@ -236,6 +276,32 @@ export async function withRetry<T>(
             };
         } catch (error) {
             lastError = error instanceof Error ? error : new Error(String(error));
+
+            // B-2: Background queries fail fast on 429/529 (capacity errors)
+            if (fullConfig.querySource === 'background') {
+                const errMsg = lastError.message;
+                if (errMsg.includes('429') || errMsg.includes('529') || errMsg.toLowerCase().includes('rate limit') || errMsg.toLowerCase().includes('too many requests')) {
+                    console.log(`[LLMRetryHelper] Background query — skipping retry for capacity error: ${errMsg.substring(0, 80)}`);
+                    return {
+                        success: false,
+                        error: lastError,
+                        attempts,
+                        totalDelayMs,
+                    };
+                }
+            }
+
+            // D-1: Context overflow — reduce max_tokens and retry
+            if (isContextOverflowError(error)) {
+                const currentMax = overrideMaxTokens || 4096; // default assumption
+                overrideMaxTokens = reduceMaxTokensForOverflow(currentMax);
+                console.log(`[LLMRetryHelper] Context overflow — reducing max_tokens to ${overrideMaxTokens} for retry`);
+                // Don't count context overflow retries toward delay
+                if (onRetry) {
+                    onRetry(attempt, lastError, 0);
+                }
+                continue; // retry immediately without delay
+            }
 
             // 마지막 시도이거나 재시도 불가 에러면 종료
             if (attempt >= fullConfig.maxRetries || !isRetryableError(error)) {

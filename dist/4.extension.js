@@ -3,7 +3,7 @@ exports.id = 4;
 exports.ids = [4];
 exports.modules = {
 
-/***/ 895:
+/***/ 897:
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -62,7 +62,7 @@ Example output:
   {"text": "테스트 코드 추가", "prompt": "방금 만든 컴포넌트에 테스트 코드를 추가해줘"},
   {"text": "API 연동", "prompt": "백엔드 API와 연동해서 실제 데이터로 표시해줘"}
 ]`;
-            const response = await this.llmManager.sendMessageWithSystemPrompt('You are a JSON-only assistant. Output only valid JSON arrays.', [{ text: prompt }], { maxTokens: 300 });
+            const response = await this.llmManager.sendMessageWithSystemPrompt('You are a JSON-only assistant. Output only valid JSON arrays.', [{ text: prompt }], { maxTokens: 300, retry: { querySource: 'background' } });
             const jsonMatch = response.match(/\[[\s\S]*\]/);
             if (!jsonMatch)
                 return [];

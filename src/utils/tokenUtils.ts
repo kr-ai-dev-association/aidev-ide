@@ -119,6 +119,36 @@ export function estimateTokens(text: string): number {
 }
 
 /**
+ * A-1: File-type-aware token estimation.
+ * Uses bytes-per-token ratios tuned per file type for better accuracy.
+ */
+export function estimateTokensForFile(content: string, filePath?: string): number {
+    if (!filePath) return estimateTokens(content);
+
+    const ext = filePath.split('.').pop()?.toLowerCase();
+    const bytesPerToken = (() => {
+        switch (ext) {
+            case 'json':
+            case 'jsonl':
+            case 'jsonc':
+                return 2; // Dense punctuation
+            case 'yaml':
+            case 'yml':
+            case 'toml':
+                return 3; // Semi-structured
+            case 'md':
+            case 'txt':
+            case 'csv':
+                return 5; // Natural language / data
+            default:
+                return 4; // Source code default
+        }
+    })();
+
+    return Math.ceil(Buffer.byteLength(content, 'utf8') / bytesPerToken);
+}
+
+/**
  * 시스템 프롬프트와 사용자 메시지의 총 토큰 수를 계산합니다.
  */
 export function calculateTotalTokens(systemPrompt: string, userParts: any[]): number {

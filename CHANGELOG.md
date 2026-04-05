@@ -2,7 +2,39 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.55**
+> **현재 버전: v1.0.56**
+
+---
+
+## v1.0.56 (2026-04-06)
+
+### 안전성 / 안정성
+
+- **Pre-execution Validation**: 도구 실행 전 입력 검증 — 빈 파라미터, 짧은 diff, 빈 명령어 조기 차단
+- **따옴표 정규화 (Quote Normalization)**: curly quote → straight quote 자동 정규화로 SEARCH 매칭 성공률 향상
+- **No-op 편집 감지**: search === replace인 편집 요청 조기 거부 (불필요한 포맷터 실행 방지)
+- **Cleanup Registry + Graceful Shutdown**: 전역 cleanup 함수 레지스트리 + 5초 timeout 다단계 종료
+- **Query Source Retry**: foreground(사용자 대면) vs background(자동 추출/통합) 쿼리 구분 — 백그라운드는 429/529 즉시 실패
+
+### 성능 / 최적화
+
+- **파일타입별 토큰 추정**: JSON(2B/token), YAML(3B), 코드(4B), 텍스트(5B) — 압축 빈도 감소
+- **바이너리 파일 감지**: 첫 8KB 샘플링으로 바이너리 판단 → read_file 시 토큰 낭비 방지
+- **시간 기반 MicroCompaction**: 오래된 메시지 (상위 30%) 200자로 공격적 축약 → 최근 컨텍스트 보존
+
+### 컨텍스트 / 응답
+
+- **컨텍스트 우선순위 토큰 예산**: 압축 후 파일 최대 5개/50K토큰, 도구 결과 5K 초과 시 2K로 축약
+- **컨텍스트 오버플로우 자동 조절**: 400 에러 시 max_tokens 25% 축소 + 1000토큰 안전 버퍼로 자동 재시도
+- **파일 읽기 토큰 가드**: 대용량 파일 읽기 시 "offset/limit 사용" 가이드 메시지 제공
+
+### 파일 I/O
+
+- **Git Diff 편집 검증**: update_file 후 git diff --stat 로깅 (포맷터 의도치 않은 변경 감지)
+
+### IMPROVEMENT_TODO_V2 전체 완료
+
+- 12개 항목 모두 구현 (미진행 0개)
 
 ---
 

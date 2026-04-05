@@ -3,7 +3,7 @@ exports.id = 6;
 exports.ids = [6];
 exports.modules = {
 
-/***/ 897:
+/***/ 899:
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -109,7 +109,7 @@ Rules:
 
 Current memories:
 ${currentMemories}`;
-            const response = await this.llmManager.sendMessageWithSystemPrompt('You are a JSON-only assistant. Output only valid JSON arrays.', [{ text: consolidationPrompt }], { maxTokens: this.config.maxConsolidationTokens });
+            const response = await this.llmManager.sendMessageWithSystemPrompt('You are a JSON-only assistant. Output only valid JSON arrays.', [{ text: consolidationPrompt }], { maxTokens: this.config.maxConsolidationTokens, retry: { querySource: 'background' } });
             // Parse actions
             const jsonMatch = response.match(/\[[\s\S]*\]/);
             if (!jsonMatch) {

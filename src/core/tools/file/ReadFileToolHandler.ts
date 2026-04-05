@@ -13,6 +13,7 @@ import * as path from 'path';
 import { ProjectContextCache } from '../../managers/context/ProjectContextCache';
 import { UsageMetricsManager } from '../../managers/state/UsageMetricsManager';
 import { SubProjectDetector } from '../../managers/project/SubProjectDetector';
+import { isBinaryFile } from '../../../utils/binaryDetection';
 
 // 파일 크기 임계값 (라인 수)
 // v9.6.0: 300 → 2000으로 증가 (대부분의 일반 파일 전체 읽기 지원)
@@ -101,6 +102,17 @@ export class ReadFileToolHandler implements IToolHandler {
                     path: filePath,
                     content: '',
                     error: `Access denied: ${filePath} is outside of project root`
+                });
+                hasError = true;
+                continue;
+            }
+
+            // A-3: Binary file detection
+            if (isBinaryFile(absolutePath)) {
+                results.push({
+                    path: filePath,
+                    content: '',
+                    error: `Binary file detected: ${filePath}. Use a hex viewer or specific tool to inspect binary files.`
                 });
                 hasError = true;
                 continue;

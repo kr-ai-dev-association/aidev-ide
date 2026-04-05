@@ -3,7 +3,7 @@ exports.id = 5;
 exports.ids = [5];
 exports.modules = {
 
-/***/ 896:
+/***/ 898:
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -70,7 +70,7 @@ Rules:
 
 Conversation summary:
 ${conversationSummary}`;
-            const response = await this.llmManager.sendMessageWithSystemPrompt('You are a JSON-only extraction assistant. Output only valid JSON arrays.', [{ text: extractionPrompt }], { signal: abortSignal, maxTokens: this.config.maxExtractionTokens });
+            const response = await this.llmManager.sendMessageWithSystemPrompt('You are a JSON-only extraction assistant. Output only valid JSON arrays.', [{ text: extractionPrompt }], { signal: abortSignal, maxTokens: this.config.maxExtractionTokens, retry: { querySource: 'background' } });
             // Parse response
             const jsonMatch = response.match(/\[[\s\S]*\]/);
             if (!jsonMatch) {
