@@ -2,7 +2,29 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.52**
+> **현재 버전: v1.0.53**
+
+---
+
+## v1.0.53 (2026-04-05)
+
+### AGENT 모드 아키텍처 리팩토링
+
+- **AgentLoopManager 분리**: FSM 없는 순수 자율 루프 (while(true))
+- **CODE 모드 정리**: `isAgentMode` 체크 20곳+ 제거
+- **SubAgentLoop 도구 제한**: work_plan/spawn_agent/stop_agent 서브에이전트에서 제외
+- **work_plan 채팅 표시 제거**: 작업큐 UI에만 표시
+
+### AGENT 기능 보완
+
+- **참조 문서 + 파일 변경 요약**: 완료 시 표시
+- **FileTransactionManager**: 트랜잭션 롤백 지원
+- **processing step done**: 루프 종료 시 전송
+
+### 기타
+
+- **sleep 차단**: ≥2s → ≥30s 완화
+- **pytest no tests**: exit code 5 통과 처리
 
 ---
 

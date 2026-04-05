@@ -674,7 +674,7 @@ export class TestRunner {
           console.log(`[TestRunner] pytest exit code 5 (no tests collected) — treating as pass`);
         }
         const message = `${validationCmd.description} 통과: 문법 오류가 없습니다.`;
-        WebviewBridge.sendProcessingStep(
+        WebviewBridge.sendProcessingStatus(
           webview,
           uiStep,
           `${validationCmd.description} 통과`,
