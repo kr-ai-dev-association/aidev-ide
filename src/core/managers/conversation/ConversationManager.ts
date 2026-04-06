@@ -73,7 +73,7 @@ import { MODEL_TOKEN_LIMITS } from "../../../utils/tokenUtils";
 import { estimateTokens } from "../../../utils";
 import { TurnContext, TurnAction, LoopState, UserPart, CollectedAction, CollectedUIMessage } from "./types/TurnContext";
 import { IntentDetectionResult } from "../action/IntentDetector";
-import { ToolUse, ToolResponse, READ_ONLY_TOOLS } from "../../tools/types";
+import { ToolUse, ToolResponse, READ_ONLY_TOOLS, AGENT_ONLY_TOOLS } from "../../tools/types";
 import { FileTransactionManager } from "../action/file/FileTransactionManager";
 import * as crypto from "crypto";
 
@@ -1257,6 +1257,13 @@ export class ConversationManager implements IConversationHandler {
       let allowedTools: Tool[] | undefined = undefined;
       let nativeToolsForCall: any[] | undefined = undefined; // 네이티브 툴 콜링용 (나중에 설정됨)
 
+      // CODE 모드: AGENT 전용 도구(work_plan, spawn_agent, stop_agent) 제외
+      if (!this._isAgentMode) {
+        allowedTools = (Object.values(Tool) as Tool[]).filter(
+          (t) => !AGENT_ONLY_TOOLS.has(t)
+        );
+      }
+
       if (currentPhase === AgentPhase.INVESTIGATION) {
         const investigationPrompt = investigationManager.getInvestigationPrompt(
           options.userQuery,
@@ -2237,8 +2244,9 @@ export class ConversationManager implements IConversationHandler {
       const isAutoToolForStreaming = await SettingsManager.getInstance().isAutoToolExecutionEnabled();
       const isAutoUpdateForStreaming = await SettingsManager.getInstance().isAutoUpdateEnabled();
 
-      // Fix: 스트리밍 중 완성된 create_file 즉시 실행 추적 (턴별 리셋)
+      // Fix: 스트리밍 중 완성된 create_file/update_file 즉시 실행 추적 (턴별 리셋)
       const streamingCreatedPaths = new Set<string>();
+      const streamingUpdatedPaths = new Set<string>();
       // 스트리밍 중 pending 처리된 경로 (승인 여부 무관 — post-stream 중복 방지용)
       const streamingHandledPaths = new Set<string>();
 
@@ -2269,21 +2277,25 @@ export class ConversationManager implements IConversationHandler {
         let streamLastFileContentPos = 0;
         const FILE_END_MARKER = '</file_content>';
 
-        // 스트리밍 즉시 파일 생성 공통 실행 함수 (FILE_END_MARKER + onNativeToolComplete 공용)
+        // 스트리밍 즉시 파일 생성/수정 공통 실행 함수 (FILE_END_MARKER + onNativeToolComplete 공용)
         // needsApproval=true: 실행 전 사용자 승인 모달 표시
-        const executeStreamingCreateFile = (path: string, capturedCall: ToolUse, needsApproval: boolean = false) => {
+        const executeStreamingFileOp = (path: string, capturedCall: ToolUse, needsApproval: boolean = false) => {
+          const isCreate = capturedCall.name === 'create_file';
+          const trackingSet = isCreate ? streamingCreatedPaths : streamingUpdatedPaths;
+          const actionLabel = isCreate ? '생성' : '수정';
+
           if (needsApproval) {
-            streamingHandledPaths.add(path);
+            streamingHandledPaths.add(`${capturedCall.name}:${path}`);
           } else {
-            streamingCreatedPaths.add(path);
+            trackingSet.add(path);
           }
           streamingCreatePromise = streamingCreatePromise.then(async () => {
             if (abortSignal?.aborted) { return; }
             if (needsApproval) {
               const detailDisplay = `: ${path.substring(0, 50)}${path.length > 50 ? '...' : ''}`;
-              WebviewBridge.receiveMessage(webviewToRespond, 'System', `⏳ [Pending] 파일 생성${detailDisplay} - 사용자 승인 필요`);
+              WebviewBridge.receiveMessage(webviewToRespond, 'System', `⏳ [Pending] 파일 ${actionLabel}${detailDisplay} - 사용자 승인 필요`);
               const result = await vscode.window.showInformationMessage(
-                `파일 생성: ${path}`,
+                `파일 ${actionLabel}: ${path}`,
                 { modal: true },
                 '실행',
                 '건너뛰기',
@@ -2297,16 +2309,20 @@ export class ConversationManager implements IConversationHandler {
               contextManager: this.contextManager,
             };
             const fileName = path.split('/').pop() || path;
-            WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `파일 생성 중: ${fileName}...`);
+            WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `파일 ${actionLabel} 중: ${fileName}...`);
             const streamResults = await toolExecutor.executeTools([capturedCall], streamCtx, undefined, undefined, abortSignal);
             if (streamResults[0]?.success && capturedCall.params.path) {
               const p = capturedCall.params.path as string;
-              streamingCreatedPaths.add(p);
-              if (!createdFiles.includes(p) && !modifiedFiles.includes(p)) {
-                createdFiles.push(p);
+              trackingSet.add(p);
+              if (isCreate) {
+                if (!createdFiles.includes(p) && !modifiedFiles.includes(p)) {
+                  createdFiles.push(p);
+                }
+              } else {
+                if (!modifiedFiles.includes(p) && !createdFiles.includes(p)) {
+                  modifiedFiles.push(p);
+                }
               }
-              // AGENT 모드: 스트리밍 중 파일 생성 즉시 코드블록 UI 전송
-              // 스트리밍 중 파일 생성 즉시 코드블록 UI 전송 (CODE/AGENT 공통)
               if (streamResults[0]) {
                 ToolExecutionCoordinator.sendSingleToolResultToUI(webviewToRespond, capturedCall, streamResults[0]);
               }
@@ -2317,12 +2333,14 @@ export class ConversationManager implements IConversationHandler {
         // 네이티브 tool_call 완성 시 콜백
         // ON+ON: 즉시 실행 / ON+파일OFF 또는 도구OFF: 즉시 pending
         const onNativeToolComplete = (toolName: string, args: Record<string, any>) => {
-          if (toolName !== 'create_file' || !args.path) { return; }
+          if ((toolName !== 'create_file' && toolName !== 'update_file') || !args.path) { return; }
           const p = args.path as string;
-          if (streamingCreatedPaths.has(p) || streamingHandledPaths.has(p)) { return; }
+          const trackingSet = toolName === 'create_file' ? streamingCreatedPaths : streamingUpdatedPaths;
+          const handledKey = `${toolName}:${p}`;
+          if (trackingSet.has(p) || streamingHandledPaths.has(handledKey)) { return; }
           const capturedCall: ToolUse = { name: toolName, params: { ...args } };
           const needsApproval = !isAutoToolForStreaming || !isAutoUpdateForStreaming;
-          executeStreamingCreateFile(p, capturedCall, needsApproval);
+          executeStreamingFileOp(p, capturedCall, needsApproval);
         };
 
         // 🔥 onChunk는 SYNC여야 함 (LLM API가 await 안 함)
@@ -2339,7 +2357,10 @@ export class ConversationManager implements IConversationHandler {
               const segCalls = ToolParser.parseCodeBlockFormat(segment, []);
               for (const call of segCalls) {
                 if (call.name === 'create_file' && call.params.path && !streamingCreatedPaths.has(call.params.path as string)) {
-                  executeStreamingCreateFile(call.params.path as string, call, false);
+                  executeStreamingFileOp(call.params.path as string, call, false);
+                }
+                if (call.name === 'update_file' && call.params.path && !streamingUpdatedPaths.has(call.params.path as string)) {
+                  executeStreamingFileOp(call.params.path as string, call, false);
                 }
               }
               endIdx = accumulatedResponse.indexOf(FILE_END_MARKER, streamLastFileContentPos);
@@ -2353,10 +2374,16 @@ export class ConversationManager implements IConversationHandler {
               streamLastFileContentPos = segmentEnd;
               const segCalls = ToolParser.parseCodeBlockFormat(segment, []);
               for (const call of segCalls) {
-                if (call.name === 'create_file' && call.params.path &&
-                    !streamingCreatedPaths.has(call.params.path as string) &&
-                    !streamingHandledPaths.has(call.params.path as string)) {
-                  executeStreamingCreateFile(call.params.path as string, call, true);
+                const p = call.params.path as string;
+                if (call.name === 'create_file' && p &&
+                    !streamingCreatedPaths.has(p) &&
+                    !streamingHandledPaths.has(`create_file:${p}`)) {
+                  executeStreamingFileOp(p, call, true);
+                }
+                if (call.name === 'update_file' && p &&
+                    !streamingUpdatedPaths.has(p) &&
+                    !streamingHandledPaths.has(`update_file:${p}`)) {
+                  executeStreamingFileOp(p, call, true);
                 }
               }
               endIdx = accumulatedResponse.indexOf(FILE_END_MARKER, streamLastFileContentPos);
@@ -3040,9 +3067,22 @@ export class ConversationManager implements IConversationHandler {
                 turnResultsSummary += `\n[도구 결과] create_file(${p}): 성공 (스트리밍 중 즉시 생성됨)`;
                 return false;
               }
-              if (streamingHandledPaths.has(p)) {
+              if (streamingHandledPaths.has(`create_file:${p}`)) {
                 console.log(`[ConversationManager] Streaming-rejected create_file skipped: ${p}`);
                 turnResultsSummary += `\n[도구 결과] create_file(${p}): 건너뜀 (스트리밍 중 사용자가 거부)`;
+                return false;
+              }
+            }
+            if (call.name === 'update_file' && call.params.path) {
+              const p = call.params.path as string;
+              if (streamingUpdatedPaths.has(p)) {
+                console.log(`[ConversationManager] Streaming-pre-executed update_file skipped: ${p}`);
+                turnResultsSummary += `\n[도구 결과] update_file(${p}): 성공 (스트리밍 중 즉시 수정됨)`;
+                return false;
+              }
+              if (streamingHandledPaths.has(`update_file:${p}`)) {
+                console.log(`[ConversationManager] Streaming-rejected update_file skipped: ${p}`);
+                turnResultsSummary += `\n[도구 결과] update_file(${p}): 건너뜀 (스트리밍 중 사용자가 거부)`;
                 return false;
               }
             }
@@ -4267,18 +4307,7 @@ export class ConversationManager implements IConversationHandler {
           taskManager.listPlanItems(),
         );
       }
-      // 파일 변경이 있을 때만 완료 메시지 표시 (명령어만 실행한 경우 불필요)
-      if (createdFiles.length > 0 || modifiedFiles.length > 0) {
-        const filesSummary = [
-          createdFiles.length > 0 ? `생성: ${createdFiles.join(", ")}` : "",
-          modifiedFiles.length > 0 ? `수정: ${modifiedFiles.join(", ")}` : "",
-        ].filter(Boolean).join(" | ");
-        WebviewBridge.sendProcessingStatus(
-          webviewToRespond,
-          "done",
-          `작업 완료 — ${filesSummary}`,
-        );
-      }
+      // "작업 완료" processStep 제거: REVIEW 요약이 이미 동일 정보를 표시하므로 중복
     }
 
     // 참조 추적 정보 전송 (정책/스킬) — 리뷰 밑, 턴 액션 위에 표시
@@ -4339,8 +4368,13 @@ export class ConversationManager implements IConversationHandler {
         console.warn("[ConversationManager] Failed to save CODE mode entry (loop end):", e);
       }
 
-      // Prompt Suggestions
-      try {
+      // Prompt Suggestions (설정으로 on/off)
+      const promptSuggestionEnabled = vscode.workspace.getConfiguration('codepilot-standalone')
+        .get<boolean>('promptSuggestion', false);
+      if (!promptSuggestionEnabled) {
+        console.log('[ConversationManager] Prompt suggestions disabled by setting');
+      } else try {
+        console.log(`[ConversationManager] Generating prompt suggestions (files: ${createdFiles.length} created, ${modifiedFiles.length} modified)...`);
         const { PromptSuggestionService } = await import("../suggestion/PromptSuggestionService");
         const suggestionService = PromptSuggestionService.getInstance(this.llmManager);
         const suggestions = await suggestionService.generateSuggestions(

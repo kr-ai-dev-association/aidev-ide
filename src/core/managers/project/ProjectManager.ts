@@ -705,6 +705,12 @@ export class ProjectManager {
             [ProjectType.RUBY]: 'Ruby',
             [ProjectType.SWIFT]: 'Swift',
             [ProjectType.C_CPP]: 'C/C++',
+            [ProjectType.NEXTJS]: 'TypeScript/JavaScript',
+            [ProjectType.NUXTJS]: 'TypeScript/JavaScript',
+            [ProjectType.SVELTE]: 'TypeScript/JavaScript',
+            [ProjectType.KOTLIN]: 'Kotlin',
+            [ProjectType.ELIXIR]: 'Elixir',
+            [ProjectType.SCALA]: 'Scala',
             [ProjectType.UNKNOWN]: 'Unknown'
         };
 

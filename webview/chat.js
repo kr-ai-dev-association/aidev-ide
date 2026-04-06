@@ -2453,34 +2453,31 @@ function renderSuggestions(suggestions) {
 
   const container = document.createElement('div');
   container.className = 'suggestion-container';
-  container.style.cssText = 'display: flex; gap: 8px; flex-wrap: wrap; padding: 8px 16px; margin-top: 4px;';
+
+  const label = document.createElement('div');
+  label.className = 'suggestion-label';
+  label.textContent = '다음 작업 제안';
+  container.appendChild(label);
+
+  const optionsDiv = document.createElement('div');
+  optionsDiv.className = 'suggestion-options';
 
   suggestions.forEach(s => {
     const btn = document.createElement('button');
     btn.className = 'suggestion-btn';
     btn.textContent = s.text;
     btn.title = s.prompt;
-    btn.style.cssText = 'background: var(--vscode-button-secondaryBackground, #3a3d41); color: var(--vscode-button-secondaryForeground, #cccccc); border: 1px solid var(--vscode-panel-border, #404040); border-radius: 12px; padding: 4px 12px; font-size: 11px; cursor: pointer; white-space: nowrap;';
     btn.addEventListener('click', () => {
-      // Remove suggestions
       container.remove();
-      // Set input and send
-      const input = document.getElementById('chat-input');
-      if (input) {
-        input.value = s.prompt;
-        // Trigger send
-        const sendBtn = document.getElementById('send-button');
-        if (sendBtn) sendBtn.click();
+      if (chatInput) {
+        chatInput.textContent = s.prompt;
+        handleSendMessage();
       }
     });
-    btn.addEventListener('mouseenter', () => {
-      btn.style.background = 'var(--vscode-button-hoverBackground, #505357)';
-    });
-    btn.addEventListener('mouseleave', () => {
-      btn.style.background = 'var(--vscode-button-secondaryBackground, #3a3d41)';
-    });
-    container.appendChild(btn);
+    optionsDiv.appendChild(btn);
   });
+
+  container.appendChild(optionsDiv);
 
   // Insert at end of chat messages
   const chatMessages = document.getElementById('chat-messages');

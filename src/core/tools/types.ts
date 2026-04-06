@@ -71,6 +71,15 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * AGENT 모드 전용 도구 — CODE 모드에서는 제외해야 함
+ */
+export const AGENT_ONLY_TOOLS: ReadonlySet<string> = new Set([
+    Tool.WORK_PLAN,
+    Tool.SPAWN_AGENT,
+    Tool.STOP_AGENT,
+]);
+
+/**
  * MCP 도구를 포함하는 도구 이름 타입
  * 내장 도구(Tool enum)와 MCP 동적 도구를 모두 지원
  * MCP 도구는 원래 이름 그대로 등록됨 (프리픽스 없음, 충돌 시에만 서버명 접두사)

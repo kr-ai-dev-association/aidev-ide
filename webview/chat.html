@@ -712,6 +712,39 @@
         background: var(--vscode-button-hoverBackground);
       }
 
+      /* Prompt Suggestion */
+      .suggestion-container {
+        padding: 8px 0;
+        animation: fadeInUp 0.2s ease;
+      }
+      .suggestion-label {
+        font-size: 11px;
+        font-weight: 500;
+        margin-bottom: 6px;
+        color: var(--vscode-descriptionForeground);
+      }
+      .suggestion-options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .suggestion-btn {
+        padding: 4px 10px;
+        border-radius: 4px;
+        border: 1px solid var(--vscode-input-border, #555);
+        background: var(--vscode-input-background);
+        color: var(--vscode-input-foreground);
+        cursor: pointer;
+        font-size: 11px;
+        text-align: left;
+        transition: all 0.15s;
+        white-space: nowrap;
+      }
+      .suggestion-btn:hover {
+        border-color: var(--vscode-focusBorder);
+        background: var(--vscode-list-hoverBackground);
+      }
+
       /* Approval Buttons */
       #approval-buttons-container {
         display: none;
@@ -3066,9 +3099,9 @@
             class="dropdown-button"
             id="pending-changes-btn"
             style="display: none"
-            title="Pending Changes"
+            title="보류 중인 변경사항"
           >
-            <span id="pending-changes-label">0 Files</span>
+            <span id="pending-changes-label">0개 파일</span>
             <span style="font-size: 10px">›</span>
           </button>
           <!-- Pending Changes Dropdown -->
@@ -3104,7 +3137,7 @@
                 align-items: center;
               "
             >
-              <span id="pending-dropdown-title">Pending Changes</span>
+              <span id="pending-dropdown-title">보류 중인 변경사항</span>
             </div>
             <div
               id="pending-dropdown-content"
@@ -3374,7 +3407,13 @@
         const undoTitle = cascade > 1
           ? `이 턴 포함 ${cascade}개 턴의 변경사항 되돌리기`
           : "이 턴의 모든 변경사항 되돌리기";
-        const fileLabel = `${turnData.totalFiles} file${turnData.totalFiles !== 1 ? "s" : ""} changed`;
+        const createdCount = (turnData.files || []).filter(f => f.isNewFile).length;
+        const modifiedCount = (turnData.files || []).filter(f => !f.isNewFile).length;
+        const fileParts = [
+          createdCount > 0 ? `${createdCount}개 파일 생성됨` : '',
+          modifiedCount > 0 ? `${modifiedCount}개 파일 수정됨` : '',
+        ].filter(Boolean).join(', ');
+        const fileLabel = fileParts || `${turnData.totalFiles}개 파일 변경됨`;
         const fileItems = (turnData.files || []).map(f => {
           const name = f.fileName || f.filePath.split("/").pop() || f.filePath;
           const label = f.isNewFile ? "\u2705 [Created]" : "\u{1F4DD} [Updated]";
@@ -3593,11 +3632,11 @@
 
         const renderDropdownContent = () => {
           dropdownContent.innerHTML = "";
-          dropdownTitle.textContent = `Pending Changes (${pendingFiles.length} files)`;
+          dropdownTitle.textContent = `보류 중인 변경사항 (${pendingFiles.length}개 파일)`;
 
           if (pendingFiles.length === 0) {
             dropdownContent.innerHTML =
-              '<div style="padding: 12px; text-align: center; color: var(--vscode-descriptionForeground); font-size: 12px;">No pending changes</div>';
+              '<div style="padding: 12px; text-align: center; color: var(--vscode-descriptionForeground); font-size: 12px;">보류 중인 변경사항이 없습니다</div>';
             return;
           }
 
@@ -3669,7 +3708,7 @@
 
             if (pendingFiles.length > 0) {
               pendingBtn.style.display = "inline-flex";
-              pendingLabel.textContent = `${pendingFiles.length} File${pendingFiles.length > 1 ? "s" : ""}`;
+              pendingLabel.textContent = `${pendingFiles.length}개 파일`;
             } else {
               pendingBtn.style.display = "none";
               closeDropdown();

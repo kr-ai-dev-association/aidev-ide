@@ -161,6 +161,15 @@ export class InlineDiffManager {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private turnCheckpointStack: TurnCheckpoint[] = []; // oldest-first 순서
 
+    /**
+     * 턴 체크포인트 스택 클리어 (세션 초기화 시 호출)
+     */
+    public clearTurnCheckpointStack(): void {
+        this.turnCheckpointStack = [];
+        this.savePersistedState();
+        console.log('[InlineDiffManager] Turn checkpoint stack cleared');
+    }
+
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 이벤트 (턴 레벨 UI 연동)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

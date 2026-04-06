@@ -2,7 +2,61 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.56**
+> **현재 버전: v1.0.57**
+
+---
+
+## v1.0.57 (2026-04-06)
+
+### 스트리밍 즉시 실행
+
+- **update_file 스트리밍 즉시 실행**: CODE 모드에서 update_file도 즉시 적용
+- **AgentLoopManager 스트리밍 즉시 실행**: AGENT 모드 create_file + update_file 실시간 표시
+- **스트리밍 dedup**: 이미 실행된 파일 post-stream 자동 스킵
+
+### 다음 작업 제안
+
+- **제안 3개로 확대** (2개 → 3개)
+- **`<think>` 태그 처리 + disableThinking + maxTokens 2000**
+
+### 세션 관리
+
+- **clearHistory 개선**: 캐시 일괄 클리어 (ProjectContextCache + ToolSpecBuilder + InlineDiffManager)
+- **세션 복원 수정**: 재시작 시 대화 히스토리 정상 복원
+- **conversationTurnId**: AgentLoopManager Undo Turn cascade 정상 동작
+
+### AutoDream
+
+- **JSON 파싱 강화**: `[project]` 오인 버그 수정
+- **disableThinking 추가**
+
+### 언어 / 프레임워크 지원
+
+- **Next.js / Nuxt.js / Svelte**: 감지 + 스택 + 빌드/포맷
+- **Kotlin**: `.kt` 감지 → Ktor, Spring Boot, Exposed, Koin, Coroutines
+- **Elixir**: `mix.exs` 감지 → Phoenix, Ecto, Absinthe, LiveView
+- **Scala**: `build.sbt` 감지 → Akka, Play, http4s, ZIO, Spark
+- **Angular / PHP / Ruby / Swift**: 스택 감지 보강
+
+### .NET 지원 강화
+
+- **dotnet test 자동 실행** + StackDetector (.csproj 파싱)
+- **토큰 추정**: `.cs`/`.csproj`/`.sln` → 3 bytes/token
+
+### 윈도우 호환성
+
+- **git diff 플랫폼 분기** (`2>nul` 자동 전환)
+- **안전 명령어 확장** (Windows + PowerShell cmdlets)
+
+### SubAgentLoop
+
+- **RAG 프롬프트 강화**: 로컬 파일 아닐 수 있음 명시
+- **spawn_agent processStep**: "실행 중" 상태 표시
+
+### UI / UX
+
+- **파일 변경 요약 중복 제거** + 빈 시스템 메시지 방지
+- **Turn Actions 영문 유지** + sleep 차단 제거
 
 ---
 

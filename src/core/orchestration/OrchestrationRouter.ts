@@ -414,6 +414,27 @@ export class OrchestrationRouter {
             // Save to conversation history
             await OrchestrationRouter.saveToHistory(options, merged, collectedUIMessages, startTime);
 
+            // Prompt Suggestions (설정으로 on/off)
+            const promptSuggestionEnabled = vscode.workspace.getConfiguration('codepilot-standalone')
+                .get<boolean>('promptSuggestion', false);
+            if (promptSuggestionEnabled) {
+                try {
+                    const { PromptSuggestionService } = await import('../managers/suggestion/PromptSuggestionService');
+                    const suggestionService = PromptSuggestionService.getInstance(LLMManager.getInstance());
+                    const suggestions = await suggestionService.generateSuggestions(
+                        options.userQuery || '',
+                        merged.createdFiles,
+                        merged.modifiedFiles,
+                        '',
+                    );
+                    if (suggestions.length > 0) {
+                        webview.postMessage({ command: 'showSuggestions', suggestions });
+                    }
+                } catch (e) {
+                    console.warn('[OrchestrationRouter] Prompt suggestions failed:', e);
+                }
+            }
+
         } catch (error) {
             console.error('[OrchestrationRouter] Orchestration failed, falling back to single loop:', error);
             WebviewBridge.hideLoading(webview);

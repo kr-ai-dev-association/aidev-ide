@@ -123,16 +123,39 @@ export class ConversationService {
 
     /**
      * 히스토리를 초기화합니다
+     * Claude Code /clear 방식: 새 세션 생성 + 모든 캐시 클리어
      */
     public static async clearHistory(promptType: PromptType, extensionContext?: vscode.ExtensionContext): Promise<void> {
         if (!extensionContext) return;
 
         const { SessionManager } = await import('../state/SessionManager');
         const sessionManager = SessionManager.getInstance(extensionContext);
-        
-        // 현재 세션의 대화 히스토리 및 토큰 사용량 초기화
+
+        // 1. 현재 세션의 대화 히스토리 및 토큰 사용량 초기화
         sessionManager.clearConversationHistory();
         sessionManager.resetTokensUsed();
+
+        // 3. ProjectContextCache 클리어 (stale 파일 내용 방지)
+        try {
+            const { ProjectContextCache } = await import('../context/ProjectContextCache');
+            const cache = ProjectContextCache.getInstance();
+            cache.clearAll();
+        } catch { /* not initialized */ }
+
+        // 4. ToolSpecBuilder 캐시 클리어 (이전 Rules 기준 방지)
+        try {
+            const { ToolSpecBuilder } = await import('../../tools/ToolSpecBuilder');
+            ToolSpecBuilder.clearSpecCache();
+        } catch { /* not initialized */ }
+
+        // 5. InlineDiffManager 턴 체크포인트 스택 클리어
+        try {
+            const { InlineDiffManager } = await import('../diff/InlineDiffManager');
+            const diffMgr = InlineDiffManager.getInstance();
+            diffMgr.clearTurnCheckpointStack();
+        } catch { /* not initialized */ }
+
+        console.log('[ConversationService] Session cleared: history + caches flushed');
     }
 }
 
