@@ -2944,6 +2944,7 @@ export function openSettingsPanel(
                 thinkingLevel: await settingsManager.getThinkingLevel(),
                 inlineCompletionEnabled: config.get<boolean>('inlineCompletion', false),
                 promptSuggestionEnabled: config.get<boolean>('promptSuggestion', false),
+                errorReportingEnabled: config.get<boolean>('errorReportingEnabled', false),
                 autoTestRetryEnabled: await settingsManager.isAutoTestRetryEnabled(),
                 testRetryCount: await settingsManager.getTestRetryCount(),
                 autoCorrectionEnabled: await stateManager.getAutoCorrectionEnabled(),
@@ -3035,6 +3036,7 @@ export function openSettingsPanel(
             if (s.thinkingLevel) { await cfgImport.update('thinkingLevel', s.thinkingLevel, vscode.ConfigurationTarget.Global); }
             if (typeof s.inlineCompletionEnabled === 'boolean') { await cfgImport.update('inlineCompletion', s.inlineCompletionEnabled, vscode.ConfigurationTarget.Global); }
             if (typeof s.promptSuggestionEnabled === 'boolean') { await cfgImport.update('promptSuggestion', s.promptSuggestionEnabled, vscode.ConfigurationTarget.Global); }
+            if (typeof s.errorReportingEnabled === 'boolean') { await cfgImport.update('errorReportingEnabled', s.errorReportingEnabled, vscode.ConfigurationTarget.Global); }
             if (typeof s.autoTestRetryEnabled === 'boolean') { await cfgImport.update('autoTestRetryEnabled', s.autoTestRetryEnabled, vscode.ConfigurationTarget.Global); }
             if (typeof s.testRetryCount === 'number') { await cfgImport.update('testRetryCount', s.testRetryCount, vscode.ConfigurationTarget.Global); }
             if (typeof s.autoCorrectionEnabled === 'boolean') { await stateManager.saveAutoCorrectionEnabled(s.autoCorrectionEnabled); }
