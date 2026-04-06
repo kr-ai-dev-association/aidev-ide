@@ -28,8 +28,10 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 
 const MAX_TURNS = 25;
+const MAX_REPAIR_TURNS = 10; // repair agent는 에러 수정만 하므로 짧게
 const MAX_CONSECUTIVE_FAILURES = 3;
 const MAX_READONLY_CONSECUTIVE_TURNS = 4; // If only read-only tools are used for N consecutive turns, nudge write
+const MAX_SAME_FILE_UPDATE_FAILURES = 3; // 같은 파일 연속 N회 실패 시 __done__ 허용
 
 export class SubAgentLoop {
     private llmManager: LLMManager;
@@ -120,7 +122,8 @@ export class SubAgentLoop {
         // thinkingEnabled=false -> always disabled; true -> depends on native admin
         const disableThinking = !this.thinkingEnabled ? true : !isNativeAdmin;
 
-        while (turnCount < MAX_TURNS) {
+        const effectiveMaxTurns = this.isRepairAgent ? MAX_REPAIR_TURNS : MAX_TURNS;
+        while (turnCount < effectiveMaxTurns) {
             if (this.abortSignal?.aborted) {
                 errors.push('Aborted by user');
                 break;
@@ -387,7 +390,13 @@ export class SubAgentLoop {
 
                     // If there are update_file failure records and no successful file writes -> reject __done__, nudge retry
                     // Repair agent also blocks already_done (prevent escape by giving up)
+                    // BUT: if same files failed MAX_SAME_FILE_UPDATE_FAILURES times, allow __done__ to prevent infinite loop
+                    const hasExhaustedRetries = failedUpdateFilePaths.length > 0 && failedUpdateFilePaths.every(fp => {
+                        const count = (this as any)._fileFailureCounts?.get(fp) || 0;
+                        return count >= MAX_SAME_FILE_UPDATE_FAILURES;
+                    });
                     const blockDone = failedUpdateFilePaths.length > 0 && !hasExecutedWriteTools
+                        && !hasExhaustedRetries
                         && (status !== 'already_done' || this.isRepairAgent);
                     if (blockDone) {
                         const paths = failedUpdateFilePaths.join(', ');
@@ -396,6 +405,9 @@ export class SubAgentLoop {
                             text: `[System] Cannot accept __done__ because update_file failed previously (failed files: ${paths}).\nDeclaring completion without modifying files is not allowed.\nRe-read the current content of those files with read_file, then retry update_file with accurate SEARCH blocks.`,
                         });
                         continue;
+                    }
+                    if (hasExhaustedRetries) {
+                        console.warn(`[SubAgentLoop:${this.subtask.id}] __done__ allowed despite failures — max retries (${MAX_SAME_FILE_UPDATE_FAILURES}) exhausted for: ${failedUpdateFilePaths.join(', ')}`);
                     }
 
                     console.log(`[SubAgentLoop:${this.subtask.id}] __done__ signal: status=${status}, summary=${summary.substring(0, 100)}`);
@@ -672,7 +684,12 @@ export class SubAgentLoop {
                         if (!failedUpdateFilePaths.includes(callItem.params.path)) {
                             failedUpdateFilePaths.push(callItem.params.path);
                         }
-                        console.warn(`[SubAgentLoop:${this.subtask.id}] update_file FAILED for: ${callItem.params.path}`);
+                        // Track per-file failure count for exhaustion detection
+                        if (!(this as any)._fileFailureCounts) (this as any)._fileFailureCounts = new Map<string, number>();
+                        const fp = callItem.params.path as string;
+                        const prevCount = (this as any)._fileFailureCounts.get(fp) || 0;
+                        (this as any)._fileFailureCounts.set(fp, prevCount + 1);
+                        console.warn(`[SubAgentLoop:${this.subtask.id}] update_file FAILED for: ${fp} (attempt ${prevCount + 1}/${MAX_SAME_FILE_UPDATE_FAILURES})`);
                     }
                 }
 
@@ -791,7 +808,14 @@ export class SubAgentLoop {
                             .filter(({ call, result }) => call.name === 'update_file' && !result?.success);
                         // Also reject if there are failures from previous turns with no write success yet
                         const hasAccumulatedFailures = failedUpdateFilePaths.length > 0 && !hasExecutedWriteTools;
-                        if (currentTurnUpdateFailures.length > 0 || hasAccumulatedFailures) {
+
+                        // Check if max retries exhausted for all failed files
+                        const allRetriesExhausted = failedUpdateFilePaths.length > 0 && failedUpdateFilePaths.every(fp => {
+                            const count = (this as any)._fileFailureCounts?.get(fp) || 0;
+                            return count >= MAX_SAME_FILE_UPDATE_FAILURES;
+                        });
+
+                        if ((currentTurnUpdateFailures.length > 0 || hasAccumulatedFailures) && !allRetriesExhausted) {
                             const failedPaths = currentTurnUpdateFailures.length > 0
                                 ? currentTurnUpdateFailures.map(({ call }) => call.params.path || '?').join(', ')
                                 : failedUpdateFilePaths.join(', ');
@@ -800,6 +824,9 @@ export class SubAgentLoop {
                                 text: `[System] Cannot accept __done__ because update_file failed (failed files: ${failedPaths}).\nThe file content is already provided above. Do NOT call read_file again. Use the provided file content to retry update_file with accurate SEARCH blocks to complete the modification.`,
                             });
                             continue;
+                        }
+                        if (allRetriesExhausted) {
+                            console.warn(`[SubAgentLoop:${this.subtask.id}] __done__ allowed despite failures — max retries exhausted`);
                         }
                     }
 

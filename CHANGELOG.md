@@ -8,6 +8,12 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ## v1.0.58 (2026-04-06)
 
+### repair agent 무한 루프 방지
+
+- **repair agent MAX_TURNS**: 25턴 → **10턴**
+- **연속 실패 탈출**: 같은 파일 3회 연속 실패 시 `__done__` 강제 허용
+- **파일별 실패 카운트 추적**: 로그에 `(attempt N/3)` 표시
+
 ### 에러 복구 인프라 (공용)
 
 - **reactive-compact**: context overflow (400/413) 시 압축 후 재시도
