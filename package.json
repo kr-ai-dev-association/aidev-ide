@@ -2,7 +2,7 @@
   "name": "codepilot",
   "displayName": "codepilot",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "1.0.56",
+  "version": "1.0.57",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -349,6 +349,12 @@
           "type": "boolean",
           "default": false,
           "description": "소스코드 인라인 자동완성(Ghost Text)을 활성화합니다. 입력 중 AI가 코드를 자동 완성합니다. Tab 키로 수락합니다.",
+          "scope": "resource"
+        },
+        "codepilot.promptSuggestion": {
+          "type": "boolean",
+          "default": false,
+          "description": "다음 작업 제안을 활성화합니다. 작업 완료 후 후속 작업을 버튼으로 제안합니다. 활성화 시 LLM 호출이 1회 추가됩니다.",
           "scope": "resource"
         },
         "codepilot.chatTheme": {

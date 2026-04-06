@@ -119,12 +119,12 @@ export function displayUserMessage(text, imageData, chatMessages, scrollToUserMe
  * @param {Object} sanitizeOptions - 살균 옵션
  */
 export function displaySystemMessage(text, chatMessages, isLightTheme = false, sanitizeHtmlFn = null, sanitizeOptions = null) {
-  if (!chatMessages) return null;
+  if (!chatMessages || !text || !text.trim()) return null;
 
   // 🔥 파일 내용이 포함된 긴 메시지 필터링
-  let displayText = text;
-  if (text.includes("[Updated]") || text.includes("[Created]") || text.includes("[Modified]")) {
-    const firstLine = text.split("\n")[0];
+  let displayText = text.trim();
+  if (displayText.includes("[Updated]") || displayText.includes("[Created]") || displayText.includes("[Modified]")) {
+    const firstLine = displayText.split("\n")[0].trim();
     displayText = firstLine.length > 200 ? firstLine.substring(0, 200) + "..." : firstLine;
   }
 
@@ -132,6 +132,9 @@ export function displaySystemMessage(text, chatMessages, isLightTheme = false, s
   if (displayText.length > 500) {
     displayText = displayText.substring(0, 500) + "...";
   }
+
+  // displayText가 비어있으면 렌더링하지 않음
+  if (!displayText) return null;
 
   const systemMessageElement = document.createElement("div");
   systemMessageElement.classList.add("system-message");

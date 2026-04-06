@@ -140,6 +140,10 @@ export function estimateTokensForFile(content: string, filePath?: string): numbe
             case 'txt':
             case 'csv':
                 return 5; // Natural language / data
+            case 'cs':
+            case 'csproj':
+            case 'sln':
+                return 3; // C# verbose syntax (namespaces, attributes, XML in csproj)
             default:
                 return 4; // Source code default
         }

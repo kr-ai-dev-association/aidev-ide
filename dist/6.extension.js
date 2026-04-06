@@ -109,11 +109,22 @@ Rules:
 
 Current memories:
 ${currentMemories}`;
-            const response = await this.llmManager.sendMessageWithSystemPrompt('You are a JSON-only assistant. Output only valid JSON arrays.', [{ text: consolidationPrompt }], { maxTokens: this.config.maxConsolidationTokens, retry: { querySource: 'background' } });
-            // Parse actions
-            const jsonMatch = response.match(/\[[\s\S]*\]/);
+            const response = await this.llmManager.sendMessageWithSystemPrompt('You are a JSON-only assistant. Output only valid JSON arrays. No thinking, no explanation.', [{ text: consolidationPrompt }], { maxTokens: this.config.maxConsolidationTokens, disableThinking: true, retry: { querySource: 'background' } });
+            // Strip <think> tags and extract JSON array containing objects with "action" key
+            const cleaned = response
+                .replace(/<think>[\s\S]*?<\/think>/gi, '')
+                .replace(/<think>[\s\S]*/gi, '')
+                .trim();
+            const searchText = cleaned || response;
+            // Match JSON array containing objects (must start with [{ to avoid matching [project] etc.)
+            const jsonMatch = searchText.match(/\[\s*\{[\s\S]*\}\s*\]/);
             if (!jsonMatch) {
-                console.log('[AutoDreamService] No valid JSON in response');
+                // Also try empty array
+                if (searchText.includes('[]')) {
+                    console.log('[AutoDreamService] No consolidation actions needed (empty array)');
+                    return;
+                }
+                console.log(`[AutoDreamService] No valid JSON in response: ${response.substring(0, 100)}`);
                 return;
             }
             const actions = JSON.parse(jsonMatch[0]);

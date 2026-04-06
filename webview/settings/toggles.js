@@ -153,6 +153,17 @@ export function bindToggleEvents(elements) {
       }
     });
   }
+
+  // 다음 작업 제안 토글
+  const promptSuggestionToggle = document.getElementById("prompt-suggestion-toggle");
+  if (promptSuggestionToggle) {
+    promptSuggestionToggle.addEventListener("change", () => {
+      const enabled = promptSuggestionToggle.checked;
+      if (vscode) {
+        vscode.postMessage({ command: "setPromptSuggestionEnabled", enabled });
+      }
+    });
+  }
 }
 
 /**

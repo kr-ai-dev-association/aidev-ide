@@ -1522,15 +1522,16 @@
             </div>
 
             <div class="section-container">
-              <h2>설정 내보내기 / 가져오기</h2>
-              <p class="info-message">
-                현재 설정을 JSON 파일로 내보내거나, 이전에 내보낸 파일에서 설정을 가져올 수 있습니다.
-              </p>
-              <div style="display: flex; gap: 10px; margin-top: 10px">
-                <button id="export-settings-btn" type="button">설정 내보내기</button>
-                <button id="import-settings-btn" type="button" style="background-color: #6b7280">설정 가져오기</button>
+              <h2>다음 작업 제안</h2>
+              <div class="toggle-switch-container" style="margin-bottom: 8px">
+                <input type="checkbox" id="prompt-suggestion-toggle" />
+                <label for="prompt-suggestion-toggle">Toggle</label>
               </div>
-              <p id="settings-io-status" class="info-message" style="margin-top: 10px"></p>
+              <p id="prompt-suggestion-status" class="info-message"></p>
+              <p class="info-message">
+                작업 완료 후 후속 작업을 버튼으로 제안합니다.
+                활성화 시 매 작업 완료마다 LLM 호출이 1회 추가됩니다.
+              </p>
             </div>
 
             <div class="section-container" id="error-report-section" style="display:none;">
@@ -1543,6 +1544,18 @@
                 <label for="error-reporting-toggle">Toggle</label>
               </div>
               <p id="error-reporting-status" class="info-message"></p>
+            </div>
+
+            <div class="section-container">
+              <h2>설정 내보내기 / 가져오기</h2>
+              <p class="info-message">
+                현재 설정을 JSON 파일로 내보내거나, 이전에 내보낸 파일에서 설정을 가져올 수 있습니다.
+              </p>
+              <div style="display: flex; gap: 10px; margin-top: 10px">
+                <button id="export-settings-btn" type="button">설정 내보내기</button>
+                <button id="import-settings-btn" type="button" style="background-color: #6b7280">설정 가져오기</button>
+              </div>
+              <p id="settings-io-status" class="info-message" style="margin-top: 10px"></p>
             </div>
 
           </div><!-- /tab-general -->

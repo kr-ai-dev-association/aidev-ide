@@ -936,6 +936,9 @@ export class TestRunner {
     const manifestMap: Record<string, string[]> = {
       [ProjectType.NODE]: ['package.json'],
       [ProjectType.REACT]: ['package.json'],
+      [ProjectType.NEXTJS]: ['package.json'],
+      [ProjectType.NUXTJS]: ['package.json'],
+      [ProjectType.SVELTE]: ['package.json'],
       [ProjectType.VUE]: ['package.json'],
       [ProjectType.ANGULAR]: ['package.json'],
       [ProjectType.PYTHON]: ['requirements.txt', 'pyproject.toml', 'Pipfile'],
@@ -950,6 +953,9 @@ export class TestRunner {
       [ProjectType.RUBY]: ['Gemfile'],
       [ProjectType.PHP]: ['composer.json'],
       [ProjectType.CSHARP]: ['*.csproj', '*.sln'],
+      [ProjectType.KOTLIN]: ['build.gradle', 'build.gradle.kts'],
+      [ProjectType.ELIXIR]: ['mix.exs'],
+      [ProjectType.SCALA]: ['build.sbt'],
       [ProjectType.SWIFT]: ['Package.swift'],
       [ProjectType.FLUTTER]: ['pubspec.yaml'],
     };

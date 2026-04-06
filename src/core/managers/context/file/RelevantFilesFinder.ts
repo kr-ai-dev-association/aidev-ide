@@ -276,7 +276,8 @@ export class RelevantFilesFinder {
       // 최근 git 변경 파일 (git diff --name-only)
       try {
         const { execSync } = require('child_process');
-        const diffOutput = execSync('git diff --name-only HEAD 2>/dev/null || true', {
+        const nullDev = process.platform === 'win32' ? '2>nul' : '2>/dev/null';
+        const diffOutput = execSync(`git diff --name-only HEAD ${nullDev}`, {
           cwd: projectRoot,
           encoding: 'utf8',
           timeout: 3000,

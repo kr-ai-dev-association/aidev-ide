@@ -95,6 +95,8 @@ export class AgentLoopManager {
     const executionManager = ExecutionManager.getInstance();
     const terminalManager = TerminalManager.getInstance();
     const toolExecutor = new ToolExecutor();
+    const currentProject = ProjectManager.getInstance().getCurrentProject();
+    const workspaceRoot = currentProject?.root || "";
     const usageMetrics = UsageMetricsManager.getInstance();
 
     // Settings
@@ -108,6 +110,10 @@ export class AgentLoopManager {
     txnMgr.beginTransaction();
 
     console.log(`[AgentLoopManager] Starting autonomous loop`);
+
+    // Streaming pre-execution tracking (persists across turns)
+    const streamingCreatedPaths = new Set<string>();
+    const streamingUpdatedPaths = new Set<string>();
 
     try {
     // ─── Main Loop ───
@@ -207,16 +213,18 @@ export class AgentLoopManager {
           : false;
         if (isNativeEnabled) {
           const modelType = this.llmManager.getCurrentModel();
+          // AGENT 모드: 모든 도구 포함 (AGENT 전용 도구 포함)
+          const allTools = Object.values(Tool) as Tool[];
           if (modelType === AiModelType.ADMIN) {
             const adminConfig = this.llmManager.getAdminModelConfig();
             const nativeSupported = adminConfig?.nativeToolCallingSupported === true || String(adminConfig?.nativeToolCallingSupported) === 'true';
             if (nativeSupported) {
-              nativeToolsForCall = ToolSpecBuilder.buildOpenAIToolsConfig();
+              nativeToolsForCall = ToolSpecBuilder.buildOpenAIToolsConfig(allTools);
               console.log(`[AgentLoopManager] Native tool calling enabled: ${adminConfig?.model}`);
             }
           }
           if (modelType === AiModelType.OLLAMA) {
-            nativeToolsForCall = ToolSpecBuilder.buildOpenAIToolsConfig();
+            nativeToolsForCall = ToolSpecBuilder.buildOpenAIToolsConfig(allTools);
             console.log(`[AgentLoopManager] Native tool calling enabled for Ollama`);
           }
         }
@@ -228,8 +236,73 @@ export class AgentLoopManager {
 
       if (isStreamingEnabled) {
         let accumulatedResponse = "";
+        let streamLastFileContentPos = 0;
+        const FILE_END_MARKER = '</file_content>';
+        const streamingHandledPaths = new Set<string>();
+        let streamingFileOpPromise = Promise.resolve();
+
+        // Streaming pre-execution: create_file/update_file 즉시 실행
+        const executeStreamingFileOp = (path: string, capturedCall: ToolUse, isUpdate: boolean) => {
+          const trackingSet = isUpdate ? streamingUpdatedPaths : streamingCreatedPaths;
+          trackingSet.add(path);
+
+          streamingFileOpPromise = streamingFileOpPromise.then(async () => {
+            if (abortSignal?.aborted) return;
+            const streamCtx: ToolExecutionContext = {
+              projectRoot: workspaceRoot, workspaceRoot, actionManager, executionManager,
+              terminalManager, contextManager: this.contextManager, conversationTurnId,
+            };
+            try {
+              const results = await toolExecutor.executeTools([capturedCall], streamCtx);
+              if (results[0]?.success) {
+                const p = capturedCall.params.path as string;
+                trackingSet.add(p);
+                if (isUpdate) {
+                  if (!modifiedFiles.includes(p)) modifiedFiles.push(p);
+                } else {
+                  if (!createdFiles.includes(p) && !modifiedFiles.includes(p)) createdFiles.push(p);
+                }
+                ToolExecutionCoordinator.sendSingleToolResultToUI(webviewToRespond, capturedCall, results[0]);
+              }
+            } catch (e) { /* streaming pre-exec failure is non-fatal */ }
+          });
+        };
+
+        // Native tool complete callback
+        const onNativeToolComplete = (toolName: string, args: Record<string, any>) => {
+          if ((toolName !== 'create_file' && toolName !== 'update_file') || !args.path) return;
+          const p = args.path as string;
+          const isUpdate = toolName === 'update_file';
+          const trackingSet = isUpdate ? streamingUpdatedPaths : streamingCreatedPaths;
+          const handledKey = `${toolName}:${p}`;
+          if (trackingSet.has(p) || streamingHandledPaths.has(handledKey)) return;
+          const capturedCall: ToolUse = { name: toolName, params: { ...args } };
+          executeStreamingFileOp(p, capturedCall, isUpdate);
+        };
+
         const onChunk = (chunk: string, done: boolean) => {
           accumulatedResponse += chunk;
+          // FILE_END_MARKER 기반 스트리밍 즉시 실행
+          let endIdx = accumulatedResponse.indexOf(FILE_END_MARKER, streamLastFileContentPos);
+          while (endIdx !== -1) {
+            const segmentEnd = endIdx + FILE_END_MARKER.length;
+            const segment = accumulatedResponse.substring(0, segmentEnd);
+            streamLastFileContentPos = segmentEnd;
+            try {
+              const segCalls = ToolParser.parseCodeBlockFormat(segment, []);
+              for (const call of segCalls) {
+                if ((call.name === 'create_file' || call.name === 'update_file') && call.params.path) {
+                  const p = call.params.path as string;
+                  const isUpdate = call.name === 'update_file';
+                  const trackingSet = isUpdate ? streamingUpdatedPaths : streamingCreatedPaths;
+                  if (!trackingSet.has(p) && !streamingHandledPaths.has(`${call.name}:${p}`)) {
+                    executeStreamingFileOp(p, call, isUpdate);
+                  }
+                }
+              }
+            } catch { /* parse error during streaming is expected */ }
+            endIdx = accumulatedResponse.indexOf(FILE_END_MARKER, streamLastFileContentPos);
+          }
           // Show token count periodically
           if (accumulatedResponse.length % 500 < chunk.length) {
             const tokens = estimateTokens(accumulatedResponse);
@@ -245,12 +318,15 @@ export class AgentLoopManager {
           {
             signal: abortSignal,
             nativeTools: nativeToolsForCall,
+            onNativeToolComplete,
             thinkingLevel,
             onRetryNotify: (attempt, message) => {
               WebviewBridge.sendProcessingStatus(webviewToRespond, 'retrying', message);
             },
           },
         );
+        // Wait for all streaming pre-executions to complete
+        await streamingFileOpPromise;
       } else {
         llmResponse = await this.llmManager.sendMessageWithSystemPrompt(
           activeSystemPrompt,
@@ -296,8 +372,22 @@ export class AgentLoopManager {
       const toolParseWarnings: string[] = [];
       const toolCalls = ToolParser.parseToolCalls(llmResponse, toolParseWarnings);
 
-      // Filter out __done__ (SubAgentLoop-only sentinel)
-      const filteredToolCalls = toolCalls.filter(c => c.name !== '__done__');
+      // Filter out __done__ + streaming pre-executed tools
+      const filteredToolCalls = toolCalls.filter(c => {
+        if (c.name === '__done__') return false;
+        if ((c.name === 'create_file' || c.name === 'update_file') && c.params.path) {
+          const p = c.params.path as string;
+          if (c.name === 'create_file' && streamingCreatedPaths.has(p)) {
+            console.log(`[AgentLoopManager] Streaming-pre-executed create_file skipped: ${p}`);
+            return false;
+          }
+          if (c.name === 'update_file' && streamingUpdatedPaths.has(p)) {
+            console.log(`[AgentLoopManager] Streaming-pre-executed update_file skipped: ${p}`);
+            return false;
+          }
+        }
+        return true;
+      });
 
       // 14. Handle unknown tool warnings
       const unknownToolWarnings = toolParseWarnings.filter(w => w.startsWith('알 수 없는 도구:'));
@@ -356,18 +446,8 @@ export class AgentLoopManager {
         accumulatedUserParts.push({ text: llmResponse });
         accumulatedUserParts.push({ text: resultSummary });
 
-        // Also show any accompanying text to user
-        const textResponse = this.responseProcessor.extractResponseText(cleanResponse);
-        if (textResponse && textResponse.trim()) {
-          // Extract text without tool call JSON
-          const textOnly = textResponse
-            .replace(/\{\s*["']tool["']\s*:[\s\S]*?\}/g, '')
-            .replace(/<file_content>[\s\S]*?<\/file_content>/g, '')
-            .trim();
-          if (textOnly) {
-            await WebviewBridge.streamText(webviewToRespond, "CODEPILOT", textOnly);
-          }
-        }
+        // tool call이 있는 턴에서는 텍스트 표시 안 함
+        // 도구 실행 결과는 sendSingleToolResultToUI로 이미 표시됨
 
         turnCount++;
         continue;
@@ -397,6 +477,7 @@ export class AgentLoopManager {
       console.log(`[AgentLoopManager] Turn ${turnCount + 1}: Text-only response, no workers → task completed`);
       if (textResponse.trim()) {
         await WebviewBridge.streamText(webviewToRespond, "CODEPILOT", textResponse);
+        collectedUIMessages.push({ sender: "CODEPILOT", text: textResponse, type: "summary" });
       }
 
       // Send reference info (RAG, Rules, Skills)
@@ -413,18 +494,7 @@ export class AgentLoopManager {
         console.warn('[AgentLoopManager] Failed to send reference info:', e);
       }
 
-      // Send file change summary
-      if (createdFiles.length > 0 || modifiedFiles.length > 0) {
-        const fileChangeSummary = [
-          ...createdFiles.map(f => `✅ [Created] ${f}`),
-          ...modifiedFiles.map(f => `📝 [Updated] ${f}`),
-        ].join('\n');
-        webviewToRespond.postMessage({
-          command: 'receiveMessage',
-          sender: 'System',
-          text: `\n${createdFiles.length + modifiedFiles.length} files changed\n${fileChangeSummary}`,
-        });
-      }
+      // 파일 변경 요약 제거 — Turn Actions(Undo/Keep)에서 이미 동일 정보 표시
 
       break;
     }
@@ -616,6 +686,7 @@ export class AgentLoopManager {
       executionManager,
       terminalManager,
       contextManager: this.contextManager,
+      conversationTurnId,
     };
 
     let toolResults: ToolResponse[] = [];
@@ -667,7 +738,8 @@ export class AgentLoopManager {
 
         // Send tool result to UI (skip work_plan — displayed in task queue only)
         if (call.name !== Tool.WORK_PLAN) {
-          ToolExecutionCoordinator.sendSingleToolResultToUI(webview, call, result);
+          const uiMsgs = ToolExecutionCoordinator.sendSingleToolResultToUI(webview, call, result);
+          collectedUIMessages.push(...uiMsgs);
         }
       }
     }

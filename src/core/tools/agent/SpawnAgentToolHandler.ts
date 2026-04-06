@@ -137,6 +137,7 @@ export class SpawnAgentToolHandler implements IToolHandler {
         } else {
             // Sync execution: run and wait for result
             if (context.webview) {
+                WebviewBridge.sendProcessingStep(context.webview, 'executing');
                 WebviewBridge.sendProcessingStatus(context.webview, 'executing', `에이전트 "${description}" 실행 중...`);
             }
 

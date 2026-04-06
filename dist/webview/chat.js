@@ -23059,12 +23059,12 @@ function displayUserMessage(text, imageData, chatMessages, scrollToUserMessageFn
  * @param {Object} sanitizeOptions - 살균 옵션
  */
 function displaySystemMessage(text, chatMessages, isLightTheme = false, sanitizeHtmlFn = null, sanitizeOptions = null) {
-  if (!chatMessages) return null;
+  if (!chatMessages || !text || !text.trim()) return null;
 
   // 🔥 파일 내용이 포함된 긴 메시지 필터링
-  let displayText = text;
-  if (text.includes("[Updated]") || text.includes("[Created]") || text.includes("[Modified]")) {
-    const firstLine = text.split("\n")[0];
+  let displayText = text.trim();
+  if (displayText.includes("[Updated]") || displayText.includes("[Created]") || displayText.includes("[Modified]")) {
+    const firstLine = displayText.split("\n")[0].trim();
     displayText = firstLine.length > 200 ? firstLine.substring(0, 200) + "..." : firstLine;
   }
 
@@ -23072,6 +23072,9 @@ function displaySystemMessage(text, chatMessages, isLightTheme = false, sanitize
   if (displayText.length > 500) {
     displayText = displayText.substring(0, 500) + "...";
   }
+
+  // displayText가 비어있으면 렌더링하지 않음
+  if (!displayText) return null;
   const systemMessageElement = document.createElement("div");
   systemMessageElement.classList.add("system-message");
 
@@ -26766,33 +26769,27 @@ function renderSuggestions(suggestions) {
   if (!suggestions || suggestions.length === 0) return;
   const container = document.createElement('div');
   container.className = 'suggestion-container';
-  container.style.cssText = 'display: flex; gap: 8px; flex-wrap: wrap; padding: 8px 16px; margin-top: 4px;';
+  const label = document.createElement('div');
+  label.className = 'suggestion-label';
+  label.textContent = '다음 작업 제안';
+  container.appendChild(label);
+  const optionsDiv = document.createElement('div');
+  optionsDiv.className = 'suggestion-options';
   suggestions.forEach(s => {
     const btn = document.createElement('button');
     btn.className = 'suggestion-btn';
     btn.textContent = s.text;
     btn.title = s.prompt;
-    btn.style.cssText = 'background: var(--vscode-button-secondaryBackground, #3a3d41); color: var(--vscode-button-secondaryForeground, #cccccc); border: 1px solid var(--vscode-panel-border, #404040); border-radius: 12px; padding: 4px 12px; font-size: 11px; cursor: pointer; white-space: nowrap;';
     btn.addEventListener('click', () => {
-      // Remove suggestions
       container.remove();
-      // Set input and send
-      const input = document.getElementById('chat-input');
-      if (input) {
-        input.value = s.prompt;
-        // Trigger send
-        const sendBtn = document.getElementById('send-button');
-        if (sendBtn) sendBtn.click();
+      if (chatInput) {
+        chatInput.textContent = s.prompt;
+        handleSendMessage();
       }
     });
-    btn.addEventListener('mouseenter', () => {
-      btn.style.background = 'var(--vscode-button-hoverBackground, #505357)';
-    });
-    btn.addEventListener('mouseleave', () => {
-      btn.style.background = 'var(--vscode-button-secondaryBackground, #3a3d41)';
-    });
-    container.appendChild(btn);
+    optionsDiv.appendChild(btn);
   });
+  container.appendChild(optionsDiv);
 
   // Insert at end of chat messages
   const chatMessages = document.getElementById('chat-messages');

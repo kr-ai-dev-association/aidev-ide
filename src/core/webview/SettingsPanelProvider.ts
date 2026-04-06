@@ -145,6 +145,8 @@ export function openSettingsPanel(
             const subagentApiKeySet = await stateManager.hasSubagentApiKey();
             const inlineCompletionEnabled = vscode.workspace.getConfiguration('codepilot')
               .get<boolean>('inlineCompletion', false);
+            const promptSuggestionEnabled = vscode.workspace.getConfiguration('codepilot')
+              .get<boolean>('promptSuggestion', false);
 
             // duplicate removed
             const messageToSend = {
@@ -192,6 +194,7 @@ export function openSettingsPanel(
               subagentModelName: subagentModelName || "",
               subagentApiKeySet: subagentApiKeySet,
               inlineCompletionEnabled: inlineCompletionEnabled,
+              promptSuggestionEnabled: promptSuggestionEnabled,
               chatTheme: chatTheme,
               extensionVersion: extensionVersion,
               personalBuildTestSettings: context.globalState.get<any[]>('personalBuildTestSettings', []),
@@ -874,6 +877,19 @@ export function openSettingsPanel(
             }
           } catch (error: any) {
             safePostMessage(panel, { command: "inlineCompletionEnabledSetError", error: error.message });
+          }
+          break;
+
+        case "setPromptSuggestionEnabled": // 다음 작업 제안 ON/OFF
+          try {
+            const promptSuggestionVal = data.enabled;
+            if (typeof promptSuggestionVal === "boolean") {
+              await vscode.workspace.getConfiguration('codepilot')
+                .update('promptSuggestion', promptSuggestionVal, vscode.ConfigurationTarget.Global);
+              safePostMessage(panel, { command: "promptSuggestionEnabledSet" });
+            }
+          } catch (error: any) {
+            safePostMessage(panel, { command: "promptSuggestionEnabledSetError", error: error.message });
           }
           break;
 
@@ -2927,6 +2943,7 @@ export function openSettingsPanel(
                 thinkingEnabled: await settingsManager.isThinkingEnabled(),
                 thinkingLevel: await settingsManager.getThinkingLevel(),
                 inlineCompletionEnabled: config.get<boolean>('inlineCompletion', false),
+                promptSuggestionEnabled: config.get<boolean>('promptSuggestion', false),
                 autoTestRetryEnabled: await settingsManager.isAutoTestRetryEnabled(),
                 testRetryCount: await settingsManager.getTestRetryCount(),
                 autoCorrectionEnabled: await stateManager.getAutoCorrectionEnabled(),
@@ -3017,6 +3034,7 @@ export function openSettingsPanel(
             if (typeof s.thinkingEnabled === 'boolean') { await cfgImport.update('thinkingEnabled', s.thinkingEnabled, vscode.ConfigurationTarget.Global); }
             if (s.thinkingLevel) { await cfgImport.update('thinkingLevel', s.thinkingLevel, vscode.ConfigurationTarget.Global); }
             if (typeof s.inlineCompletionEnabled === 'boolean') { await cfgImport.update('inlineCompletion', s.inlineCompletionEnabled, vscode.ConfigurationTarget.Global); }
+            if (typeof s.promptSuggestionEnabled === 'boolean') { await cfgImport.update('promptSuggestion', s.promptSuggestionEnabled, vscode.ConfigurationTarget.Global); }
             if (typeof s.autoTestRetryEnabled === 'boolean') { await cfgImport.update('autoTestRetryEnabled', s.autoTestRetryEnabled, vscode.ConfigurationTarget.Global); }
             if (typeof s.testRetryCount === 'number') { await cfgImport.update('testRetryCount', s.testRetryCount, vscode.ConfigurationTarget.Global); }
             if (typeof s.autoCorrectionEnabled === 'boolean') { await stateManager.saveAutoCorrectionEnabled(s.autoCorrectionEnabled); }

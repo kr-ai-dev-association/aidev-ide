@@ -7,7 +7,7 @@
  * - buildToolPromptSectionJson(): JSON-based tool calling prompt
  */
 
-import { ToolSpec, Tool, ToolName } from './types';
+import { ToolSpec, Tool, ToolName, AGENT_ONLY_TOOLS } from './types';
 import { buildToolPromptSection } from '../managers/context/prompts/tools';
 import { ToolRegistry } from './ToolRegistry';
 import { MCPToolHandler } from './mcp/MCPToolHandler';
@@ -286,8 +286,8 @@ export class ToolSpecBuilder {
             });
         }
 
-        // work_plan - AGENT mode task planning (AGENT mode only)
-        if (!allowedTools || allowedTools.includes(Tool.WORK_PLAN)) {
+        // work_plan - AGENT mode task planning (AGENT mode only — allowedTools에 명시적으로 포함된 경우에만)
+        if (allowedTools?.includes(Tool.WORK_PLAN)) {
             specs.push({
                 name: Tool.WORK_PLAN,
                 description: 'Create or update a work plan for complex tasks. Use when a task involves 3+ files or multiple steps. Each call REPLACES the entire plan — always include all tasks with their current status. The plan is displayed in the task queue UI.',
@@ -297,8 +297,8 @@ export class ToolSpecBuilder {
             });
         }
 
-        // spawn_agent - Spawn worker sub-agent (AGENT mode only)
-        if (!allowedTools || allowedTools.includes(Tool.SPAWN_AGENT)) {
+        // spawn_agent - Spawn worker sub-agent (AGENT mode only — allowedTools에 명시적으로 포함된 경우에만)
+        if (allowedTools?.includes(Tool.SPAWN_AGENT)) {
             specs.push({
                 name: Tool.SPAWN_AGENT,
                 description: 'Spawn a worker agent to handle a sub-task independently. Use for complex tasks that can be parallelized (e.g., frontend + backend, multiple independent features). The worker has full tool access and runs its own loop. Use run_in_background=true for parallel execution.',
@@ -310,8 +310,8 @@ export class ToolSpecBuilder {
             });
         }
 
-        // stop_agent - Stop a running background worker (AGENT mode only)
-        if (!allowedTools || allowedTools.includes(Tool.STOP_AGENT)) {
+        // stop_agent - Stop a running background worker (AGENT mode only — allowedTools에 명시적으로 포함된 경우에만)
+        if (allowedTools?.includes(Tool.STOP_AGENT)) {
             specs.push({
                 name: Tool.STOP_AGENT,
                 description: 'Stop a running background worker agent. Use when a worker is no longer needed or taking too long.',

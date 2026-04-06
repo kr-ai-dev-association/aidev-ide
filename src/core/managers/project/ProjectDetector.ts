@@ -184,6 +184,20 @@ export class ProjectDetector {
             buildTool: BuildTool.CMAKE,
             confidence: 0.9
         },
+        // Elixir
+        {
+            files: ['mix.exs'],
+            type: ProjectType.ELIXIR,
+            buildTool: BuildTool.UNKNOWN,
+            confidence: 0.9
+        },
+        // Scala
+        {
+            files: ['build.sbt'],
+            type: ProjectType.SCALA,
+            buildTool: BuildTool.UNKNOWN,
+            confidence: 0.9
+        },
         // Python (명시적 의존성 파일이 있는 경우만)
         {
             files: ['requirements.txt', 'pyproject.toml', 'Pipfile', 'setup.py'],
@@ -250,6 +264,34 @@ export class ProjectDetector {
                 }>(packageJsonPath);
 
                 if (packageJson) {
+                    // Next.js (React보다 먼저 체크 — next도 react 의존성을 가짐)
+                    if (packageJson.dependencies?.next || packageJson.devDependencies?.next) {
+                        return {
+                            type: ProjectType.NEXTJS,
+                            confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.DEPENDENCY_BASED,
+                            buildTool: await this.detectBuildToolAsync(projectRoot)
+                        };
+                    }
+
+                    // Nuxt.js (Vue보다 먼저 체크 — nuxt도 vue 의존성을 가짐)
+                    if (packageJson.dependencies?.nuxt || packageJson.devDependencies?.nuxt) {
+                        return {
+                            type: ProjectType.NUXTJS,
+                            confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.DEPENDENCY_BASED,
+                            buildTool: await this.detectBuildToolAsync(projectRoot)
+                        };
+                    }
+
+                    // Svelte / SvelteKit
+                    if (packageJson.dependencies?.svelte || packageJson.devDependencies?.svelte ||
+                        packageJson.dependencies?.['@sveltejs/kit'] || packageJson.devDependencies?.['@sveltejs/kit']) {
+                        return {
+                            type: ProjectType.SVELTE,
+                            confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.DEPENDENCY_BASED,
+                            buildTool: await this.detectBuildToolAsync(projectRoot)
+                        };
+                    }
+
                     // React Native (React보다 먼저 체크 — react-native도 react 의존성을 가짐)
                     if (packageJson.dependencies?.['react-native'] || packageJson.devDependencies?.['react-native']) {
                         return {
@@ -372,6 +414,16 @@ export class ProjectDetector {
                         type: ProjectType.CSHARP,
                         confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
                         buildTool: BuildTool.DOTNET
+                    };
+                }
+
+                // Kotlin (build.gradle.kts + .kt 파일 — Android가 아닌 경우)
+                const ktFiles = files.filter(f => f.endsWith('.kt') || f.endsWith('.kts'));
+                if (ktFiles.length > 0 && !files.some(f => f === 'AndroidManifest.xml')) {
+                    return {
+                        type: ProjectType.KOTLIN,
+                        confidence: AgentConfig.PROJECT_TYPE_CONFIDENCE.FILE_BASED,
+                        buildTool: BuildTool.GRADLE
                     };
                 }
 
@@ -574,6 +626,9 @@ export class ProjectDetector {
         switch (projectType) {
             case ProjectType.TYPESCRIPT:
             case ProjectType.REACT:
+            case ProjectType.NEXTJS:
+            case ProjectType.NUXTJS:
+            case ProjectType.SVELTE:
             case ProjectType.VUE:
             case ProjectType.ANGULAR:
             case ProjectType.NODE:
@@ -770,8 +825,22 @@ export class ProjectDetector {
                 }
                 return null;
 
-            case ProjectType.CSHARP:
+            case ProjectType.CSHARP: {
+                // .NET: dotnet build (빌드 검증) — 테스트 프로젝트가 있으면 dotnet test
+                const slnFiles = allFiles.filter(f => f.endsWith('.sln'));
+                const csprojFiles = allFiles.filter(f => f.endsWith('.csproj'));
+                const hasTestProject = csprojFiles.some(f =>
+                    f.includes('.Tests') || f.includes('.Test') || f.includes('Test.')
+                ) || fs.existsSync(path.join(projectRoot, '**/*.Tests.csproj'));
+
+                if (hasTestProject) {
+                    return { command: 'dotnet test --no-restore --verbosity quiet', description: '.NET 테스트 실행' };
+                }
+                if (slnFiles.length > 0) {
+                    return { command: 'dotnet build --no-restore', description: '.NET 솔루션 빌드' };
+                }
                 return { command: 'dotnet build', description: '.NET 빌드 검사' };
+            }
 
             case ProjectType.RUBY:
                 // Ruby 확장 검증 옵션
@@ -814,6 +883,21 @@ export class ProjectDetector {
 
             case ProjectType.C_CPP:
                 return { command: 'cmake -S . -B build && cmake --build build', description: 'C/C++ CMake 빌드 검사' };
+
+            case ProjectType.KOTLIN: {
+                const isWinKt = process.platform === 'win32';
+                const gradlewKt = isWinKt ? 'gradlew.bat' : './gradlew';
+                if (fs.existsSync(path.join(projectRoot, 'gradlew')) || fs.existsSync(path.join(projectRoot, 'gradlew.bat'))) {
+                    return { command: `${gradlewKt} compileKotlin`, description: 'Kotlin Gradle 컴파일' };
+                }
+                return { command: 'gradle compileKotlin', description: 'Kotlin 컴파일 검사' };
+            }
+
+            case ProjectType.ELIXIR:
+                return { command: 'mix compile --warnings-as-errors', description: 'Elixir 컴파일 검사' };
+
+            case ProjectType.SCALA:
+                return { command: 'sbt compile', description: 'Scala SBT 컴파일 검사' };
 
             default:
                 // =========================================================
@@ -1521,6 +1605,9 @@ JSON 형식으로 응답하세요:
         switch (projectType) {
             case ProjectType.TYPESCRIPT:
             case ProjectType.REACT:
+            case ProjectType.NEXTJS:
+            case ProjectType.NUXTJS:
+            case ProjectType.SVELTE:
             case ProjectType.VUE:
             case ProjectType.ANGULAR:
             case ProjectType.NODE:

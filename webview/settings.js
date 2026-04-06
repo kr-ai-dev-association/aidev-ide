@@ -803,6 +803,8 @@ const orchestrationToggle = document.getElementById("orchestration-toggle");
 const orchestrationStatus = document.getElementById("orchestration-status");
 const inlineCompletionToggle = document.getElementById("inline-completion-toggle");
 const inlineCompletionStatus = document.getElementById("inline-completion-status");
+const promptSuggestionToggle = document.getElementById("prompt-suggestion-toggle");
+const promptSuggestionStatus = document.getElementById("prompt-suggestion-status");
 
 const streamingToggle = document.getElementById("streaming-toggle");
 const streamingStatus = document.getElementById("streaming-status");
@@ -2192,6 +2194,9 @@ window.addEventListener("message", (event) => {
       if (typeof message.inlineCompletionEnabled === "boolean" && inlineCompletionToggle) {
         inlineCompletionToggle.checked = message.inlineCompletionEnabled;
       }
+      if (typeof message.promptSuggestionEnabled === "boolean" && promptSuggestionToggle) {
+        promptSuggestionToggle.checked = message.promptSuggestionEnabled;
+      }
       if (typeof message.streamingEnabled === "boolean" && streamingToggle) {
         streamingToggle.checked = message.streamingEnabled;
       }
@@ -2654,6 +2659,14 @@ window.addEventListener("message", (event) => {
           ? "소스코드 자동완성이 활성화되었습니다."
           : "소스코드 자동완성이 비활성화되었습니다.";
         inlineCompletionStatus.className = "info-message success-message";
+      }
+      break;
+    case "promptSuggestionEnabledSet":
+      if (promptSuggestionStatus) {
+        promptSuggestionStatus.textContent = promptSuggestionToggle && promptSuggestionToggle.checked
+          ? "다음 작업 제안이 활성화되었습니다."
+          : "다음 작업 제안이 비활성화되었습니다.";
+        promptSuggestionStatus.className = "info-message success-message";
       }
       break;
     case "errorFallbackModelSaved":

@@ -43,51 +43,60 @@ export class PromptSuggestionService {
 
         try {
             const context = [
-                userQuery ? `사용자 요청: ${userQuery}` : '',
-                createdFiles.length > 0 ? `생성된 파일: ${createdFiles.join(', ')}` : '',
-                modifiedFiles.length > 0 ? `수정된 파일: ${modifiedFiles.join(', ')}` : '',
-                assistantSummary ? `작업 결과: ${assistantSummary.substring(0, 200)}` : '',
-            ].filter(Boolean).join('\n');
+                userQuery ? `요청: ${userQuery}` : '',
+                createdFiles.length > 0 ? `생성: ${createdFiles.join(', ')}` : '',
+                modifiedFiles.length > 0 ? `수정: ${modifiedFiles.join(', ')}` : '',
+                assistantSummary ? `결과: ${assistantSummary.substring(0, 150)}` : '',
+            ].filter(Boolean).join(' | ');
 
-            const prompt = `Based on the completed task below, suggest 2-3 logical follow-up actions the user might want to do next.
+            // Few-shot 프롬프트: 모델이 패턴을 따라하도록 유도 (thinking 최소화)
+            const prompt = `Task: suggest 3 follow-up actions as JSON.
 
-${context}
+Input: 요청: 로그인 페이지 만들어줘 | 생성: src/pages/Login.tsx
+Output: [{"text":"회원가입 페이지 추가","prompt":"회원가입 페이지도 만들어줘"},{"text":"로그인 API 연동","prompt":"로그인 페이지에 백엔드 API 연동해줘"},{"text":"비밀번호 찾기 추가","prompt":"비밀번호 찾기 기능 추가해줘"}]
 
-Output a JSON array of suggestions. Each suggestion:
-- "text": Short Korean label for a button (max 40 chars)
-- "prompt": Full Korean prompt to send (what the user would type)
+Input: 요청: 버튼 스타일 수정해줘 | 수정: src/components/Button.tsx
+Output: [{"text":"다른 컴포넌트에 적용","prompt":"수정된 버튼을 다른 페이지에도 적용해줘"},{"text":"호버 애니메이션 추가","prompt":"버튼에 호버 애니메이션 효과 추가해줘"},{"text":"테스트 코드 작성","prompt":"버튼 컴포넌트 테스트 코드 작성해줘"}]
 
-Rules:
-- Maximum 3 suggestions
-- Make them practical and specific to the work just done
-- First suggestion should be the most likely next step
-- Output [] if no good suggestions
-
-Example output:
-[
-  {"text": "테스트 코드 추가", "prompt": "방금 만든 컴포넌트에 테스트 코드를 추가해줘"},
-  {"text": "API 연동", "prompt": "백엔드 API와 연동해서 실제 데이터로 표시해줘"}
-]`;
+Input: ${context}
+Output: `;
 
             const response = await this.llmManager.sendMessageWithSystemPrompt(
-                'You are a JSON-only assistant. Output only valid JSON arrays.',
+                'Output ONLY a JSON array. No thinking, no explanation. Copy the format exactly.',
                 [{ text: prompt }],
-                { maxTokens: 300, retry: { querySource: 'background' } },
+                { maxTokens: 2000, disableThinking: true, disableRetry: true, retry: { querySource: 'background' } },
             );
 
-            const jsonMatch = response.match(/\[[\s\S]*\]/);
-            if (!jsonMatch) return [];
+            // Strip <think>...</think> tags (some LLMs wrap response in thinking blocks)
+            // Also handle unclosed <think> tags (no </think>)
+            const cleaned = response
+                .replace(/<think>[\s\S]*?<\/think>/gi, '')
+                .replace(/<think>[\s\S]*/gi, '')
+                .trim();
+
+            // Try to extract JSON array — first from cleaned, then from original response
+            const jsonMatch = (cleaned || response).match(/\[[\s\S]*\]/) || response.match(/\[[\s\S]*\]/);
+            if (!jsonMatch) {
+                console.log(`[PromptSuggestionService] No JSON array found in LLM response: ${response.substring(0, 100)}`);
+                return [];
+            }
 
             const suggestions = JSON.parse(jsonMatch[0]);
-            if (!Array.isArray(suggestions)) return [];
+            if (!Array.isArray(suggestions)) {
+                console.log('[PromptSuggestionService] Parsed result is not an array');
+                return [];
+            }
 
-            return suggestions
+            const filtered = suggestions
                 .filter((s: any) => s.text && s.prompt)
                 .slice(0, 3)
                 .map((s: any) => ({
                     text: s.text.substring(0, 40),
                     prompt: s.prompt,
                 }));
+
+            console.log(`[PromptSuggestionService] Generated ${filtered.length} suggestion(s)`);
+            return filtered;
         } catch (error) {
             console.warn('[PromptSuggestionService] Failed to generate suggestions:', error);
             return [];

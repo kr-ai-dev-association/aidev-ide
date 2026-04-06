@@ -33,13 +33,18 @@ function isAutoBackgroundCommand(command: string): boolean {
 
 /** Safe read-only commands whitelist (for INVESTIGATION phase validation) */
 export const READ_ONLY_SAFE_COMMANDS = new Set([
+    // Unix
     'cat', 'less', 'more', 'head', 'tail', 'file', 'wc', 'stat',
     'find', 'grep', 'rg', 'fd', 'locate', 'which', 'whereis',
     'ls', 'du', 'df', 'ps', 'whoami', 'pwd', 'date', 'env', 'echo',
+    // Windows
+    'type', 'dir', 'findstr', 'where', 'hostname', 'systeminfo',
+    'Get-Content', 'Get-ChildItem', 'Get-Item', 'Get-Process', 'Get-Location',
+    // Cross-platform
     'git status', 'git log', 'git show', 'git diff', 'git branch',
     'npm list', 'npm ls', 'pip list', 'pip show',
     'node --version', 'python --version', 'python3 --version',
-    'uv --version', 'cargo --version', 'go version',
+    'uv --version', 'cargo --version', 'go version', 'dotnet --version',
 ]);
 
 export function isReadOnlySafeCommand(command: string): boolean {

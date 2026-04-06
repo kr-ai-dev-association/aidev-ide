@@ -50,6 +50,12 @@ export enum ProjectType {
     RUBY = 'ruby',
     SWIFT = 'swift',
     C_CPP = 'c-cpp',
+    NEXTJS = 'nextjs',
+    NUXTJS = 'nuxtjs',
+    SVELTE = 'svelte',
+    KOTLIN = 'kotlin',
+    ELIXIR = 'elixir',
+    SCALA = 'scala',
     UNKNOWN = 'unknown'
 }
 

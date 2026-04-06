@@ -924,7 +924,7 @@ ${projectSection}
 - If a file structure is provided, start working immediately without using list_files
 - When searching for files/code, use glob_search (for filenames) or ripgrep_search (for content) instead of list_files. Only use list_files when you need to check a specific directory structure
 - Do not explore node_modules, .git, __pycache__, env, .venv, dist, build directories
-- If there is a "Reference Documents (RAG)" section in the context, use it first. Do not re-search for information already available. Only search for additional information that is missing
+- If there is a "Reference Documents (RAG)" section in the context, use it as your primary data source. These documents are pre-fetched from an external knowledge base and MAY NOT exist as files in the local filesystem. Do not attempt to read them with read_file. Extract the information directly from the provided content
 - Write all responses in Korean
 - Do not depend on files that other agents will create. If read_file fails, create the file yourself with create_file
 - Do not call the same tool with identical parameters repeatedly. There is no need to re-execute a tool call that already succeeded

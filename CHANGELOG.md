@@ -2,7 +2,71 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.56**
+> **현재 버전: v1.0.57**
+
+---
+
+## v1.0.57 (2026-04-06)
+
+### 스트리밍 즉시 실행
+
+- **update_file 스트리밍 즉시 실행**: CODE 모드에서 update_file도 스트리밍 중 즉시 적용 (create_file과 동일 패턴)
+- **AgentLoopManager 스트리밍 즉시 실행**: AGENT 모드에도 create_file + update_file 스트리밍 즉시 실행 추가 — 파일이 하나씩 실시간 표시
+- **스트리밍 dedup**: 이미 실행된 파일은 post-stream에서 자동 스킵 (`Streaming-pre-executed skipped`)
+
+### 다음 작업 제안 (Prompt Suggestion)
+
+- **제안 3개로 확대**: 2개 → 3개 (Few-shot 프롬프트 예시도 3개로 변경)
+- **`<think>` 태그 처리**: LLM이 thinking 태그를 출력하는 경우 제거 후 JSON 파싱
+- **maxTokens 증가**: 500 → 2000 (thinking + JSON 생성 여유 확보)
+- **disableThinking 옵션 추가**: thinking 토큰 낭비 방지
+
+### 세션 관리
+
+- **clearHistory 개선**: 히스토리 삭제 시 ProjectContextCache + ToolSpecBuilder 캐시 + InlineDiffManager 체크포인트 일괄 클리어
+- **세션 복원 수정**: clearHistory에서 불필요한 새 세션 생성 제거 — 재시작 시 대화 히스토리 정상 복원
+- **conversationTurnId 전달**: AgentLoopManager → ToolExecutionContext에 UUID 전달 — Undo Turn cascade 정상 동작
+
+### AutoDream 메모리 통합
+
+- **JSON 파싱 강화**: `[project]` 같은 텍스트를 JSON 배열로 오인하는 버그 수정 — `\[\s*\{` 정규식으로 실제 객체 배열만 매칭
+- **disableThinking 추가**: thinking 토큰이 JSON 생성을 방해하는 문제 방지
+
+### 언어 / 프레임워크 지원
+
+- **Next.js 감지**: `next` 패키지 감지 → React 스택 재사용 + tsc/Prettier 빌드/포맷
+- **Nuxt.js 감지**: `nuxt` 패키지 감지 → Vue 스택 재사용 + tsc/Prettier 빌드/포맷
+- **Svelte 감지**: `svelte`/`@sveltejs/kit` 감지 → SvelteKit 스택 + Vitest/Playwright/Tailwind 공통 감지
+- **Kotlin 감지**: `.kt`/`.kts` 파일 감지 → Ktor, Spring Boot, Exposed, Koin, Coroutines 스택
+- **Elixir 감지**: `mix.exs` 감지 → Phoenix, Ecto, Absinthe, LiveView 스택
+- **Scala 감지**: `build.sbt` 감지 → Akka, Play, http4s, ZIO, Spark 스택
+- **Angular 스택 보강**: Angular Material, NgRx, AngularFire, RxJS 감지
+- **PHP 스택 보강**: Laravel, Symfony, Slim, Filament, Livewire, Inertia.js, Doctrine, PHPUnit/Pest 감지
+- **Ruby 스택 보강**: Rails, Sinatra, Hanami, RSpec, Sidekiq, Devise, GraphQL 감지
+- **Swift 스택 보강**: Vapor, Kitura, SwiftUI, Combine 감지
+
+### .NET 지원 강화
+
+- **dotnet test 자동 실행**: 테스트 프로젝트(`.Tests`/`.Test`) 감지 시 `dotnet test` 실행
+- **StackDetector**: .csproj 파싱 → ASP.NET Core, EF Core, Blazor, SignalR, xUnit, NUnit, MSTest, Dapper, MediatR, AutoMapper, Serilog, Swagger 감지
+- **토큰 추정**: `.cs`/`.csproj`/`.sln` → 3 bytes/token (verbose syntax 반영)
+
+### 윈도우 호환성
+
+- **git diff 플랫폼 분기**: `2>/dev/null` → Windows에서 `2>nul` 자동 전환
+- **안전 명령어 확장**: Windows 명령어 (`dir`, `findstr`, `where`, PowerShell cmdlets) + `dotnet --version` 추가
+
+### SubAgentLoop 개선
+
+- **RAG 프롬프트 강화**: "RAG 문서는 로컬 파일이 아닐 수 있음 — read_file로 읽지 마세요" 명시
+- **spawn_agent processStep**: 워커 실행 시 "실행 중" 상태로 업데이트 (이전: "작업 계획중" 고정)
+
+### UI / UX
+
+- **파일 변경 요약 중복 제거**: AGENT 모드에서 시스템 메시지 + Turn Actions 이중 표시 문제 해결
+- **빈 시스템 메시지 방지**: displayText가 비어있는 경우 렌더링 안 함
+- **Turn Actions 영문 유지**: Undo Turn / Keep Turn + "N개 파일 생성됨, N개 파일 수정됨" 한글 표시
+- **sleep 차단 제거**: 기본 차단 명령어에서 sleep 제거
 
 ---
 
