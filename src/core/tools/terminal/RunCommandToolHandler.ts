@@ -199,6 +199,26 @@ export class RunCommandToolHandler implements IToolHandler {
                 timeout: 5000, // Short wait to capture initial output
                 killOnTimeout: false,
             });
+
+            // 프로세스가 타임아웃 전에 종료된 경우 exit code 확인
+            const processExited = bgResult.exitCode !== undefined && bgResult.exitCode !== null;
+            const exitedWithError = processExited && bgResult.exitCode !== 0;
+
+            if (exitedWithError) {
+                // 프로세스가 빠르게 크래시한 경우 — 실패로 처리 (백그라운드 전환 안 함)
+                console.log(`[RunCommandToolHandler] Background process crashed immediately: ${command} (exit=${bgResult.exitCode})`);
+                return {
+                    success: false,
+                    message: `Command failed immediately with exit code ${bgResult.exitCode}: ${command}`,
+                    data: {
+                        output: truncateOutput(bgResult.stdout),
+                        error: truncateOutput(bgResult.stderr),
+                        exitCode: bgResult.exitCode,
+                        llmNote: `The background command failed to start (exit code ${bgResult.exitCode}). Check the error output and fix the issue before retrying.`,
+                    }
+                };
+            }
+
             const pid = bgResult.pid || context.executionManager.getRunningProcesses()
                 .find(p => p.command === command)?.pid;
             if (pid) {
