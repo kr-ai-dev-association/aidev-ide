@@ -150,15 +150,45 @@ export function isRetryableError(error: unknown): boolean {
 }
 
 /**
- * D-1: Context overflow 에러인지 확인
+ * D-1: Context overflow 에러인지 확인 (400 + 413)
  */
 export function isContextOverflowError(error: unknown): boolean {
     if (!(error instanceof Error)) return false;
     const message = error.message.toLowerCase();
+    // 400 + context/token keywords
     if (message.includes('400')) {
         return message.includes('context') || message.includes('max_tokens') || message.includes('token') || message.includes('input length');
     }
+    // 413 Payload Too Large (프록시/게이트웨이)
+    if (message.includes('413') || message.includes('payload too large') || message.includes('request entity too large')) {
+        return true;
+    }
     return false;
+}
+
+/**
+ * Max-output 에스컬레이션: 응답이 잘린 것인지 감지
+ * - finish_reason이 'length'이거나 응답이 비정상적으로 끊긴 경우
+ */
+export function isOutputTruncated(response: string, finishReason?: string): boolean {
+    if (finishReason === 'length' || finishReason === 'max_tokens') return true;
+    // 코드 블록이 열리고 닫히지 않은 경우
+    const openBlocks = (response.match(/```/g) || []).length;
+    if (openBlocks % 2 !== 0) return true;
+    // JSON/코드가 열리고 닫히지 않은 경우
+    const openBraces = (response.match(/\{/g) || []).length;
+    const closeBraces = (response.match(/\}/g) || []).length;
+    if (openBraces > closeBraces + 3) return true; // 3개 이상 차이나면 잘림
+    return false;
+}
+
+/**
+ * Max-output 에스컬레이션: maxTokens를 올려서 반환
+ * 50% 증가, 최대 16384까지
+ */
+export function escalateMaxTokens(currentMaxTokens: number): number {
+    const escalated = Math.ceil(currentMaxTokens * 1.5);
+    return Math.min(escalated, 16384);
 }
 
 /**
@@ -241,18 +271,23 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
  * 재시도 로직으로 함수 실행
  * D-1: Context overflow 시 max_tokens 자동 축소
  * B-2: querySource 'background'인 경우 429/529에서 즉시 실패
+ * reactive-compact: context overflow 시 onCompact 콜백 호출 → 압축 후 재시도
+ * max-output: 응답 잘림 감지 시 maxTokens 에스컬레이션
  */
 export async function withRetry<T>(
     fn: (overrideMaxTokens?: number) => Promise<T>,
     config: Partial<LLMRetryConfig> = {},
     signal?: AbortSignal,
     onRetry?: (attempt: number, error: Error, delayMs: number) => void,
+    /** reactive-compact: context overflow 시 메시지 압축 콜백 (true 반환 시 재시도) */
+    onCompact?: () => Promise<boolean>,
 ): Promise<LLMRetryResult<T>> {
     const fullConfig = { ...DEFAULT_RETRY_CONFIG, ...config };
     let lastError: Error | undefined;
     let attempts = 0;
     let totalDelayMs = 0;
     let overrideMaxTokens: number | undefined;
+    let compactAttempted = false; // reactive-compact는 1회만
 
     for (let attempt = 0; attempt <= fullConfig.maxRetries; attempt++) {
         attempts = attempt + 1;
@@ -291,16 +326,30 @@ export async function withRetry<T>(
                 }
             }
 
-            // D-1: Context overflow — reduce max_tokens and retry
+            // D-1 + reactive-compact: Context overflow handling
             if (isContextOverflowError(error)) {
-                const currentMax = overrideMaxTokens || 4096; // default assumption
+                // Step 1: reactive-compact — 압축 콜백이 있고 아직 시도 안 했으면 압축 후 재시도
+                if (onCompact && !compactAttempted) {
+                    compactAttempted = true;
+                    console.log('[LLMRetryHelper] Context overflow — attempting reactive-compact...');
+                    try {
+                        const compacted = await onCompact();
+                        if (compacted) {
+                            console.log('[LLMRetryHelper] Reactive-compact succeeded, retrying...');
+                            if (onRetry) onRetry(attempt, lastError, 0);
+                            continue; // retry with compacted context
+                        }
+                    } catch (compactError) {
+                        console.warn('[LLMRetryHelper] Reactive-compact failed:', compactError);
+                    }
+                }
+
+                // Step 2: max_tokens 축소 (압축 실패 또는 이미 시도한 경우)
+                const currentMax = overrideMaxTokens || 4096;
                 overrideMaxTokens = reduceMaxTokensForOverflow(currentMax);
                 console.log(`[LLMRetryHelper] Context overflow — reducing max_tokens to ${overrideMaxTokens} for retry`);
-                // Don't count context overflow retries toward delay
-                if (onRetry) {
-                    onRetry(attempt, lastError, 0);
-                }
-                continue; // retry immediately without delay
+                if (onRetry) onRetry(attempt, lastError, 0);
+                continue;
             }
 
             // 마지막 시도이거나 재시도 불가 에러면 종료

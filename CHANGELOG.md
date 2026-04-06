@@ -2,7 +2,18 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.57**
+> **현재 버전: v1.0.58**
+
+---
+
+## v1.0.58 (2026-04-06)
+
+### 에러 복구 인프라 (공용)
+
+- **reactive-compact**: context overflow (400/413) 시 `onCompact` 콜백으로 메시지 압축 후 재시도 — CODE + AGENT + SubAgentLoop 모두 적용
+- **collapse-drain**: `ConversationCompactor.collapseDrain()` — 압축 후에도 초과 시 오래된 메시지 20%씩 단계적 제거
+- **413 에러 감지**: `isContextOverflowError`에 413 Payload Too Large + request entity too large 추가
+- **max-output 에스컬레이션**: `isOutputTruncated()` — 코드블록 미닫힘, 중괄호 불균형으로 응답 잘림 감지 / `escalateMaxTokens()` — 1.5배 증가 (최대 16384)
 
 ---
 
