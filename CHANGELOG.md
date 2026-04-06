@@ -2,7 +2,32 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.58**
+> **현재 버전: v1.0.59**
+
+---
+
+## v1.0.59 (2026-04-06)
+
+### AGENT 모드 개선
+
+- **에러 누적 감지**: 같은 도구 3회 연속 실패 시 LLM에 "다른 방법을 시도하세요" 프롬프트 자동 삽입
+- **max_turns 경고**: 25턴 중 20턴 도달 시 LLM에 "남은 턴 N회" 알림 — 작업 마무리 유도
+
+### Windows 셸 폴백 개선
+
+- **폴백 순서 변경**: Git Bash → **PowerShell (Bypass + NoProfile)** → cmd.exe (이전: Git Bash → cmd.exe)
+- **PowerShell 자동 감지**: `pwsh` (7+) 우선, `powershell` (5.1) 폴백
+- **셸 정보 LLM 전달**: 현재 사용 중인 셸(Git Bash/PowerShell/cmd)을 시스템 프롬프트에 포함 — LLM이 적절한 명령어 생성
+
+### reactive-compact 연결
+
+- **LLMManager → withRetry onCompact 연결**: context overflow 시 collapse-drain 자동 실행 — sendMessage, sendMessageWithSystemPrompt, streaming 3곳 모두 적용
+
+### 버그 수정
+
+- **git diff stderr 억제**: git 미초기화 프로젝트에서 도움말 출력 방지 (`2>nul`/`2>/dev/null`)
+- **result?.success 크래시 방지**: toolResults에 undefined 요소 시 TypeError 방지
+- **OllamaApi quota 즉시 중단**: "usage limit"/"quota" 에러는 재시도 안 함 (일반 429 rate limit은 재시도 유지)
 
 ---
 
@@ -18,6 +43,18 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 - **즉시 종료 감지**: 백그라운드 명령어(uvicorn 등)가 타임아웃 전에 exit≠0으로 종료되면 `failed` 반환 — 이전엔 죽은 프로세스를 "백그라운드 실행 중"으로 잘못 보고
 - **LLM에 에러 전달**: 실패 시 exit code + stderr를 LLM에 전달하여 원인 파악 및 수정 유도
+
+### AGENT 모드 개선
+
+- **에러 누적 감지**: 같은 도구 3회 연속 실패 시 LLM에 "다른 방법을 시도하세요" 프롬프트 자동 삽입
+- **max_turns 경고**: 25턴 중 20턴 도달 시 LLM에 "남은 턴 N회" 알림 — 작업 마무리 유도
+
+### 버그 수정
+
+- **git diff stderr 억제**: git 미초기화 프로젝트에서 도움말 출력 방지 (`2>nul`/`2>/dev/null`)
+- **result?.success 크래시 방지**: toolResults에 undefined 요소 시 TypeError 방지
+- **OllamaApi quota 즉시 중단**: "usage limit"/"quota" 에러는 재시도 안 함 (일반 429 rate limit은 재시도 유지)
+- **LLMRetryHelper quota 비재시도**: quota 초과 에러를 isRetryableError에서 false 반환
 
 ### 에러 복구 인프라 (공용)
 

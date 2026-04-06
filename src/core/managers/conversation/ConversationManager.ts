@@ -5572,7 +5572,7 @@ export class ConversationManager implements IConversationHandler {
 
     // 성공 여부 추적
     const hasSuccessfulExecution = toolResults.some(
-      (result: ToolResponse) => result.success === true,
+      (result: ToolResponse) => result?.success === true,
     );
 
     // 🔥 쓰기 도구(create_file, update_file, remove_file, run_command) 실행 여부 추적

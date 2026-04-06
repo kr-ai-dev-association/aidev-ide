@@ -66,10 +66,41 @@ const osPromptRegistry: Record<string, string> = {
  */
 export function getOSPrompt(userOS: string): string {
   const osLower = userOS.toLowerCase();
-  if (osLower.includes('windows')) return osPromptRegistry.windows;
+  if (osLower.includes('windows')) {
+    // Windows: 현재 사용 중인 셸 정보를 LLM에 전달
+    const shellInfo = getWindowsShellInfo();
+    return osPromptRegistry.windows + '\n' + shellInfo;
+  }
   if (osLower.includes('mac') || osLower.includes('darwin')) return osPromptRegistry.macos;
   if (osLower.includes('linux')) return osPromptRegistry.linux;
   return osPromptRegistry.default;
+}
+
+/**
+ * Windows에서 현재 사용 중인 셸 정보를 반환
+ */
+function getWindowsShellInfo(): string {
+  if (process.platform !== 'win32') return '';
+
+  const shell = process.env.SHELL || '';
+  if (shell.includes('bash')) {
+    return `- **현재 셸: Git Bash** — Unix 명령어 (grep, find, cat, ls 등) 사용 가능. bash 문법으로 명령어를 작성하세요.`;
+  }
+
+  // PowerShell 감지
+  try {
+    const { execSync } = require('child_process');
+    execSync('where pwsh.exe', { stdio: 'pipe', timeout: 2000 });
+    return `- **현재 셸: PowerShell (pwsh)** — PowerShell 명령어를 사용하세요. Unix 명령어 대신 Get-ChildItem, Select-String 등을 사용하세요. 환경변수는 $env:VAR 형식입니다.`;
+  } catch {
+    try {
+      const { execSync } = require('child_process');
+      execSync('where powershell.exe', { stdio: 'pipe', timeout: 2000 });
+      return `- **현재 셸: PowerShell (5.1)** — PowerShell 명령어를 사용하세요. Unix 명령어 대신 Get-ChildItem, Select-String 등을 사용하세요. 환경변수는 $env:VAR 형식입니다.`;
+    } catch {
+      return `- **현재 셸: cmd.exe** — Windows 명령어 (dir, findstr, type 등)를 사용하세요. Unix 명령어 (grep, find, cat)는 사용할 수 없습니다. 환경변수는 %VAR% 형식입니다.`;
+    }
+  }
 }
 
 // Backward compatibility: export individual functions

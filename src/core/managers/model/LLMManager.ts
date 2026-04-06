@@ -36,6 +36,8 @@ export interface LLMRequestOptions {
     onNativeToolComplete?: (toolName: string, args: Record<string, any>) => void;
     /** 재시도 시 UI 알림 콜백 (attempt, 사용자 메시지). hidden retry 이후(3회차~)만 호출됨 */
     onRetryNotify?: (attempt: number, message: string) => void;
+    /** reactive-compact: context overflow 시 메시지 압축 콜백 */
+    onCompact?: () => Promise<boolean>;
 }
 
 export interface LLMResponse {
@@ -184,7 +186,7 @@ export class LLMManager {
                 return await apiCall();
             }
 
-            // 재시도 로직으로 감싸서 호출
+            // 재시도 로직으로 감싸서 호출 (reactive-compact 연결)
             const result = await withRetry(
                 apiCall,
                 options?.retry,
@@ -194,7 +196,8 @@ export class LLMManager {
                     if (attempt >= HIDDEN_RETRY_THRESHOLD && options?.onRetryNotify) {
                         options.onRetryNotify(attempt, getRetryUserMessage(error, delayMs));
                     }
-                }
+                },
+                options?.onCompact,
             );
 
             if (result.success && result.result !== undefined) {
@@ -259,7 +262,7 @@ export class LLMManager {
                 return await apiCall();
             }
 
-            // 재시도 로직으로 감싸서 호출
+            // 재시도 로직으로 감싸서 호출 (reactive-compact 연결)
             const result = await withRetry(
                 apiCall,
                 options?.retry,
@@ -269,7 +272,8 @@ export class LLMManager {
                     if (attempt >= HIDDEN_RETRY_THRESHOLD && options?.onRetryNotify) {
                         options.onRetryNotify(attempt, getRetryUserMessage(error, delayMs));
                     }
-                }
+                },
+                options?.onCompact,
             );
 
             if (result.success && result.result !== undefined) {
@@ -1160,7 +1164,7 @@ export class LLMManager {
                 return await apiCall();
             }
 
-            // 스트리밍은 연결 에러에 대해서만 재시도 (청크 수신 중 에러는 재시도하지 않음)
+            // 스트리밍은 연결 에러에 대해서만 재시도 (reactive-compact 연결)
             const result = await withRetry(
                 apiCall,
                 options?.retry,
@@ -1170,7 +1174,8 @@ export class LLMManager {
                     if (attempt >= HIDDEN_RETRY_THRESHOLD && options?.onRetryNotify) {
                         options.onRetryNotify(attempt, getRetryUserMessage(error, delayMs));
                     }
-                }
+                },
+                options?.onCompact,
             );
 
             if (result.success && result.result !== undefined) {

@@ -146,6 +146,11 @@ export function isRetryableError(error: unknown): boolean {
         return false;
     }
 
+    // Quota/session limit 초과 — 재시도 무의미
+    if (message.includes('usage limit') || message.includes('quota') || message.includes('session limit')) {
+        return false;
+    }
+
     return false;
 }
 

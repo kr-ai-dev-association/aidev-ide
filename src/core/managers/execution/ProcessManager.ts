@@ -30,11 +30,26 @@ function findGitBash(): string | null {
     return null;
 }
 
+// PowerShell 후보 경로 (Windows) — pwsh (7+) 우선, powershell (5.1) 폴백
+function findPowerShell(): string | null {
+    const candidates = ['pwsh.exe', 'pwsh', 'powershell.exe', 'powershell'];
+    for (const name of candidates) {
+        try {
+            const { execSync } = require('child_process');
+            execSync(`where ${name}`, { stdio: 'pipe', timeout: 3000 });
+            return name;
+        } catch { /* not found */ }
+    }
+    return null;
+}
+
 // 프로세스 시작 시 한 번만 탐색
 const GIT_BASH_PATH = process.platform === 'win32' ? findGitBash() : null;
+const POWERSHELL_PATH = process.platform === 'win32' ? findPowerShell() : null;
 
 if (process.platform === 'win32') {
-    console.log(`[ProcessManager] Shell: ${GIT_BASH_PATH ? `Git Bash (${GIT_BASH_PATH})` : 'cmd.exe'}`);
+    const winShell = GIT_BASH_PATH ? `Git Bash (${GIT_BASH_PATH})` : POWERSHELL_PATH ? `PowerShell (${POWERSHELL_PATH})` : 'cmd.exe';
+    console.log(`[ProcessManager] Shell: ${winShell}`);
 } else {
     console.log(`[ProcessManager] Shell: ${process.env.SHELL || '/bin/zsh'} (login mode)`);
 }
@@ -105,10 +120,18 @@ export class ProcessManager {
                 // .bat/.cmd → cmd.exe
                 shellOption = 'cmd.exe';
                 winCmd = `chcp 65001 >nul && ${cmd}`;
+            } else if (GIT_BASH_PATH) {
+                // 기본 1순위: Git Bash (Unix 명령어 호환)
+                shellOption = GIT_BASH_PATH;
+                winCmd = cmd;
+            } else if (POWERSHELL_PATH) {
+                // 2순위: PowerShell (Bypass + NoProfile + UTF-8)
+                shellOption = POWERSHELL_PATH;
+                winCmd = `-ExecutionPolicy Bypass -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${cmd.replace(/"/g, '\\"')}"`;
             } else {
-                // 기본: Git Bash → cmd.exe
-                shellOption = GIT_BASH_PATH ?? 'cmd.exe';
-                winCmd = !GIT_BASH_PATH ? `chcp 65001 >nul && ${cmd}` : cmd;
+                // 3순위: cmd.exe (최후 폴백)
+                shellOption = 'cmd.exe';
+                winCmd = `chcp 65001 >nul && ${cmd}`;
             }
 
             childProcess = spawn(winCmd, args, {
