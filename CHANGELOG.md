@@ -14,6 +14,11 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 - **연속 실패 탈출**: 같은 파일 3회 연속 실패 시 `__done__` 강제 허용
 - **파일별 실패 카운트 추적**: 로그에 `(attempt N/3)` 표시
 
+### 백그라운드 프로세스 크래시 감지
+
+- **즉시 종료 감지**: exit≠0 즉시 종료 시 `failed` 반환
+- **LLM에 에러 전달**: exit code + stderr 포함
+
 ### 에러 복구 인프라 (공용)
 
 - **reactive-compact**: context overflow (400/413) 시 압축 후 재시도

@@ -23059,12 +23059,12 @@ function displayUserMessage(text, imageData, chatMessages, scrollToUserMessageFn
  * @param {Object} sanitizeOptions - 살균 옵션
  */
 function displaySystemMessage(text, chatMessages, isLightTheme = false, sanitizeHtmlFn = null, sanitizeOptions = null) {
-  if (!chatMessages) return null;
+  if (!chatMessages || !text || !text.trim()) return null;
 
   // 🔥 파일 내용이 포함된 긴 메시지 필터링
-  let displayText = text;
-  if (text.includes("[Updated]") || text.includes("[Created]") || text.includes("[Modified]")) {
-    const firstLine = text.split("\n")[0];
+  let displayText = text.trim();
+  if (displayText.includes("[Updated]") || displayText.includes("[Created]") || displayText.includes("[Modified]")) {
+    const firstLine = displayText.split("\n")[0].trim();
     displayText = firstLine.length > 200 ? firstLine.substring(0, 200) + "..." : firstLine;
   }
 
@@ -23072,6 +23072,9 @@ function displaySystemMessage(text, chatMessages, isLightTheme = false, sanitize
   if (displayText.length > 500) {
     displayText = displayText.substring(0, 500) + "...";
   }
+
+  // displayText가 비어있으면 렌더링하지 않음
+  if (!displayText) return null;
   const systemMessageElement = document.createElement("div");
   systemMessageElement.classList.add("system-message");
 
@@ -26684,8 +26687,49 @@ window.addEventListener("message", event => {
       console.log("[Streaming] Removing last message (natural language retry)");
       removeLastMessage();
       break;
+    case "showSuggestions":
+      renderSuggestions(message.suggestions);
+      break;
   }
 });
+
+// --- Prompt Suggestion 렌더링 ---
+function renderSuggestions(suggestions) {
+  // Remove existing suggestions
+  const existing = document.querySelector('.suggestion-container');
+  if (existing) existing.remove();
+  if (!suggestions || suggestions.length === 0) return;
+  const container = document.createElement('div');
+  container.className = 'suggestion-container';
+  const label = document.createElement('div');
+  label.className = 'suggestion-label';
+  label.textContent = '다음 작업 제안';
+  container.appendChild(label);
+  const optionsDiv = document.createElement('div');
+  optionsDiv.className = 'suggestion-options';
+  suggestions.forEach(s => {
+    const btn = document.createElement('button');
+    btn.className = 'suggestion-btn';
+    btn.textContent = s.text;
+    btn.title = s.prompt;
+    btn.addEventListener('click', () => {
+      container.remove();
+      if (chatInput) {
+        chatInput.textContent = s.prompt;
+        handleSendMessage();
+      }
+    });
+    optionsDiv.appendChild(btn);
+  });
+  container.appendChild(optionsDiv);
+
+  // Insert at end of chat messages
+  const chatMessages = document.getElementById('chat-messages');
+  if (chatMessages) {
+    chatMessages.appendChild(container);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+}
 
 // --- UI 업데이트 및 마크다운 렌더링 관련 함수 정의 ---
 // 메시지 표시 함수들 - 모듈 래퍼
