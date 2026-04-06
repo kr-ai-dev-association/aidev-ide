@@ -1212,25 +1212,8 @@ export class LLMManager {
             const statusMatch = errorMessage.match(/(\d{3})\s/);
             const statusCode = statusMatch ? parseInt(statusMatch[1]) : undefined;
 
-            import('../../../services/error/ErrorReportingService').then(({ ErrorReportingService }) => {
-                const reporter = ErrorReportingService.getInstance();
-                const modelName = this.currentModelType === AiModelType.ADMIN
-                    ? this.adminModelApi.getModelName()
-                    : this.ollamaApi?.getModel?.() || 'unknown';
-
-                reporter.reportLLMError(
-                    errorMessage.substring(0, 500),
-                    modelName,
-                    {
-                        method,
-                        modelType: this.currentModelType,
-                        statusCode,
-                        endpoint: this.currentModelType === AiModelType.ADMIN
-                            ? this.adminModelApi.getConfig()?.endpoint
-                            : undefined,
-                    }
-                );
-            }).catch(() => { /* 에러 리포팅 실패는 무시 */ });
+            // standalone: ErrorReportingService 미사용 (서버 연동 없음)
+            console.warn(`[LLMManager] LLM error: ${errorMessage.substring(0, 200)}`);
         } catch {
             // 에러 리포팅 자체가 실패해도 원래 에러 흐름을 방해하지 않음
         }
