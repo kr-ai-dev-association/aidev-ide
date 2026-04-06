@@ -36,6 +36,8 @@ export interface LLMRequestOptions {
     onNativeToolComplete?: (toolName: string, args: Record<string, any>) => void;
     /** 재시도 시 UI 알림 콜백 (attempt, 사용자 메시지). hidden retry 이후(3회차~)만 호출됨 */
     onRetryNotify?: (attempt: number, message: string) => void;
+    /** reactive-compact: context overflow 시 메시지 압축 콜백 */
+    onCompact?: () => Promise<boolean>;
 }
 
 export interface LLMResponse {
@@ -60,7 +62,7 @@ export class LLMManager {
     /** thinking 비활성화 여부 결정 */
     private static resolveDisableThinking(systemPrompt: string, explicit?: boolean, hasNativeTools?: boolean): boolean {
         if (explicit !== undefined) return explicit;
-        // 네이티브 툴콜 사용 시 시스템 프롬프트에 도구 스펙이 없으므로 자동 비활성화 스킵
+        // 네이티브 툴 콜링 시 thinking 비활성화 불필요 (툴이 API params으로 전달되므로)
         if (hasNativeTools) return false;
         // 도구 스펙이 포함된 시스템 프롬프트 → thinking 자동 비활성화
         // thinking 모드에서는 모델이 tool call을 thinking 블록 안에 넣어 content가 비어버리는 문제 방지
@@ -184,7 +186,7 @@ export class LLMManager {
                 return await apiCall();
             }
 
-            // 재시도 로직으로 감싸서 호출
+            // 재시도 로직으로 감싸서 호출 (reactive-compact 연결)
             const result = await withRetry(
                 apiCall,
                 options?.retry,
@@ -194,7 +196,8 @@ export class LLMManager {
                     if (attempt >= HIDDEN_RETRY_THRESHOLD && options?.onRetryNotify) {
                         options.onRetryNotify(attempt, getRetryUserMessage(error, delayMs));
                     }
-                }
+                },
+                options?.onCompact,
             );
 
             if (result.success && result.result !== undefined) {
@@ -212,7 +215,7 @@ export class LLMManager {
                 throw error;
             }
             console.error('[LLMManager] Failed to send message:', error);
-
+            this.reportLLMErrorAsync(error, 'sendMessage');
             throw error;
         } finally {
             if (this.currentCallController && !options?.signal) {
@@ -232,7 +235,7 @@ export class LLMManager {
     ): Promise<string> {
         this.currentCallController = new AbortController();
         const signal = options?.signal || this.currentCallController.signal;
-        // 도구 스펙 포함 시 자동으로 thinking 비활성화 (명시적 설정 우선)
+        // 도구 스펙 포함 시 자동으로 thinking 비활성화 (네이티브 툴 콜링 시 제외)
         const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking, !!(options?.nativeTools?.length));
 
         const apiCall = async (): Promise<string> => {
@@ -259,7 +262,7 @@ export class LLMManager {
                 return await apiCall();
             }
 
-            // 재시도 로직으로 감싸서 호출
+            // 재시도 로직으로 감싸서 호출 (reactive-compact 연결)
             const result = await withRetry(
                 apiCall,
                 options?.retry,
@@ -269,7 +272,8 @@ export class LLMManager {
                     if (attempt >= HIDDEN_RETRY_THRESHOLD && options?.onRetryNotify) {
                         options.onRetryNotify(attempt, getRetryUserMessage(error, delayMs));
                     }
-                }
+                },
+                options?.onCompact,
             );
 
             if (result.success && result.result !== undefined) {
@@ -287,7 +291,7 @@ export class LLMManager {
                 throw error;
             }
             console.error('[LLMManager] Failed to send message with system prompt:', error);
-
+            this.reportLLMErrorAsync(error, 'sendMessageWithSystemPrompt');
             throw error;
         } finally {
             if (this.currentCallController && !options?.signal) {
@@ -414,7 +418,7 @@ export class LLMManager {
     ): Promise<string> {
         this.currentCallController = new AbortController();
         const signal = options?.signal || this.currentCallController.signal;
-        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking, !!(options?.nativeTools?.length));
+        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
 
         try {
             let response: string;
@@ -456,7 +460,7 @@ export class LLMManager {
                 throw error;
             }
             console.error('[LLMManager] Failed to send message with specific model:', error);
-
+            this.reportLLMErrorAsync(error, 'sendWithSpecificModel');
             throw error;
         } finally {
             if (this.currentCallController && !options?.signal) {
@@ -771,6 +775,15 @@ export class LLMManager {
     }
 
     /**
+     * 소스코드 자동완성 모델로 메시지를 전송합니다
+     * 설정되지 않은 경우 메인 모델 사용
+     */
+    /**
+     * FIM 기반 인라인 코드 완성 (Continue/Copilot 방식)
+     * - Ollama: /api/generate + FIM 토큰 (qwen2.5-coder, starcoder2, deepseek-coder, codellama 지원)
+     * - 클라우드/admin: chat 방식 fallback
+     */
+    /**
      * 서브에이전트 모델로 메시지를 전송합니다 (비스트리밍)
      * 설정되지 않은 경우 메인 모델 사용
      */
@@ -878,15 +891,6 @@ export class LLMManager {
         );
     }
 
-    /**
-     * 소스코드 자동완성 모델로 메시지를 전송합니다
-     * 설정되지 않은 경우 메인 모델 사용
-     */
-    /**
-     * FIM 기반 인라인 코드 완성 (Continue/Copilot 방식)
-     * - Ollama: /api/generate + FIM 토큰 (qwen2.5-coder, starcoder2, deepseek-coder, codellama 지원)
-     * - 클라우드/admin: chat 방식 fallback
-     */
     public async sendInlineCompletion(
         prefix: string,
         suffix: string,
@@ -1019,7 +1023,7 @@ export class LLMManager {
         onChunk: (chunk: string, done: boolean) => void,
         options?: LLMRequestOptions
     ): Promise<string> {
-        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking, !!(options?.nativeTools?.length));
+        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
 
         // Ollama의 경우
         if (modelType === AiModelType.OLLAMA) {
@@ -1057,7 +1061,7 @@ export class LLMManager {
         try {
             this.adminModelApi.setConfig(adminConfig);
             const signal = options?.signal || new AbortController().signal;
-            const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking, !!(options?.nativeTools?.length));
+            const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
             return await this.adminModelApi.sendMessageWithSystemPrompt(
                 systemPrompt, LLMManager.normalizeParts(userParts), { signal, disableThinking }
             );
@@ -1082,7 +1086,7 @@ export class LLMManager {
         try {
             this.adminModelApi.setConfig(adminConfig);
             const signal = options?.signal || new AbortController().signal;
-            const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking, !!(options?.nativeTools?.length));
+            const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
             return await this.adminModelApi.sendMessageWithSystemPromptStreaming(
                 systemPrompt, LLMManager.normalizeParts(userParts), onChunk, { signal, disableThinking }
             );
@@ -1128,7 +1132,7 @@ export class LLMManager {
     ): Promise<string> {
         this.currentCallController = new AbortController();
         const signal = options?.signal || this.currentCallController.signal;
-        // 도구 스펙 포함 시 자동으로 thinking 비활성화
+        // 도구 스펙 포함 시 자동으로 thinking 비활성화 (네이티브 툴 콜링 시 제외)
         const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking, !!(options?.nativeTools?.length));
 
         const apiCall = async (): Promise<string> => {
@@ -1160,7 +1164,7 @@ export class LLMManager {
                 return await apiCall();
             }
 
-            // 스트리밍은 연결 에러에 대해서만 재시도 (청크 수신 중 에러는 재시도하지 않음)
+            // 스트리밍은 연결 에러에 대해서만 재시도 (reactive-compact 연결)
             const result = await withRetry(
                 apiCall,
                 options?.retry,
@@ -1170,7 +1174,8 @@ export class LLMManager {
                     if (attempt >= HIDDEN_RETRY_THRESHOLD && options?.onRetryNotify) {
                         options.onRetryNotify(attempt, getRetryUserMessage(error, delayMs));
                     }
-                }
+                },
+                options?.onCompact,
             );
 
             if (result.success && result.result !== undefined) {
@@ -1188,7 +1193,7 @@ export class LLMManager {
                 throw error;
             }
             console.error('[LLMManager] Failed to send streaming message:', error);
-
+            this.reportLLMErrorAsync(error, 'streaming');
             throw error;
         } finally {
             if (this.currentCallController && !options?.signal) {
@@ -1197,6 +1202,39 @@ export class LLMManager {
         }
     }
 
+    /**
+     * LLM API 에러를 ErrorReportingService로 비동기 전송 (fire-and-forget)
+     */
+    private reportLLMErrorAsync(error: unknown, method: string): void {
+        try {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            // 에러 메시지에서 HTTP 상태 코드 추출
+            const statusMatch = errorMessage.match(/(\d{3})\s/);
+            const statusCode = statusMatch ? parseInt(statusMatch[1]) : undefined;
+
+            import('../../../services/error/ErrorReportingService').then(({ ErrorReportingService }) => {
+                const reporter = ErrorReportingService.getInstance();
+                const modelName = this.currentModelType === AiModelType.ADMIN
+                    ? this.adminModelApi.getModelName()
+                    : this.ollamaApi?.getModel?.() || 'unknown';
+
+                reporter.reportLLMError(
+                    errorMessage.substring(0, 500),
+                    modelName,
+                    {
+                        method,
+                        modelType: this.currentModelType,
+                        statusCode,
+                        endpoint: this.currentModelType === AiModelType.ADMIN
+                            ? this.adminModelApi.getConfig()?.endpoint
+                            : undefined,
+                    }
+                );
+            }).catch(() => { /* 에러 리포팅 실패는 무시 */ });
+        } catch {
+            // 에러 리포팅 자체가 실패해도 원래 에러 흐름을 방해하지 않음
+        }
+    }
 
     /**
      * 간단한 프롬프트에 대한 빠른 LLM 응답 생성

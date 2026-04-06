@@ -2,7 +2,30 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.58**
+> **현재 버전: v1.0.59**
+
+---
+
+## v1.0.59 (2026-04-06)
+
+### AGENT 모드 개선
+
+- **에러 누적 감지**: 같은 도구 3회 연속 실패 시 "다른 방법 시도" 프롬프트
+- **max_turns 경고**: 20턴 도달 시 "남은 턴 N회" 알림
+
+### Windows 셸 폴백 개선
+
+- **폴백 순서**: Git Bash → PowerShell (Bypass) → cmd.exe
+- **PowerShell 자동 감지**: pwsh (7+) 우선
+- **셸 정보 LLM 전달**: 현재 셸 종류를 프롬프트에 포함
+
+### reactive-compact 연결
+
+- **LLMManager → withRetry onCompact 연결**: context overflow 시 자동 압축
+
+### 버그 수정
+
+- **git diff stderr 억제** + **result?.success 크래시 방지** + **OllamaApi quota 즉시 중단**
 
 ---
 
@@ -18,6 +41,18 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 - **즉시 종료 감지**: exit≠0 즉시 종료 시 `failed` 반환
 - **LLM에 에러 전달**: exit code + stderr 포함
+
+### AGENT 모드 개선
+
+- **에러 누적 감지**: 같은 도구 3회 연속 실패 시 "다른 방법 시도" 프롬프트
+- **max_turns 경고**: 20턴 도달 시 "남은 턴 N회" 알림
+
+### 버그 수정
+
+- **git diff stderr 억제**: 플랫폼별 분기
+- **result?.success 크래시 방지**: undefined 요소 TypeError 방지
+- **OllamaApi quota 즉시 중단**: quota 에러 재시도 안 함
+- **LLMRetryHelper quota 비재시도**: isRetryableError false 반환
 
 ### 에러 복구 인프라 (공용)
 

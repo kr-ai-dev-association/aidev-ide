@@ -411,7 +411,8 @@ export class UpdateFileToolHandler implements IToolHandler {
     try {
         const { execSync } = require('child_process');
         const gitRoot = context.projectRoot;
-        const diffOutput = execSync(`git diff --stat -- "${absolutePath}"`, { cwd: gitRoot, timeout: 3000 }).toString().trim();
+        const nullDev = process.platform === 'win32' ? '2>nul' : '2>/dev/null';
+        const diffOutput = execSync(`git diff --stat -- "${absolutePath}" ${nullDev}`, { cwd: gitRoot, timeout: 3000 }).toString().trim();
         if (diffOutput) {
             console.log(`[UpdateFileToolHandler] Git diff for ${filePath}: ${diffOutput}`);
         }

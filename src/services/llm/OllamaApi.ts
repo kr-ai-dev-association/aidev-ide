@@ -258,6 +258,13 @@ export class OllamaApi {
                     break;
                 }
 
+                // quota/session limit 초과 — 재시도해도 풀리지 않으므로 즉시 중단
+                // (일반 429 rate limit은 LLMRetryHelper에서 대기 후 재시도)
+                if (errorMsg.includes('usage limit') || errorMsg.includes('quota') || errorMsg.includes('session limit') || errorMsg.includes('upgrade')) {
+                    console.error(`[OllamaApi] Quota exceeded — not retrying: ${errorMsg.substring(0, 100)}`);
+                    break;
+                }
+
                 // 네트워크 에러(ECONNREFUSED 등)는 짧은 대기 후 재시도
                 if (error instanceof RetryableNetworkError) {
                     console.warn(`[OllamaApi] Retryable network error on attempt ${attempt}/${maxRetries}: ${errorMsg}`);

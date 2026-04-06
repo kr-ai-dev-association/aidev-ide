@@ -12,9 +12,21 @@ export class WindowsAdapter implements IOperatingSystemAdapter {
     // ==================== 터미널 관련 ====================
 
     getDefaultShell(): string {
-        // cmd.exe 기본 (PowerShell은 ExecutionPolicy 문제로 사용하지 않음)
-        // 환경변수 SHELL이 설정되어 있으면 해당 쉘 사용 (Git Bash 등)
-        return process.env.SHELL || 'cmd.exe';
+        // 우선순위: Git Bash → PowerShell (Bypass) → cmd.exe
+        if (process.env.SHELL) return process.env.SHELL; // Git Bash 등
+        try {
+            const { execSync } = require('child_process');
+            execSync('where pwsh.exe', { stdio: 'pipe', timeout: 3000 });
+            return 'pwsh.exe';
+        } catch {
+            try {
+                const { execSync } = require('child_process');
+                execSync('where powershell.exe', { stdio: 'pipe', timeout: 3000 });
+                return 'powershell.exe';
+            } catch {
+                return 'cmd.exe';
+            }
+        }
     }
 
     getShellType(): 'bash' | 'zsh' | 'powershell' | 'cmd' | 'sh' {
@@ -163,3 +175,4 @@ export class WindowsAdapter implements IOperatingSystemAdapter {
         };
     }
 }
+
