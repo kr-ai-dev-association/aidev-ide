@@ -2,7 +2,18 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.57**
+> **현재 버전: v1.0.58**
+
+---
+
+## v1.0.58 (2026-04-06)
+
+### 에러 복구 인프라 (공용)
+
+- **reactive-compact**: context overflow (400/413) 시 압축 후 재시도
+- **collapse-drain**: 오래된 메시지 20%씩 단계적 제거
+- **413 에러 감지**: Payload Too Large 추가
+- **max-output 에스컬레이션**: 응답 잘림 감지 + maxTokens 1.5배 증가
 
 ---
 

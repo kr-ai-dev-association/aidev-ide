@@ -886,6 +886,37 @@ export class ConversationCompactor {
   }
 
   /**
+   * Collapse-drain: 압축 후에도 컨텍스트가 초과할 때 오래된 메시지를 단계적으로 제거
+   * reactive-compact 콜백으로 사용 — LLMRetryHelper.withRetry()의 onCompact에 전달
+   * @returns true if messages were drained (재시도 가능), false if nothing to drain
+   */
+  public collapseDrain(
+    userParts: Part[],
+    maxTokens: number,
+  ): boolean {
+    if (userParts.length <= 2) return false; // 최소 2개는 유지
+
+    const { estimateTokens } = require('../../../utils');
+    const currentTokens = userParts.reduce((sum, p) => sum + estimateTokens(p.text || ''), 0);
+
+    if (currentTokens <= maxTokens) return false; // 이미 범위 내
+
+    // 가장 오래된 메시지부터 제거 (최근 2개는 유지)
+    const drainCount = Math.max(1, Math.ceil(userParts.length * 0.2)); // 20%씩 제거
+    const keepCount = Math.max(2, userParts.length - drainCount);
+    const drained = userParts.length - keepCount;
+
+    // 제거된 메시지를 요약 텍스트로 대체
+    const drainedParts = userParts.splice(0, drained);
+    const drainSummary = `[이전 ${drained}개 메시지 생략 — 컨텍스트 제한으로 제거됨]`;
+    userParts.unshift({ text: drainSummary } as Part);
+
+    const newTokens = userParts.reduce((sum, p) => sum + estimateTokens(p.text || ''), 0);
+    console.log(`[ConversationCompactor] Collapse-drain: removed ${drained} messages (${currentTokens} → ${newTokens} tokens)`);
+    return true;
+  }
+
+  /**
    * 세션의 대화 히스토리를 요약
    */
   public async compactSessionHistory(
