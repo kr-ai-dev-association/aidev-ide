@@ -106,6 +106,8 @@ export function openSettingsPanel(
               await settingsManager.isAutoDeleteFilesEnabled();
             const autoExecuteCommandsEnabled =
               await settingsManager.isAutoExecuteCommandsEnabled();
+            const blockOutsideProjectEnabled =
+              await settingsManager.isBlockOutsideProjectEnabled();
             const autoToolExecutionEnabled =
               await settingsManager.isAutoToolExecutionEnabled();
             const autoMcpToolExecutionEnabled =
@@ -171,6 +173,7 @@ export function openSettingsPanel(
               aiModel: modelToUse, // AI 모델 정보 추가
               language: language || "ko", // 언어 설정 추가
               autoExecuteCommandsEnabled: autoExecuteCommandsEnabled, // 명령어 자동 실행 설정 추가
+              blockOutsideProjectEnabled: blockOutsideProjectEnabled, // 프로젝트 외부 파일 차단
               autoToolExecutionEnabled: autoToolExecutionEnabled, // 도구 자동 실행 설정 추가
               autoMcpToolExecutionEnabled: autoMcpToolExecutionEnabled, // MCP 도구 자동 실행 설정
               orchestrationEnabled: orchestrationEnabled || false, // 멀티 에이전트 설정
@@ -1351,6 +1354,27 @@ export function openSettingsPanel(
             );
           }
           break;
+        case "setBlockOutsideProjectEnabled":
+          const blockOutsideProjectEnabledToSet = data.enabled;
+          if (typeof blockOutsideProjectEnabledToSet === "boolean") {
+            try {
+              await settingsManager.updateBlockOutsideProjectEnabled(
+                blockOutsideProjectEnabledToSet,
+              );
+              safePostMessage(panel, {
+                command: "blockOutsideProjectEnabledSet",
+              });
+              console.log(
+                `[PanelManager] Block Outside Project 설정 저장됨: ${blockOutsideProjectEnabledToSet}`,
+              );
+            } catch (error: any) {
+              safePostMessage(panel, {
+                command: "blockOutsideProjectEnabledSetError",
+                error: error.message,
+              });
+            }
+          }
+          break;
         case "setAutoToolExecutionEnabled": // 도구 자동 실행 설정 저장 케이스 추가
           const autoToolExecutionEnabledToSet = data.enabled;
           if (typeof autoToolExecutionEnabledToSet === "boolean") {
@@ -1903,6 +1927,8 @@ export function openSettingsPanel(
               await settingsManager.isAutoDeleteFilesEnabled();
             const autoExecuteCommandsEnabled =
               await settingsManager.isAutoExecuteCommandsEnabled();
+            const blockOutsideProjectEnabled =
+              await settingsManager.isBlockOutsideProjectEnabled();
             const autoToolExecutionEnabled =
               await settingsManager.isAutoToolExecutionEnabled();
             const autoMcpToolExecutionEnabled =
@@ -2679,6 +2705,7 @@ export function openSettingsPanel(
                 autoUpdateEnabled: await settingsManager.isAutoUpdateEnabled(),
                 autoDeleteFilesEnabled: await settingsManager.isAutoDeleteFilesEnabled(),
                 autoExecuteCommandsEnabled: await settingsManager.isAutoExecuteCommandsEnabled(),
+                blockOutsideProjectEnabled: await settingsManager.isBlockOutsideProjectEnabled(),
                 autoToolExecutionEnabled: await settingsManager.isAutoToolExecutionEnabled(),
                 autoMcpToolExecutionEnabled: await settingsManager.isAutoMcpToolExecutionEnabled(),
                 orchestrationEnabled: await settingsManager.isOrchestrationEnabled(),
@@ -2771,6 +2798,7 @@ export function openSettingsPanel(
             if (typeof s.autoUpdateEnabled === 'boolean') { await cfgImport.update('autoUpdateFiles', s.autoUpdateEnabled, vscode.ConfigurationTarget.Global); }
             if (typeof s.autoDeleteFilesEnabled === 'boolean') { await cfgImport.update('autoDeleteFiles', s.autoDeleteFilesEnabled, vscode.ConfigurationTarget.Global); }
             if (typeof s.autoExecuteCommandsEnabled === 'boolean') { await cfgImport.update('autoExecuteCommands', s.autoExecuteCommandsEnabled, vscode.ConfigurationTarget.Global); }
+            if (typeof s.blockOutsideProjectEnabled === 'boolean') { await cfgImport.update('blockOutsideProject', s.blockOutsideProjectEnabled, vscode.ConfigurationTarget.Global); }
             if (typeof s.autoToolExecutionEnabled === 'boolean') { await cfgImport.update('autoToolExecution', s.autoToolExecutionEnabled, vscode.ConfigurationTarget.Global); }
             if (typeof s.autoMcpToolExecutionEnabled === 'boolean') { await cfgImport.update('autoMcpToolExecution', s.autoMcpToolExecutionEnabled, vscode.ConfigurationTarget.Global); }
             if (typeof s.orchestrationEnabled === 'boolean') { await cfgImport.update('orchestration', s.orchestrationEnabled, vscode.ConfigurationTarget.Global); }

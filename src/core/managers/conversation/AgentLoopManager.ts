@@ -573,8 +573,12 @@ export class AgentLoopManager {
         console.warn("[AgentLoopManager] Failed to save AGENT mode entry:", e);
       }
 
-      // Prompt Suggestions
-      try {
+      // Prompt Suggestions (설정으로 on/off)
+      const promptSuggestionEnabled = vscode.workspace.getConfiguration('codepilot-standalone')
+        .get<boolean>('promptSuggestion', false);
+      if (!promptSuggestionEnabled) {
+        console.log('[AgentLoopManager] Prompt suggestions disabled by setting');
+      } else try {
         const { PromptSuggestionService } = await import("../suggestion/PromptSuggestionService");
         const suggestionService = PromptSuggestionService.getInstance(this.llmManager);
         const suggestions = await suggestionService.generateSuggestions(

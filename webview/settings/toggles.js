@@ -144,6 +144,17 @@ export function bindToggleEvents(elements) {
     });
   }
 
+  // 프로젝트 외부 파일 차단 토글
+  const blockOutsideProjectToggle = document.getElementById("block-outside-project-toggle");
+  if (blockOutsideProjectToggle) {
+    blockOutsideProjectToggle.addEventListener("change", () => {
+      const enabled = blockOutsideProjectToggle.checked;
+      if (vscode) {
+        vscode.postMessage({ command: "setBlockOutsideProjectEnabled", enabled });
+      }
+    });
+  }
+
   // 소스코드 자동완성 토글
   if (inlineCompletionToggle) {
     inlineCompletionToggle.addEventListener("change", () => {

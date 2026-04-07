@@ -2,7 +2,7 @@
   "name": "codepilot-standalone",
   "displayName": "Codepilot-Standalone",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "1.0.61",
+  "version": "1.0.62",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -294,6 +294,12 @@
           "type": "boolean",
           "default": true,
           "description": "Enable or disable automatic execution of bash/powershell/cmd commands from LLM responses.",
+          "scope": "resource"
+        },
+        "codepilot-standalone.blockOutsideProject": {
+          "type": "boolean",
+          "default": true,
+          "description": "프로젝트 디렉토리 외부의 파일 생성/수정/삭제를 차단합니다. 활성화하면 워크스페이스 밖의 파일 조작이 차단됩니다.",
           "scope": "resource"
         },
         "codepilot-standalone.autoToolExecution": {

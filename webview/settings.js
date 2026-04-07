@@ -2120,6 +2120,12 @@ window.addEventListener("message", (event) => {
         autoExecuteToggle.checked = message.autoExecuteCommandsEnabled;
       }
       if (
+        typeof message.blockOutsideProjectEnabled === "boolean"
+      ) {
+        const blockToggle = document.getElementById("block-outside-project-toggle");
+        if (blockToggle) blockToggle.checked = message.blockOutsideProjectEnabled;
+      }
+      if (
         typeof message.autoToolExecutionEnabled === "boolean" &&
         autoToolToggle
       ) {

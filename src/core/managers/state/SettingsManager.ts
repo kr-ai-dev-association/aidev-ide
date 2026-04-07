@@ -685,6 +685,22 @@ export class SettingsManager extends BaseManager {
     }
 
     /**
+     * 프로젝트 외부 파일 차단 On/Off 상태를 읽습니다
+     */
+    public async isBlockOutsideProjectEnabled(): Promise<boolean> {
+        const config = vscode.workspace.getConfiguration('codepilot-standalone');
+        const globalValue = config.inspect<boolean>('blockOutsideProject')?.globalValue;
+        return globalValue ?? config.get<boolean>('blockOutsideProject') ?? true;
+    }
+
+    /**
+     * 프로젝트 외부 파일 차단 On/Off 상태를 저장합니다
+     */
+    public async updateBlockOutsideProjectEnabled(enabled: boolean): Promise<void> {
+        await this.updateUserSetting('blockOutsideProject' as any, enabled, vscode.ConfigurationTarget.Global);
+    }
+
+    /**
      * 도구 자동 실행 On/Off 상태를 읽습니다
      */
     public async isAutoToolExecutionEnabled(): Promise<boolean> {

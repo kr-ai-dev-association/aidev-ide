@@ -1486,7 +1486,7 @@ export class ConversationManager implements IConversationHandler {
           }
 
           // 🔥 PreToolUseValidator에 의해 차단된 경우
-          const blockResult = this.handleBlockedTools(hasBlockedByValidator, blockedMessages, hasSuccessfulPlanExecution, stateManager, accumulatedUserParts);
+          const blockResult = this.handleBlockedTools(hasBlockedByValidator, blockedMessages, hasSuccessfulPlanExecution, stateManager, accumulatedUserParts, webviewToRespond);
           if (blockResult === "break") break;
 
           // 🔥 사용자가 스킵한 경우에도 플랜 아이템 완료 처리 (무한 루프 방지)
@@ -1888,7 +1888,7 @@ export class ConversationManager implements IConversationHandler {
               }
 
               // 🔥 PreToolUseValidator에 의해 차단된 경우
-              const blockResult2 = this.handleBlockedTools(hasBlockedByValidator2, blockedMessages2, hasSuccessfulToolExecution, stateManager, accumulatedUserParts);
+              const blockResult2 = this.handleBlockedTools(hasBlockedByValidator2, blockedMessages2, hasSuccessfulToolExecution, stateManager, accumulatedUserParts, webviewToRespond);
               if (blockResult2 === "break") break;
 
               // 🔥 사용자가 스킵한 경우에도 플랜 아이템 완료 처리 (무한 루프 방지)
@@ -2282,8 +2282,6 @@ export class ConversationManager implements IConversationHandler {
 
           if (needsApproval) {
             streamingHandledPaths.add(`${capturedCall.name}:${path}`);
-          } else {
-            trackingSet.add(path);
           }
           streamingCreatePromise = streamingCreatePromise.then(async () => {
             if (abortSignal?.aborted) { return; }
@@ -2322,6 +2320,10 @@ export class ConversationManager implements IConversationHandler {
               if (streamResults[0]) {
                 ToolExecutionCoordinator.sendSingleToolResultToUI(webviewToRespond, capturedCall, streamResults[0]);
               }
+            } else if (streamResults[0] && !streamResults[0].success) {
+              const reason = streamResults[0].message || streamResults[0].error?.message || '실행 차단됨';
+              WebviewBridge.receiveMessage(webviewToRespond, 'System', `🚫 [차단] ${reason}`);
+              streamingHandledPaths.add(`${capturedCall.name}:${path}`);
             }
           });
         };
@@ -3219,7 +3221,7 @@ export class ConversationManager implements IConversationHandler {
               }
 
               // 🔥 PreToolUseValidator에 의해 차단된 경우
-              const blockResult3 = this.handleBlockedTools(hasBlockedByValidator3, blockedMessages3, hasSuccessfulExecution, stateManager, accumulatedUserParts);
+              const blockResult3 = this.handleBlockedTools(hasBlockedByValidator3, blockedMessages3, hasSuccessfulExecution, stateManager, accumulatedUserParts, webviewToRespond);
               if (blockResult3 === "break") break;
 
               // 🔥 사용자가 스킵한 경우에도 REVIEW로 전환 (무한 루프 방지)
@@ -5050,6 +5052,7 @@ export class ConversationManager implements IConversationHandler {
     hasSuccessful: boolean,
     stateManager: AgentStateManager,
     accumulatedUserParts: UserPart[],
+    webview?: vscode.Webview,
   ): "break" | "continue" | null {
     if (!hasBlocked || blockedMessages.length === 0) {
       return null;
@@ -5058,6 +5061,13 @@ export class ConversationManager implements IConversationHandler {
     console.log(
       `[ConversationManager] Tool blocked by PreToolUseValidator: ${blockedMessages.join(", ")}`,
     );
+
+    // 채팅 패널에 차단 메시지 표시
+    if (webview) {
+      for (const msg of blockedMessages) {
+        WebviewBridge.receiveMessage(webview, 'System', `🚫 [차단] ${msg}`);
+      }
+    }
 
     if (!hasSuccessful) {
       stateManager.transitionTo(AgentPhase.REVIEW);
