@@ -23730,11 +23730,8 @@ function updateThinkingBubbleText() {
  * @param {string} stepName - 단계 이름
  */
 function setProcessingStep(stepName) {
-  console.log(`[processing-steps] setProcessingStep called: stepName=${stepName}`);
-
-  // 🔥 thinking bubble이 숨겨져 있으면 다시 표시
+  // thinking bubble이 숨겨져 있으면 다시 표시
   if (thinkingBubbleElement && thinkingBubbleElement.style.display === "none") {
-    console.log(`[processing-steps] Showing hidden thinking bubble for step: ${stepName}`);
     thinkingBubbleElement.style.display = "";
   }
 
@@ -23790,11 +23787,8 @@ function setProcessingStep(stepName) {
  * @param {Function} handleScrollFn - 스크롤 핸들러 함수 (optional)
  */
 function updateProcessingStatus(stepName, status, handleScrollFn) {
-  console.log(`[processing-steps] updateProcessingStatus called: stepName=${stepName}, status=${status}`);
-
-  // 🔥 thinking bubble이 숨겨져 있으면 다시 표시
+  // thinking bubble이 숨겨져 있으면 다시 표시
   if (thinkingBubbleElement && thinkingBubbleElement.style.display === "none") {
-    console.log(`[processing-steps] Showing hidden thinking bubble for status update: ${stepName} - ${status}`);
     thinkingBubbleElement.style.display = "";
   }
 
@@ -24157,6 +24151,8 @@ function populateModelDropdown(models, current, adminModels, supportedModels) {
             command: 'setSupportedModel',
             key: m.key
           });
+          const alert = document.getElementById('model-select-alert');
+          if (alert) alert.remove();
         });
         modelDropdown.appendChild(item);
       });
@@ -24206,6 +24202,8 @@ function populateModelDropdown(models, current, adminModels, supportedModels) {
           command: 'setAdminModel',
           key: m.key
         });
+        const alert = document.getElementById('model-select-alert');
+        if (alert) alert.remove();
       });
       modelDropdown.appendChild(item);
     });
@@ -24258,6 +24256,8 @@ function populateModelDropdown(models, current, adminModels, supportedModels) {
         command: 'setOllamaModel',
         model: m.name
       });
+      const alert = document.getElementById('model-select-alert');
+      if (alert) alert.remove();
     });
     modelDropdown.appendChild(item);
   });
@@ -24273,6 +24273,27 @@ function populateModelDropdown(models, current, adminModels, supportedModels) {
     modelType = 'admin';
   }
   setModelLabel(currentDisplay, modelType);
+
+  // 모델 미설정 시 알림 표시
+  if (allModels.length > 0 && !currentOllamaModel) {
+    const alertBanner = document.createElement('div');
+    alertBanner.id = 'model-select-alert';
+    alertBanner.style.cssText = 'width:100%;box-sizing:border-box;background:var(--vscode-editorWarning-foreground, #cca700);color:var(--vscode-editor-background, #fff);padding:8px 12px;font-size:12px;text-align:center;cursor:pointer;border-bottom:1px solid var(--vscode-editorWarning-foreground, #cca700);font-weight:500;';
+    alertBanner.textContent = '⚠ 모델을 선택해주세요';
+    alertBanner.addEventListener('click', () => {
+      const btn = document.getElementById('model-selector');
+      if (btn) btn.click();
+    });
+    // 기존 알림 제거 후 채팅 영역 상단에 추가
+    const existing = document.getElementById('model-select-alert');
+    if (existing) existing.remove();
+    const chatContainer = document.getElementById('chat-container') || document.body;
+    chatContainer.insertBefore(alertBanner, chatContainer.firstChild);
+  } else {
+    // 모델 설정됨 → 알림 제거
+    const existing = document.getElementById('model-select-alert');
+    if (existing) existing.remove();
+  }
   if (!allModels.length) {
     const empty = document.createElement('div');
     empty.className = 'dropdown-option';
@@ -24794,7 +24815,7 @@ function appendReferencePanelToLastMessage(referenceInfo) {
     const similarity = item.similarity != null ? ` (${(item.similarity * 100).toFixed(0)}%)` : "";
     return `<div class="ref-item"><span class="ref-type ${item.type}">${typeLabel}${chunkLabel}</span><span>${item.name}${similarity}</span></div>`;
   }).join("");
-  panel.innerHTML = `<div class="reference-panel-toggle" onclick="this.querySelector('.toggle-icon').classList.toggle('expanded');this.nextElementSibling.classList.toggle('show')"><span class="toggle-icon">&#9654;</span> ${referenceInfo.items.length}개 참조</div><div class="reference-panel-list">${listItems}</div>`;
+  panel.innerHTML = `<div class="reference-panel-toggle" onclick="var icon=this.querySelector('.toggle-icon');if(icon)icon.classList.toggle('expanded');var next=this.nextElementSibling;if(next)next.classList.toggle('show')"><span class="toggle-icon">&#9654;</span> ${referenceInfo.items.length}개 참조</div><div class="reference-panel-list">${listItems}</div>`;
 }
 function removeLastMessage() {
   (0,_chat_streaming_js__WEBPACK_IMPORTED_MODULE_11__.removeLastMessage)();

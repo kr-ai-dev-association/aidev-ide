@@ -115,6 +115,7 @@ export function populateModelDropdown(models, current, adminModels, supportedMod
           modelDropdown.classList.add('hidden');
           modelDropdown.style.display = 'none';
           window.vscode.postMessage({ command: 'setSupportedModel', key: m.key });
+          const alert = document.getElementById('model-select-alert'); if (alert) alert.remove();
         });
         modelDropdown.appendChild(item);
       });
@@ -164,6 +165,7 @@ export function populateModelDropdown(models, current, adminModels, supportedMod
         modelDropdown.classList.add('hidden');
         modelDropdown.style.display = 'none';
         window.vscode.postMessage({ command: 'setAdminModel', key: m.key });
+        const alert = document.getElementById('model-select-alert'); if (alert) alert.remove();
       });
       modelDropdown.appendChild(item);
     });
@@ -214,6 +216,7 @@ export function populateModelDropdown(models, current, adminModels, supportedMod
       modelDropdown.classList.add('hidden');
       modelDropdown.style.display = 'none';
       window.vscode.postMessage({ command: 'setOllamaModel', model: m.name });
+      const alert = document.getElementById('model-select-alert'); if (alert) alert.remove();
     });
     modelDropdown.appendChild(item);
   });
@@ -231,6 +234,27 @@ export function populateModelDropdown(models, current, adminModels, supportedMod
   }
 
   setModelLabel(currentDisplay, modelType);
+
+  // 모델 미설정 시 알림 표시
+  if (allModels.length > 0 && !currentOllamaModel) {
+    const alertBanner = document.createElement('div');
+    alertBanner.id = 'model-select-alert';
+    alertBanner.style.cssText = 'width:100%;box-sizing:border-box;background:var(--vscode-editorWarning-foreground, #cca700);color:var(--vscode-editor-background, #fff);padding:8px 12px;font-size:12px;text-align:center;cursor:pointer;border-bottom:1px solid var(--vscode-editorWarning-foreground, #cca700);font-weight:500;';
+    alertBanner.textContent = '⚠ 모델을 선택해주세요';
+    alertBanner.addEventListener('click', () => {
+      const btn = document.getElementById('model-selector');
+      if (btn) btn.click();
+    });
+    // 기존 알림 제거 후 채팅 영역 상단에 추가
+    const existing = document.getElementById('model-select-alert');
+    if (existing) existing.remove();
+    const chatContainer = document.getElementById('chat-container') || document.body;
+    chatContainer.insertBefore(alertBanner, chatContainer.firstChild);
+  } else {
+    // 모델 설정됨 → 알림 제거
+    const existing = document.getElementById('model-select-alert');
+    if (existing) existing.remove();
+  }
 
   if (!allModels.length) {
     const empty = document.createElement('div');

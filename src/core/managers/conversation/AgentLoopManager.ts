@@ -266,6 +266,7 @@ export class AgentLoopManager {
             const streamCtx: ToolExecutionContext = {
               projectRoot: workspaceRoot, workspaceRoot, actionManager, executionManager,
               terminalManager, contextManager: this.contextManager, conversationTurnId,
+              isAgentMode: true,
             };
             try {
               const results = await toolExecutor.executeTools([capturedCall], streamCtx);
@@ -718,6 +719,7 @@ export class AgentLoopManager {
       terminalManager,
       contextManager: this.contextManager,
       conversationTurnId,
+      isAgentMode: true,
     };
 
     let toolResults: ToolResponse[] = [];

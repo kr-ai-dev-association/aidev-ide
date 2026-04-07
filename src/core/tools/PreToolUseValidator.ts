@@ -543,6 +543,17 @@ export class PreToolUseValidator {
     }
 
     /**
+     * Windows 대소문자 무시 경로 비교
+     * Windows에서 VSCode는 소문자 드라이브(c:\), realpath는 대문자(C:\)를 반환
+     */
+    private static pathStartsWith(childPath: string, parentPath: string): boolean {
+        if (process.platform === 'win32') {
+            return childPath.toLowerCase().startsWith(parentPath.toLowerCase());
+        }
+        return childPath.startsWith(parentPath);
+    }
+
+    /**
      * File write path validation
      * v9.4.0: Added symbolic link normalization
      */
@@ -559,7 +570,7 @@ export class PreToolUseValidator {
             ? await this.resolveRealPath(projectRoot)
             : projectRoot;
 
-        if (!absolutePath.startsWith(normalizedProjectRoot)) {
+        if (!this.pathStartsWith(absolutePath, normalizedProjectRoot)) {
             return {
                 allowed: false,
                 reason: `File modification outside project blocked: ${filePath}`,
@@ -608,7 +619,7 @@ export class PreToolUseValidator {
             ? await this.resolveRealPath(projectRoot)
             : projectRoot;
 
-        if (!absolutePath.startsWith(normalizedProjectRoot)) {
+        if (!this.pathStartsWith(absolutePath, normalizedProjectRoot)) {
             return {
                 allowed: false,
                 reason: `File read outside project blocked: ${filePath}`,
@@ -645,7 +656,7 @@ export class PreToolUseValidator {
             ? await this.resolveRealPath(projectRoot)
             : projectRoot;
 
-        if (!absolutePath.startsWith(normalizedProjectRoot)) {
+        if (!this.pathStartsWith(absolutePath, normalizedProjectRoot)) {
             return {
                 allowed: false,
                 reason: `File deletion outside project blocked: ${filePath}`,

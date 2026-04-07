@@ -237,6 +237,28 @@ export class TestRunner {
                   `[TestRunner] LLM fallback detected project type: ${llmResult.type}`,
                 );
                 Object.assign(projectInfo, llmResult);
+
+                // LLM이 타입 감지 → 서브디렉토리에서 실제 프로젝트 루트 탐색
+                // dotnet build 등이 올바른 cwd에서 실행되도록 workspaceRoot 갱신
+                try {
+                  const rootEntries = await fs.readdir(workspaceRoot);
+                  for (const entry of rootEntries) {
+                    if (entry.startsWith('.') || entry === 'node_modules') continue;
+                    const subPath = path.join(workspaceRoot, entry);
+                    try {
+                      const stat = await fs.stat(subPath);
+                      if (!stat.isDirectory()) continue;
+                      const subInfo = await detector.detectProjectType(subPath);
+                      if (subInfo.type !== ProjectType.UNKNOWN) {
+                        console.log(
+                          `[TestRunner] LLM fallback: sub-project root found at ${entry} (${subInfo.type})`,
+                        );
+                        workspaceRoot = subPath;
+                        break;
+                      }
+                    } catch { /* ignore */ }
+                  }
+                } catch { /* ignore */ }
               } else {
                 console.log(
                   "[TestRunner] No project type found. Diagnostics only.",
