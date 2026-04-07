@@ -1467,7 +1467,7 @@ export class ConversationManager implements IConversationHandler {
             alreadyStattedFiles,
             createdFiles,
             modifiedFiles,
-            false, // includeWebviewInContext
+            true, // includeWebviewInContext — ask_question 등 webview 필요 도구 지원
             conversationTurnId,
             executedCommands,
             isPlanMode,
@@ -1869,7 +1869,7 @@ export class ConversationManager implements IConversationHandler {
                 alreadyStattedFiles,
                 createdFiles,
                 modifiedFiles,
-                false, // includeWebviewInContext
+                true, // includeWebviewInContext — ask_question 등 webview 필요 도구 지원
                 conversationTurnId,
                 executedCommands,
                 isPlanMode,

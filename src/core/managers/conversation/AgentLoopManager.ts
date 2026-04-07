@@ -724,6 +724,7 @@ export class AgentLoopManager {
       contextManager: this.contextManager,
       conversationTurnId,
       isAgentMode: true,
+      webview,
     };
 
     let toolResults: ToolResponse[] = [];

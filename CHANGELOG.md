@@ -2,7 +2,21 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.62**
+> **현재 버전: v1.0.63**
+
+---
+
+## v1.0.63 (2026-04-07)
+
+### ask_question 전체 활성화
+
+- **AGENT 모드 ask_question 수정**: webview 누락으로 실행 실패하던 문제 수정
+- **CODE 모드 plan item 실행 시 ask_question 활성화**: 전체 EXECUTION 경로에서 사용 가능
+- **멀티 에이전트 ask_question 활성화**: SubAgentLoop에서도 동작
+
+### 개선
+
+- **스트리밍 실패 메시지 구분**: 보안 차단(`🚫`)과 일반 실패(`❌`) 구분 표시
 
 ---
 
