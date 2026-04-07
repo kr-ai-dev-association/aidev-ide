@@ -73,7 +73,6 @@ let customBlockedCommands: string[] = [];
 let customProtectedFiles: string[] = [];
 let customHiddenFiles: string[] = [];
 let disabledBlockedCommands: string[] = [];
-let disabledProtectedFiles: string[] = [];
 
 // Server security rule cache
 let _serverBlockedCommands: { pattern: string; description: string }[] = [];
@@ -120,8 +119,7 @@ export function updateDisabledBlockedCommands(ids: string[]): void {
 /**
  * Update disabled protected files cache
  */
-export function updateDisabledProtectedFiles(ids: string[]): void {
-    disabledProtectedFiles = ids;
+export function updateDisabledProtectedFiles(_ids: string[]): void {
     PreToolUseValidator.invalidateCache();
 }
 
@@ -199,7 +197,6 @@ export class PreToolUseValidator {
     // Cached regex arrays (reset via invalidateCache())
     private static _cachedDangerousCommands: RegExp[] | null = null;
     private static _cachedSensitiveFiles: RegExp[] | null = null;
-    private static _cachedReadOnlyFiles: RegExp[] | null = null;
     private static _cachedHiddenFilePatterns: RegExp[] | null = null;
 
     /**
@@ -218,7 +215,6 @@ export class PreToolUseValidator {
     static invalidateCache(): void {
         PreToolUseValidator._cachedDangerousCommands = null;
         PreToolUseValidator._cachedSensitiveFiles = null;
-        PreToolUseValidator._cachedReadOnlyFiles = null;
         PreToolUseValidator._cachedHiddenFilePatterns = null;
     }
 
@@ -301,13 +297,7 @@ export class PreToolUseValidator {
 
         if (!_serverSecurityRulesLoaded) loadServerSecurityRules();
 
-        const readOnlyIds = ['package_lock', 'yarn_lock', 'pnpm_lock'];
         const sources: Array<{ pattern: string; skip?: boolean }> = [
-            // Default rules that are not disabled (excluding read-only)
-            ...DEFAULT_PROTECTED_FILES.map(r => ({
-                pattern: r.pattern,
-                skip: disabledProtectedFiles.includes(r.id) || readOnlyIds.includes(r.id),
-            })),
             // Custom protected files
             ...customProtectedFiles.map(p => ({ pattern: p })),
             // Server protected files
@@ -320,20 +310,6 @@ export class PreToolUseValidator {
 
         this._cachedSensitiveFiles = this.buildRegexPatterns(sources);
         return this._cachedSensitiveFiles;
-    }
-
-    // Files that allow reading but block modification - dynamically generated (cached)
-    private static get READ_ONLY_FILES(): RegExp[] {
-        if (this._cachedReadOnlyFiles) return this._cachedReadOnlyFiles;
-
-        const readOnlyIds = ['package_lock', 'yarn_lock', 'pnpm_lock'];
-        const sources: Array<{ pattern: string; skip?: boolean }> = DEFAULT_PROTECTED_FILES.map(r => ({
-            pattern: r.pattern,
-            skip: !readOnlyIds.includes(r.id) || disabledProtectedFiles.includes(r.id),
-        }));
-
-        this._cachedReadOnlyFiles = this.buildRegexPatterns(sources);
-        return this._cachedReadOnlyFiles;
     }
 
     // Hidden file patterns (for blocking reads) - cached
@@ -553,6 +529,16 @@ export class PreToolUseValidator {
         return childPath.startsWith(parentPath);
     }
 
+    private static isBlockOutsideProjectEnabled(): boolean {
+        try {
+            const vscode = require('vscode');
+            const config = vscode.workspace.getConfiguration('codepilot');
+            return config.get('blockOutsideProject') ?? true;
+        } catch {
+            return false;
+        }
+    }
+
     /**
      * File write path validation
      * v9.4.0: Added symbolic link normalization
@@ -570,12 +556,14 @@ export class PreToolUseValidator {
             ? await this.resolveRealPath(projectRoot)
             : projectRoot;
 
-        if (!this.pathStartsWith(absolutePath, normalizedProjectRoot)) {
-            return {
-                allowed: false,
-                reason: `File modification outside project blocked: ${filePath}`,
-                severity: 'error'
-            };
+        if (this.isBlockOutsideProjectEnabled()) {
+            if (!this.pathStartsWith(absolutePath, normalizedProjectRoot)) {
+                return {
+                    allowed: false,
+                    reason: `File modification outside project blocked: ${filePath}`,
+                    severity: 'error'
+                };
+            }
         }
 
         // Convert to relative path for pattern matching
@@ -587,17 +575,6 @@ export class PreToolUseValidator {
                 return {
                     allowed: false,
                     reason: `Sensitive file modification blocked: ${filePath}`,
-                    severity: 'error'
-                };
-            }
-        }
-
-        // Block read-only files
-        for (const pattern of this.READ_ONLY_FILES) {
-            if (pattern.test(relativePath) || pattern.test(filePath)) {
-                return {
-                    allowed: false,
-                    reason: `Read-only file modification blocked: ${filePath}`,
                     severity: 'error'
                 };
             }
@@ -619,12 +596,14 @@ export class PreToolUseValidator {
             ? await this.resolveRealPath(projectRoot)
             : projectRoot;
 
-        if (!this.pathStartsWith(absolutePath, normalizedProjectRoot)) {
-            return {
-                allowed: false,
-                reason: `File read outside project blocked: ${filePath}`,
-                severity: 'error'
-            };
+        if (this.isBlockOutsideProjectEnabled()) {
+            if (!this.pathStartsWith(absolutePath, normalizedProjectRoot)) {
+                return {
+                    allowed: false,
+                    reason: `File read outside project blocked: ${filePath}`,
+                    severity: 'error'
+                };
+            }
         }
 
         // Block hidden file reads (using cached patterns)
@@ -645,7 +624,7 @@ export class PreToolUseValidator {
 
     /**
      * File deletion path validation
-     * v9.4.0: Added symbolic link normalization and READ_ONLY_FILES deletion blocking
+     * v9.4.0: Added symbolic link normalization
      */
     private static async validateFileRemove(filePath: string, projectRoot: string): Promise<ValidationResult> {
         // v9.4.0: Use actual path with symbolic links resolved
@@ -656,12 +635,14 @@ export class PreToolUseValidator {
             ? await this.resolveRealPath(projectRoot)
             : projectRoot;
 
-        if (!this.pathStartsWith(absolutePath, normalizedProjectRoot)) {
-            return {
-                allowed: false,
-                reason: `File deletion outside project blocked: ${filePath}`,
-                severity: 'error'
-            };
+        if (this.isBlockOutsideProjectEnabled()) {
+            if (!this.pathStartsWith(absolutePath, normalizedProjectRoot)) {
+                return {
+                    allowed: false,
+                    reason: `File deletion outside project blocked: ${filePath}`,
+                    severity: 'error'
+                };
+            }
         }
 
         // 상대 경로로 변환
@@ -673,17 +654,6 @@ export class PreToolUseValidator {
                 return {
                     allowed: false,
                     reason: `Sensitive file deletion blocked: ${filePath}`,
-                    severity: 'error'
-                };
-            }
-        }
-
-        // v9.4.0: Also block read-only file deletion (package-lock.json, etc.)
-        for (const pattern of this.READ_ONLY_FILES) {
-            if (pattern.test(relativePath) || pattern.test(filePath)) {
-                return {
-                    allowed: false,
-                    reason: `Read-only file deletion blocked: ${filePath}`,
                     severity: 'error'
                 };
             }

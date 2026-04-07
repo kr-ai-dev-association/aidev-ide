@@ -2167,6 +2167,10 @@ window.addEventListener("message", (event) => {
       if (typeof message.errorRetryCount === "number" && errorRetrySpinner) {
         errorRetrySpinner.value = message.errorRetryCount;
       }
+      if (typeof message.blockOutsideProjectEnabled === "boolean") {
+        const blockToggle = document.getElementById("block-outside-project-toggle");
+        if (blockToggle) blockToggle.checked = message.blockOutsideProjectEnabled;
+      }
       if (
         typeof message.autoExecuteCommandsEnabled === "boolean" &&
         autoExecuteToggle

@@ -144,6 +144,16 @@ export function bindToggleEvents(elements) {
     });
   }
 
+  const blockOutsideProjectToggle = document.getElementById("block-outside-project-toggle");
+  if (blockOutsideProjectToggle) {
+    blockOutsideProjectToggle.addEventListener("change", () => {
+      const enabled = blockOutsideProjectToggle.checked;
+      if (vscode) {
+        vscode.postMessage({ command: "setBlockOutsideProjectEnabled", enabled });
+      }
+    });
+  }
+
   // 소스코드 자동완성 토글
   if (inlineCompletionToggle) {
     inlineCompletionToggle.addEventListener("change", () => {

@@ -820,6 +820,16 @@ export class SettingsManager extends BaseManager {
         await this.updateUserSetting('autoExecuteCommands' as any, enabled, vscode.ConfigurationTarget.Global);
     }
 
+    public async isBlockOutsideProjectEnabled(): Promise<boolean> {
+        const config = vscode.workspace.getConfiguration('codepilot');
+        const globalValue = config.inspect<boolean>('blockOutsideProject')?.globalValue;
+        return globalValue ?? config.get<boolean>('blockOutsideProject') ?? true;
+    }
+
+    public async updateBlockOutsideProjectEnabled(enabled: boolean): Promise<void> {
+        await this.updateUserSetting('blockOutsideProject' as any, enabled, vscode.ConfigurationTarget.Global);
+    }
+
     /**
      * 도구 자동 실행 On/Off 상태를 읽습니다
      */
