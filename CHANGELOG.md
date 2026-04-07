@@ -2,7 +2,21 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.62**
+> **현재 버전: v1.0.63**
+
+---
+
+## v1.0.63 (2026-04-07)
+
+### ask_question 전체 활성화
+
+- **AGENT 모드 ask_question 수정**: AgentLoopManager의 ToolExecutionContext에 webview 누락으로 AGENT 모드에서 `ask_question` 실행 실패하던 문제 수정
+- **CODE 모드 plan item 실행 시 ask_question 활성화**: `includeWebviewInContext`를 전체 true로 변경 — plan item, tool calls, 일반 EXECUTION 모두에서 `ask_question` 사용 가능
+- **멀티 에이전트 ask_question 활성화**: `OrchestrationRouter.buildToolContext()`에 webview 전달 추가 — SubAgentLoop에서도 `ask_question` 동작
+
+### 개선
+
+- **스트리밍 실패 메시지 구분**: 보안 차단(`🚫 [차단]`)과 일반 실패(`❌ [Failed]`)를 구분하여 표시
 
 ---
 

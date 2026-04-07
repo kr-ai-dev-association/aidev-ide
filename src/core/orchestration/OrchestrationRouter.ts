@@ -138,7 +138,7 @@ export class OrchestrationRouter {
                 `${splitResult.subtasks.length}개 에이전트로 분할 완료`
             );
 
-            const toolContext = OrchestrationRouter.buildToolContext();
+            const toolContext = OrchestrationRouter.buildToolContext(webview);
             const results: AgentLoopResult[] = [];
 
             // Pre-load skill registry (registry must be populated before IntentDetector)
@@ -959,7 +959,7 @@ export class OrchestrationRouter {
         return paths;
     }
 
-    private static buildToolContext(): ToolExecutionContext {
+    private static buildToolContext(webview?: vscode.Webview): ToolExecutionContext {
         const project = ProjectManager.getInstance().getCurrentProject();
         const workspaceRoot = project?.root || '';
 
@@ -970,6 +970,7 @@ export class OrchestrationRouter {
             executionManager: ExecutionManager.getInstance(),
             terminalManager: TerminalManager.getInstance(),
             contextManager: ContextManager.getInstance(),
+            webview,
         };
     }
 
