@@ -2335,10 +2335,14 @@ export class ConversationManager implements IConversationHandler {
                 ToolExecutionCoordinator.sendSingleToolResultToUI(webviewToRespond, capturedCall, streamResults[0]);
               }
             } else if (streamResults[0] && !streamResults[0].success) {
-              // 차단 등 실패 시 채팅에 메시지 표시 + 메인 실행에서 중복 실행 방지
-              const reason = streamResults[0].message || streamResults[0].error?.message || '실행 차단됨';
-              WebviewBridge.receiveMessage(webviewToRespond, 'System', `🚫 [차단] ${reason}`);
-              streamingHandledPaths.add(`${capturedCall.name}:${path}`);
+              // 실패 시 채팅에 메시지 표시 + 메인 실행에서 중복 실행 방지
+              const reason = streamResults[0].message || streamResults[0].error?.message || '실행 실패';
+              const isSecurityBlock = streamResults[0].error?.code === 'BLOCKED_BY_VALIDATOR';
+              const icon = isSecurityBlock ? '🚫 [차단]' : '❌ [Failed]';
+              WebviewBridge.receiveMessage(webviewToRespond, 'System', `${icon} ${reason}`);
+              if (isSecurityBlock) {
+                streamingHandledPaths.add(`${capturedCall.name}:${path}`);
+              }
             }
           });
         };
