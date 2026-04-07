@@ -622,6 +622,76 @@ export class ConversationCompactor {
   }
 
   /**
+   * Microcompact: 도구 결과를 1줄 요약으로 축약 (LLM 호출 없음)
+   * Tier1 trim보다 적극적 — 도구 결과의 내용을 파일명/라인수/크기만 남김
+   * 70% 토큰 초과 시 트리거, 최근 keepRecentCount 메시지는 보호
+   */
+  public microcompact(
+    userParts: Part[],
+    systemPrompt: string,
+    maxTokens: number,
+  ): { compacted: boolean; parts: Part[]; savedTokens: number } {
+    if (!this.config.enabled) {
+      return { compacted: false, parts: userParts, savedTokens: 0 };
+    }
+
+    const totalTokens = this.calculateTotalTokens(userParts, systemPrompt);
+    const threshold = maxTokens * 0.7;
+
+    if (totalTokens <= threshold) {
+      return { compacted: false, parts: userParts, savedTokens: 0 };
+    }
+
+    const protectedCount = Math.min(this.config.keepRecentCount, userParts.length);
+    const targetEnd = userParts.length - protectedCount;
+
+    if (targetEnd <= 0) {
+      return { compacted: false, parts: userParts, savedTokens: 0 };
+    }
+
+    let compacted = false;
+    const newParts = [...userParts];
+
+    for (let i = 0; i < targetEnd; i++) {
+      const text = newParts[i].text || '';
+      if (text.length < 200) continue;
+      if (text.startsWith('[Previous') || text.startsWith('[File previously') || text.startsWith('[Microcompact]')) continue;
+
+      const isToolResult = /\[도구 결과\]|\[Tool Result\]|read_file|create_file|update_file|run_command|ripgrep_search|glob_search|list_files|stat_file/.test(text);
+      if (!isToolResult && text.length < 500) continue;
+
+      const fileMatch = text.match(/(?:file|path)[:\s]*[`"]?([^\s`"]+\.\w{1,6})/i)
+        || text.match(/^([^\s]+\.\w{1,5})\s*[\(:|]/m);
+      const filePath = fileMatch ? fileMatch[1] : '';
+      const lineCount = text.split('\n').length;
+      const charCount = text.length;
+      const statusMatch = text.match(/Status:\s*(Success|Failed|success|failed)/i);
+      const status = statusMatch ? statusMatch[1] : '';
+
+      let summary = `[Microcompact] `;
+      if (filePath) summary += `${filePath} `;
+      summary += `(${lineCount} lines, ${(charCount / 1024).toFixed(1)}KB)`;
+      if (status) summary += ` — ${status}`;
+
+      newParts[i] = { text: summary };
+      compacted = true;
+    }
+
+    if (!compacted) {
+      return { compacted: false, parts: userParts, savedTokens: 0 };
+    }
+
+    const newTokens = this.calculateTotalTokens(newParts, systemPrompt);
+    const savedTokens = totalTokens - newTokens;
+
+    console.log(
+      `[ConversationCompactor] Microcompact: ${savedTokens} tokens saved (${totalTokens} → ${newTokens})`,
+    );
+
+    return { compacted: true, parts: newParts, savedTokens };
+  }
+
+  /**
    * C-1: Post-compaction token budget enforcement
    * Limits restored context by type after LLM summary:
    * - Max 5 file read results (oldest removed first)

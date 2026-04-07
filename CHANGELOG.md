@@ -14,8 +14,15 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 - **CODE 모드 plan item 실행 시 ask_question 활성화**: 전체 EXECUTION 경로에서 사용 가능
 - **멀티 에이전트 ask_question 활성화**: SubAgentLoop에서도 동작
 
+### 컨텍스트 압축 3단계 (Microcompact 추가)
+
+- **Microcompact 단계 추가**: 70%에서 도구 결과를 1줄 요약으로 축약 (LLM 호출 없음)
+- **압축 파이프라인**: Tier0 trim → Tier1.5 Microcompact → Tier2 LLM 요약
+- **CODE + AGENT 모두 적용**
+
 ### 개선
 
+- **Windows PowerShell spawn 방식 개선**: `shell: false` 직접 실행, 프로세스 1개
 - **스트리밍 실패 메시지 구분**: 보안 차단(`🚫`)과 일반 실패(`❌`) 구분 표시
 
 ---
