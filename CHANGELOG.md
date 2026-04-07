@@ -18,7 +18,7 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 ### 버그 수정
 
 - **AGENT 모드 Prompt Suggestion 설정 무시 수정**: OFF인데도 제안 표시되던 문제 수정
-- **Windows PowerShell 폴백 실행 실패 수정**: `-ExecutionPolicy` cmdlet 인식 문제 — `cmd.exe` 경유로 변경
+- **Windows PowerShell 실행 방식 개선**: `shell: false` 직접 실행으로 변경 — 프로세스 1개, 인자 파싱 안전성 향상
 
 ---
 
@@ -31,9 +31,9 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 - **Webview classList null 에러 수정**: 참조 패널 토글 클릭 시 null 참조 에러 수정
 - **Webview processing-steps 디버그 로그 제거**
 
-### AGENT 모드 — Claude Code 스타일 cwd 관리
+### AGENT 모드 — cwd 자율 관리
 
-- **AGENT 모드 cwd 자동 추론 스킵**: LLM이 직접 경로 관리 (Claude Code 방식)
+- **AGENT 모드 cwd 자동 추론 스킵**: LLM이 직접 경로 관리 (자율 방식)
 - **ToolExecutionContext에 `isAgentMode` 추가**
 - **Windows 경로 대소문자 보안 차단 수정**: 드라이브 문자 대소문자 불일치로 파일 조작 차단되는 문제 수정
 - **모델 미선택 알림**: 모델 미설정 시 채팅 상단에 알림 배너 표시
@@ -42,7 +42,7 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ## v1.0.60 (2026-04-07)
 
-### AGENT 모드 — Claude Code 스타일 자율 탐색
+### AGENT 모드 — 자율 탐색
 
 - **ProjectDetector 제거**: LLM이 직접 프로젝트 구조 파악
 - **CODE 모드 영향 없음**: 기존 자동 빌드 검증 유지
@@ -208,7 +208,7 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 - **Prompt Suggestion**: 대화 완료 후 후속 작업 제안 버튼
 - **autoDream**: 메모리 자동 통합/정리 (24h + 5세션)
 
-### Claude Code 기능 TODO 전체 완료
+### 기능 TODO 전체 완료
 
 ---
 
@@ -288,7 +288,7 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ### AGENT 모드 개선
 
-- **자동 검증 스킵**: AGENT 모드에서 시스템 자동 tsc 검증 제거 — LLM이 직접 `run_command`로 검증 (Claude Code 방식)
+- **자동 검증 스킵**: AGENT 모드에서 시스템 자동 tsc 검증 제거 — LLM이 직접 `run_command`로 검증 (자율 방식)
 - **work_plan 도구**: AGENT 모드 전용 작업 계획 도구 — 기존 작업큐 UI 재사용, 매 턴 시스템 메시지에 상태 주입
 - **검증 에이전트**: 복잡한 작업(3+ 파일) 완료 후 `spawn_agent`로 검증 worker 스폰 — 빌드/테스트 실행 + 회의적 검증
 - **세션 저장 로그**: `Saving AGENT mode entry` (이전: `CODE mode entry`)
@@ -644,7 +644,7 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ### 기능 추가
 
-- **PLAN 모드 추가**: CODE / ASK 모드 외 새로운 세 번째 모드. 코드베이스 탐색 후 구현 계획 Markdown을 생성하는 읽기 전용 모드 (Cursor Plan Mode / Cline Plan-Act 패턴)
+- **PLAN 모드 추가**: CODE / ASK 모드 외 새로운 세 번째 모드. 코드베이스 탐색 후 구현 계획 Markdown을 생성하는 읽기 전용 모드 (Plan-Act 패턴)
   - `PromptType.PLAN` 열거값 추가 (`src/services/types.ts`)
   - 드롭다운에 PLAN 옵션 추가 (`webview/chat.html`) — `applyMode()` 정규화 업데이트
   - `ChatViewProvider`: `data.mode === 'PLAN'` → `PromptType.PLAN` 매핑
@@ -809,7 +809,7 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ### 개선
 
-- **의존성 설치 프롬프트 기반 전환**: DependencyInstaller 삭제. 시스템 레벨 자동 설치 대신 LLM이 프롬프트 지시에 따라 직접 의존성 설치 수행. 업계 표준 방식(Cursor, Windsurf, Cline 등)과 동일
+- **의존성 설치 프롬프트 기반 전환**: DependencyInstaller 삭제. 시스템 레벨 자동 설치 대신 LLM이 프롬프트 지시에 따라 직접 의존성 설치 수행. 업계 표준 방식과 동일
 - **TestRunner/OrchestrationRouter 자동 설치 제거**: TestRunner의 `checkEnvironmentHealth()` + `attemptInstall()`, OrchestrationRouter의 ENVIRONMENT_MISSING 자동 수정 블록 제거. 모든 의존성 에러는 LLM repair agent가 처리
 - **AutoRemediator 간소화**: 의존성 설치 기능(`attemptInstall`, `runInstallCommand`, ENVIRONMENT_MISSING 케이스) 제거. BUILD_TIMEOUT 빌드 캐시 클리어만 유지
 - **의존성 설치 프롬프트 간소화**: 8줄 패키지 매니저 열거 → 4줄로 축소. LLM이 이미 알고 있는 매핑은 생략하고 핵심 규칙만 명시
