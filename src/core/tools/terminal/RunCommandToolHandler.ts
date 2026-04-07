@@ -372,7 +372,16 @@ export class RunCommandToolHandler implements IToolHandler {
         // Use as-is if manifest exists at root
         if (this.hasManifestIn(projectRoot, manifests)) return projectRoot;
 
-        // BFS search up to 2-depth
+        // 명령어에서 서브 프로젝트 경로 추출 시도
+        // 예: "dotnet build MyWebApi/MyWebApi.csproj" → "MyWebApi"
+        // 예: "cd MyWebApi && dotnet build" → "MyWebApi"
+        const cmdHint = this.extractProjectHintFromCommand(command, projectRoot);
+        if (cmdHint) {
+            console.log(`[RunCommandToolHandler] Auto-resolved cwd to sub-project (from command): ${cmdHint}`);
+            return cmdHint;
+        }
+
+        // BFS search up to 2-depth (폴백: 첫 번째 매니페스트 디렉토리)
         const found = this.findManifestDir(projectRoot, manifests, 2);
         if (found) {
             console.log(`[RunCommandToolHandler] Auto-resolved cwd to sub-project: ${found}`);
@@ -380,6 +389,49 @@ export class RunCommandToolHandler implements IToolHandler {
         }
 
         return projectRoot;
+    }
+
+    /**
+     * 명령어에서 서브 프로젝트 디렉토리를 추출
+     * "dotnet build MyWebApi/MyWebApi.csproj" → projectRoot/MyWebApi
+     * "cd MyWebApi && dotnet build" → projectRoot/MyWebApi
+     * "npm run dev --prefix frontend" → projectRoot/frontend
+     */
+    private extractProjectHintFromCommand(command: string, projectRoot: string): string | null {
+        const path = require('path');
+        const fs = require('fs');
+
+        // 1. "cd XXX && ..." 패턴
+        const cdMatch = command.match(/^cd\s+([^\s&]+)/);
+        if (cdMatch) {
+            const candidate = path.join(projectRoot, cdMatch[1]);
+            if (fs.existsSync(candidate)) return candidate;
+        }
+
+        // 2. 명령어 인자에서 디렉토리/파일 경로 추출
+        const parts = command.split(/\s+/);
+        for (const part of parts) {
+            // "MyWebApi/MyWebApi.csproj" → "MyWebApi"
+            // "MyWebApi" → "MyWebApi"
+            // "--project MyWebApi" → "MyWebApi"
+            const cleaned = part.replace(/^["']|["']$/g, ''); // 따옴표 제거
+            if (cleaned.startsWith('-') || cleaned.startsWith('/')) continue; // 플래그 스킵
+
+            // 파일 경로면 부모 디렉토리 사용
+            let dirCandidate = cleaned;
+            if (cleaned.includes('/') || cleaned.includes('\\')) {
+                dirCandidate = cleaned.split(/[/\\]/)[0];
+            }
+
+            const fullPath = path.join(projectRoot, dirCandidate);
+            try {
+                if (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory()) {
+                    return fullPath;
+                }
+            } catch { /* skip */ }
+        }
+
+        return null;
     }
 
     /**

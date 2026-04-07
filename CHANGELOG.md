@@ -20,6 +20,12 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 - **압축 단계**: Tier1 trim → budget → LLM 요약 → collapse-drain (4단계)
 - **적용 범위**: CODE + AGENT 모두
 
+### 서브 프로젝트 cwd 감지 개선
+
+- **명령어 경로 분석**: `dotnet build MyWebApi/MyWebApi.csproj` → MyWebApi 디렉토리에서 실행 (이전: 첫 번째 감지된 서브 프로젝트로 이동)
+- **cd 패턴 인식**: `cd MyWebApi && dotnet build` → MyWebApi 디렉토리 자동 감지
+- **폴백 유지**: 경로 추출 실패 시 기존 BFS 탐색 사용
+
 ### 설정 내보내기/가져오기
 
 - **errorReportingEnabled 추가**: 내보내기/가져오기에 빠져있던 에러 보고 설정 포함
