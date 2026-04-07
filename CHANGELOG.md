@@ -17,6 +17,11 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 - **budget 추가**: 3턴 이전 도구 결과 2000자 자동 축약
 
+### 서브 프로젝트 cwd 감지 개선
+
+- **명령어 경로 분석**: 명령어에서 프로젝트 디렉토리 자동 추출
+- **cd 패턴 인식**: `cd XXX && ...` 패턴 자동 감지
+
 ### 설정
 
 - **errorReportingEnabled**: 내보내기/가져오기에 추가

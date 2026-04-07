@@ -325,6 +325,42 @@ export class RunCommandToolHandler implements IToolHandler {
     }
 
     /**
+     * 명령어에서 서브 프로젝트 디렉토리를 추출
+     */
+    private extractProjectHintFromCommand(command: string, projectRoot: string): string | null {
+        const path = require('path');
+        const fs = require('fs');
+
+        // 1. "cd XXX && ..." 패턴
+        const cdMatch = command.match(/^cd\s+([^\s&]+)/);
+        if (cdMatch) {
+            const candidate = path.join(projectRoot, cdMatch[1]);
+            if (fs.existsSync(candidate)) return candidate;
+        }
+
+        // 2. 명령어 인자에서 디렉토리/파일 경로 추출
+        const parts = command.split(/\s+/);
+        for (const part of parts) {
+            const cleaned = part.replace(/^["']|["']$/g, '');
+            if (cleaned.startsWith('-') || cleaned.startsWith('/')) continue;
+
+            let dirCandidate = cleaned;
+            if (cleaned.includes('/') || cleaned.includes('\\')) {
+                dirCandidate = cleaned.split(/[/\\]/)[0];
+            }
+
+            const fullPath = path.join(projectRoot, dirCandidate);
+            try {
+                if (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory()) {
+                    return fullPath;
+                }
+            } catch { /* skip */ }
+        }
+
+        return null;
+    }
+
+    /**
      * Search subdirectories up to maxDepth and return the nearest directory with manifest
      * BFS search, prioritizing results with lower (closer) depth
      */
@@ -375,7 +411,14 @@ export class RunCommandToolHandler implements IToolHandler {
         // Use as-is if manifest exists at root
         if (this.hasManifestIn(projectRoot, manifests)) return projectRoot;
 
-        // BFS search up to 2-depth
+        // 명령어에서 서브 프로젝트 경로 추출 시도
+        const cmdHint = this.extractProjectHintFromCommand(command, projectRoot);
+        if (cmdHint) {
+            console.log(`[RunCommandToolHandler] Auto-resolved cwd to sub-project (from command): ${cmdHint}`);
+            return cmdHint;
+        }
+
+        // BFS search up to 2-depth (폴백)
         const found = this.findManifestDir(projectRoot, manifests, 2);
         if (found) {
             console.log(`[RunCommandToolHandler] Auto-resolved cwd to sub-project: ${found}`);
