@@ -1124,7 +1124,20 @@ export class ConversationManager implements IConversationHandler {
           );
         }
 
-        // Tier 2: LLM 요약 (트림 후에도 threshold 초과 시)
+        // Tier 1.5: Microcompact — 도구 결과를 1줄 요약으로 축약 (LLM 호출 없음, 70% 초과 시)
+        const microResult = compactor.microcompact(
+          accumulatedUserParts,
+          systemPrompt,
+          maxTokens,
+        );
+        if (microResult.compacted) {
+          accumulatedUserParts = microResult.parts;
+          console.log(
+            `[ConversationManager] Microcompact: saved ${microResult.savedTokens} tokens`,
+          );
+        }
+
+        // Tier 2: LLM 요약 (Microcompact 후에도 threshold 초과 시)
         if (
           compactor.needsCompaction(
             accumulatedUserParts,

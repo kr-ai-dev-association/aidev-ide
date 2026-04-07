@@ -177,6 +177,13 @@ export class AgentLoopManager {
           console.log(`[AgentLoopManager] Tier1 trim: saved ${trimResult.savedTokens} tokens`);
         }
 
+        // Tier 1.5: Microcompact — 도구 결과를 1줄 요약 (LLM 호출 없음, 70% 초과 시)
+        const microResult = compactor.microcompact(accumulatedUserParts, activeSystemPrompt, maxTokens);
+        if (microResult.compacted) {
+          accumulatedUserParts = microResult.parts;
+          console.log(`[AgentLoopManager] Microcompact: saved ${microResult.savedTokens} tokens`);
+        }
+
         // Tier 2: LLM summary (if still over threshold)
         if (compactor.needsCompaction(accumulatedUserParts, activeSystemPrompt, maxTokens)) {
           console.log(`[AgentLoopManager] Token threshold exceeded. Starting context compaction...`);
