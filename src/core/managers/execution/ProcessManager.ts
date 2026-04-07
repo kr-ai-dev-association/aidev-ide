@@ -125,9 +125,9 @@ export class ProcessManager {
                 shellOption = GIT_BASH_PATH;
                 winCmd = cmd;
             } else if (POWERSHELL_PATH) {
-                // 2순위: PowerShell (Bypass + NoProfile + UTF-8)
-                shellOption = POWERSHELL_PATH;
-                winCmd = `-ExecutionPolicy Bypass -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${cmd.replace(/"/g, '\\"')}"`;
+                // 2순위: PowerShell via cmd.exe (ExecutionPolicy Bypass + NoProfile + UTF-8)
+                shellOption = 'cmd.exe';
+                winCmd = `chcp 65001 >nul && "${POWERSHELL_PATH}" -ExecutionPolicy Bypass -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${cmd.replace(/"/g, '\\"')}"`;
             } else {
                 // 3순위: cmd.exe (최후 폴백)
                 shellOption = 'cmd.exe';
