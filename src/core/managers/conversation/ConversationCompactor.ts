@@ -25,6 +25,10 @@ const POST_COMPACT_FILE_TOKEN_BUDGET = 50000;
 const POST_COMPACT_MAX_TOOL_RESULT_TOKENS = 5000;
 const POST_COMPACT_TOOL_RESULT_TRUNCATE = 2000;
 
+// Budget: 오래된 도구 결과 자동 축약
+const BUDGET_STALE_TURN_THRESHOLD = 3; // N턴 이전의 도구 결과만 대상
+const BUDGET_MAX_RESULT_CHARS = 2000;  // 축약 시 최대 문자 수
+
 export interface ConversationMessage {
   role: "user" | "assistant" | "system";
   content: string;
@@ -886,6 +890,43 @@ export class ConversationCompactor {
     );
 
     return totalTokensUsed > threshold;
+  }
+
+  /**
+   * Budget: 오래된 턴의 도구 결과를 자동 축약 (매 턴 호출)
+   * 현재 턴과 최근 N턴은 유지, 그 이전의 큰 도구 결과만 축약
+   * LLM 호출 없이 즉시 처리 — 압축 발생 빈도 자체를 줄임
+   * @param currentTurn 현재 턴 번호
+   */
+  public applyBudget(userParts: Part[], currentTurn: number): number {
+    let truncatedCount = 0;
+
+    for (let i = 0; i < userParts.length; i++) {
+      const text = userParts[i].text || '';
+      if (text.length <= BUDGET_MAX_RESULT_CHARS) continue;
+
+      // 도구 결과 패턴 감지: [도구 결과], [Tool Result], read_file, create_file 등
+      const isToolResult = text.includes('[도구 결과]') || text.includes('[Tool Result]')
+        || text.includes('read_file') || text.includes('create_file')
+        || text.includes('update_file') || text.includes('run_command')
+        || text.includes('ripgrep_search') || text.includes('list_files');
+
+      if (!isToolResult) continue;
+
+      // 최근 메시지는 유지 (뒤에서 BUDGET_STALE_TURN_THRESHOLD * 2개)
+      const recentBoundary = userParts.length - (BUDGET_STALE_TURN_THRESHOLD * 2);
+      if (i >= recentBoundary) continue;
+
+      // 축약
+      const truncated = text.substring(0, BUDGET_MAX_RESULT_CHARS) + `\n... [${text.length - BUDGET_MAX_RESULT_CHARS} chars truncated by budget]`;
+      userParts[i] = { text: truncated } as Part;
+      truncatedCount++;
+    }
+
+    if (truncatedCount > 0) {
+      console.log(`[ConversationCompactor] Budget: truncated ${truncatedCount} stale tool results`);
+    }
+    return truncatedCount;
   }
 
   /**

@@ -404,19 +404,16 @@ export class ConversationManager implements IConversationHandler {
         resetAgentTaskManager();
         resetWorkPlan();
 
-        // Pre-load project inventory for AGENT mode
-        try {
-          const projectManager = ProjectManager.getInstance();
-          const inventory = await projectManager.buildProjectInventorySection(
-            AgentConfig.MAX_PROJECT_INVENTORY_FILES,
-          );
-          if (inventory) {
-            userParts.push({
-              text: `${inventory}\n\n**중요**: 위 프로젝트 파일 구조를 참고하여 필요한 파일만 선택적으로 읽으세요. 모든 파일을 읽을 필요는 없습니다.`,
-            });
-          }
-        } catch (error) {
-          console.warn(`[ConversationManager] Failed to pre-load project inventory for AGENT:`, error);
+        // AGENT mode: LLM 자율 탐색 (Claude Code 스타일)
+        // ProjectDetector 결과를 주입하지 않음 — LLM이 직접 파일을 읽고 프로젝트 구조를 파악
+        // 워크스페이스 루트 경로만 제공
+        const wsRoot = options.extensionContext
+          ? (await import('vscode')).workspace.workspaceFolders?.[0]?.uri.fsPath || ''
+          : '';
+        if (wsRoot) {
+          userParts.push({
+            text: `[System] 워크스페이스: ${wsRoot}\n프로젝트 구조를 파악하려면 list_files, glob_search, read_file을 사용하세요. 필요한 파일만 선택적으로 탐색하세요.`,
+          });
         }
 
         const agentLoop = new AgentLoopManager(this.llmManager);
