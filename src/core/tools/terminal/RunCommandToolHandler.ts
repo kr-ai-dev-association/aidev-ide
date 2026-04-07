@@ -192,8 +192,10 @@ export class RunCommandToolHandler implements IToolHandler {
             console.log(`[RunCommandToolHandler] Auto-background detected for: ${command}`);
         }
 
-        // -- Sub-project auto-detection: search subdirectories if no manifest --
-        const effectiveCwd = this.resolveCommandCwd(command, context.projectRoot);
+        // -- Sub-project auto-detection: AGENT 모드에서는 스킵 (LLM이 직접 경로 관리) --
+        const effectiveCwd = context.isAgentMode
+            ? context.projectRoot
+            : this.resolveCommandCwd(command, context.projectRoot);
 
         // Phase 0: LLM explicitly requested (or auto-detected) background execution
         if (isBackground) {
@@ -326,30 +328,48 @@ export class RunCommandToolHandler implements IToolHandler {
 
     /**
      * 명령어에서 서브 프로젝트 디렉토리를 추출
+     * "cd MyWebApi && dotnet build" → projectRoot/MyWebApi
+     * "npm run dev --prefix frontend" → projectRoot/frontend
+     *
+     * 주의: 명령어에 이미 상대 경로가 포함된 경우 cwd 변경하면 이중 경로 문제 발생
+     * "dotnet run --project MyApp/MyApp.csproj" → cwd는 projectRoot 유지 (return null)
      */
     private extractProjectHintFromCommand(command: string, projectRoot: string): string | null {
         const path = require('path');
         const fs = require('fs');
 
-        // 1. "cd XXX && ..." 패턴
+        // 1. "cd XXX && ..." 패턴 — 명시적 디렉토리 이동이므로 안전
         const cdMatch = command.match(/^cd\s+([^\s&]+)/);
         if (cdMatch) {
             const candidate = path.join(projectRoot, cdMatch[1]);
             if (fs.existsSync(candidate)) return candidate;
         }
 
-        // 2. 명령어 인자에서 디렉토리/파일 경로 추출
+        // 2. 명령어에 상대 경로 인자가 이미 포함되어 있으면 cwd 변경하지 않음
         const parts = command.split(/\s+/);
         for (const part of parts) {
             const cleaned = part.replace(/^["']|["']$/g, '');
             if (cleaned.startsWith('-') || cleaned.startsWith('/')) continue;
 
-            let dirCandidate = cleaned;
             if (cleaned.includes('/') || cleaned.includes('\\')) {
-                dirCandidate = cleaned.split(/[/\\]/)[0];
+                const topDir = cleaned.split(/[/\\]/)[0];
+                const fullPath = path.join(projectRoot, topDir);
+                try {
+                    if (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory()) {
+                        console.log(`[RunCommandToolHandler] Command already contains sub-project path "${cleaned}", keeping cwd at projectRoot`);
+                        return projectRoot;
+                    }
+                } catch { /* skip */ }
             }
+        }
 
-            const fullPath = path.join(projectRoot, dirCandidate);
+        // 3. 단순 디렉토리명만 있는 경우
+        for (const part of parts) {
+            const cleaned = part.replace(/^["']|["']$/g, '');
+            if (cleaned.startsWith('-') || cleaned.startsWith('/')) continue;
+            if (cleaned.includes('/') || cleaned.includes('\\')) continue;
+
+            const fullPath = path.join(projectRoot, cleaned);
             try {
                 if (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory()) {
                     return fullPath;

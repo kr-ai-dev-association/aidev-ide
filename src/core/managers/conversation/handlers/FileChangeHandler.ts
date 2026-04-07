@@ -206,6 +206,35 @@ export class FileChangeHandler {
                 `[FileChangeHandler] LLM fallback detected project type: ${llmResult.type}`,
               );
               Object.assign(projectInfo, llmResult);
+
+              // LLM이 타입 감지 → 서브디렉토리에서 실제 프로젝트 루트 탐색
+              try {
+                const rootEntries = await fs.readdir(workspaceRoot);
+                for (const entry of rootEntries) {
+                  if (entry.startsWith('.') || entry === 'node_modules') continue;
+                  const subPath = path.join(workspaceRoot, entry);
+                  try {
+                    const stat = await fs.stat(subPath);
+                    if (!stat.isDirectory()) continue;
+                    const subInfo = await detector.detectProjectType(subPath);
+                    if (subInfo.type !== ProjectType.UNKNOWN) {
+                      console.log(
+                        `[FileChangeHandler] LLM fallback: sub-project root found at ${entry} (${subInfo.type})`,
+                      );
+                      workspaceRoot = subPath;
+                      createdFiles = createdFiles.map(f => {
+                        const abs = path.isAbsolute(f) ? f : path.join(originalWorkspaceRoot, f);
+                        return path.relative(workspaceRoot, abs);
+                      });
+                      modifiedFiles = modifiedFiles.map(f => {
+                        const abs = path.isAbsolute(f) ? f : path.join(originalWorkspaceRoot, f);
+                        return path.relative(workspaceRoot, abs);
+                      });
+                      break;
+                    }
+                  } catch { /* ignore */ }
+                }
+              } catch { /* ignore */ }
             } else {
               console.log(
                 "[FileChangeHandler] Unknown project type, skipping formatter and validation.",

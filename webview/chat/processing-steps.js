@@ -163,11 +163,8 @@ export function updateThinkingBubbleText() {
  * @param {string} stepName - 단계 이름
  */
 export function setProcessingStep(stepName) {
-  console.log(`[processing-steps] setProcessingStep called: stepName=${stepName}`);
-
-  // 🔥 thinking bubble이 숨겨져 있으면 다시 표시
+  // thinking bubble이 숨겨져 있으면 다시 표시
   if (thinkingBubbleElement && thinkingBubbleElement.style.display === "none") {
-    console.log(`[processing-steps] Showing hidden thinking bubble for step: ${stepName}`);
     thinkingBubbleElement.style.display = "";
   }
 
@@ -235,11 +232,8 @@ export function setProcessingStep(stepName) {
  * @param {Function} handleScrollFn - 스크롤 핸들러 함수 (optional)
  */
 export function updateProcessingStatus(stepName, status, handleScrollFn) {
-  console.log(`[processing-steps] updateProcessingStatus called: stepName=${stepName}, status=${status}`);
-
-  // 🔥 thinking bubble이 숨겨져 있으면 다시 표시
+  // thinking bubble이 숨겨져 있으면 다시 표시
   if (thinkingBubbleElement && thinkingBubbleElement.style.display === "none") {
-    console.log(`[processing-steps] Showing hidden thinking bubble for status update: ${stepName} - ${status}`);
     thinkingBubbleElement.style.display = "";
   }
 

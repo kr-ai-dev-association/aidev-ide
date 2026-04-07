@@ -2,7 +2,25 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.60**
+> **현재 버전: v1.0.61**
+
+---
+
+## v1.0.61 (2026-04-07)
+
+### 버그 수정
+
+- **RunCommandToolHandler cwd 이중 경로 수정**: 명령어에 상대 경로 포함 시 cwd를 projectRoot로 유지
+- **FileChangeHandler/TestRunner cwd 수정**: LLM 폴백 타입 감지 후 서브디렉토리 BFS로 실제 프로젝트 루트 탐색
+- **Webview classList null 에러 수정**: 참조 패널 토글 클릭 시 null 참조 에러 수정
+- **Webview processing-steps 디버그 로그 제거**
+
+### AGENT 모드 — Claude Code 스타일 cwd 관리
+
+- **AGENT 모드 cwd 자동 추론 스킵**: LLM이 직접 경로 관리 (Claude Code 방식)
+- **ToolExecutionContext에 `isAgentMode` 추가**
+- **Windows 경로 대소문자 보안 차단 수정**: 드라이브 문자 대소문자 불일치로 파일 조작 차단되는 문제 수정
+- **모델 미선택 알림**: 모델 미설정 시 채팅 상단에 알림 배너 표시
 
 ---
 

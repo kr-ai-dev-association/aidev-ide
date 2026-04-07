@@ -241,7 +241,7 @@ function appendReferencePanelToLastMessage(referenceInfo) {
     return `<div class="ref-item"><span class="ref-type ${item.type}">${typeLabel}${chunkLabel}</span><span>${item.name}${similarity}</span></div>`;
   }).join("");
 
-  panel.innerHTML = `<div class="reference-panel-toggle" onclick="this.querySelector('.toggle-icon').classList.toggle('expanded');this.nextElementSibling.classList.toggle('show')"><span class="toggle-icon">&#9654;</span> ${referenceInfo.items.length}개 참조</div><div class="reference-panel-list">${listItems}</div>`;
+  panel.innerHTML = `<div class="reference-panel-toggle" onclick="var icon=this.querySelector('.toggle-icon');if(icon)icon.classList.toggle('expanded');var next=this.nextElementSibling;if(next)next.classList.toggle('show')"><span class="toggle-icon">&#9654;</span> ${referenceInfo.items.length}개 참조</div><div class="reference-panel-list">${listItems}</div>`;
 }
 
 function removeLastMessage() {
