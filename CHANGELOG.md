@@ -2,7 +2,24 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.59**
+> **현재 버전: v1.0.60**
+
+---
+
+## v1.0.60 (2026-04-07)
+
+### AGENT 모드 — Claude Code 스타일 자율 탐색
+
+- **ProjectDetector 제거**: LLM이 직접 프로젝트 구조 파악
+- **CODE 모드 영향 없음**: 기존 자동 빌드 검증 유지
+
+### 컨텍스트 압축 4단계
+
+- **budget 추가**: 3턴 이전 도구 결과 2000자 자동 축약
+
+### 설정
+
+- **errorReportingEnabled**: 내보내기/가져오기에 추가
 
 ---
 
