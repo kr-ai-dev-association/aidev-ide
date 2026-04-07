@@ -103,43 +103,54 @@ export class ProcessManager {
         } else if (process.platform === 'win32') {
             // Windows 확장자 기반 쉘 라우팅
             const scriptExt = this.getScriptExtension(command);
-            let shellOption: string;
-            let winCmd: string;
+            const winEnv = { ...process.env, ...options.env, PYTHONIOENCODING: 'utf-8' };
 
             if (scriptExt === '.ps1') {
-                // .ps1 → PowerShell (ExecutionPolicy Bypass + UTF-8 출력 인코딩 강제)
+                // .ps1 → PowerShell 직접 실행 (Cline 방식: shell: false)
+                const psPath = POWERSHELL_PATH || 'powershell.exe';
                 const ps1Path = [cmd, ...args].join(' ');
-                args.length = 0; // args는 -Command 안에 포함되므로 비움
-                shellOption = 'cmd.exe';
-                winCmd = `chcp 65001 >nul && powershell -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; & '${ps1Path.replace(/'/g, "''")}'"`;
+                childProcess = spawn(psPath, [
+                    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                    '-Command', `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; & '${ps1Path.replace(/'/g, "''")}'`,
+                ], {
+                    cwd: options.cwd, env: winEnv, shell: false,
+                    ...(options.encoding && { encoding: options.encoding }),
+                });
             } else if (scriptExt === '.sh' && GIT_BASH_PATH) {
                 // .sh → Git Bash
-                shellOption = GIT_BASH_PATH;
-                winCmd = cmd;
+                childProcess = spawn(cmd, args, {
+                    cwd: options.cwd, env: winEnv, shell: GIT_BASH_PATH,
+                    ...(options.encoding && { encoding: options.encoding }),
+                });
             } else if (scriptExt === '.bat' || scriptExt === '.cmd') {
                 // .bat/.cmd → cmd.exe
-                shellOption = 'cmd.exe';
-                winCmd = `chcp 65001 >nul && ${cmd}`;
+                childProcess = spawn(`chcp 65001 >nul && ${cmd}`, args, {
+                    cwd: options.cwd, env: winEnv, shell: 'cmd.exe',
+                    ...(options.encoding && { encoding: options.encoding }),
+                });
             } else if (GIT_BASH_PATH) {
                 // 기본 1순위: Git Bash (Unix 명령어 호환)
-                shellOption = GIT_BASH_PATH;
-                winCmd = cmd;
+                childProcess = spawn(cmd, args, {
+                    cwd: options.cwd, env: winEnv, shell: GIT_BASH_PATH,
+                    ...(options.encoding && { encoding: options.encoding }),
+                });
             } else if (POWERSHELL_PATH) {
-                // 2순위: PowerShell via cmd.exe (ExecutionPolicy Bypass + NoProfile + UTF-8)
-                shellOption = 'cmd.exe';
-                winCmd = `chcp 65001 >nul && "${POWERSHELL_PATH}" -ExecutionPolicy Bypass -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${cmd.replace(/"/g, '\\"')}"`;
+                // 2순위: PowerShell 직접 실행 (Cline 방식: shell: false, 프로세스 1개)
+                const fullCmd = [cmd, ...args].join(' ');
+                childProcess = spawn(POWERSHELL_PATH, [
+                    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                    '-Command', `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${fullCmd}`,
+                ], {
+                    cwd: options.cwd, env: winEnv, shell: false,
+                    ...(options.encoding && { encoding: options.encoding }),
+                });
             } else {
                 // 3순위: cmd.exe (최후 폴백)
-                shellOption = 'cmd.exe';
-                winCmd = `chcp 65001 >nul && ${cmd}`;
+                childProcess = spawn(`chcp 65001 >nul && ${cmd}`, args, {
+                    cwd: options.cwd, env: winEnv, shell: 'cmd.exe',
+                    ...(options.encoding && { encoding: options.encoding }),
+                });
             }
-
-            childProcess = spawn(winCmd, args, {
-                cwd: options.cwd,
-                env: { ...process.env, ...options.env, PYTHONIOENCODING: 'utf-8' },
-                shell: shellOption,
-                ...(options.encoding && { encoding: options.encoding })
-            });
         } else {
             // Mac/Linux: login shell로 실행하여 사용자 환경(nvm, fnm, volta 등) PATH 로드
             const userShell = process.env.SHELL || '/bin/zsh';
