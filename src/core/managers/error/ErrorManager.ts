@@ -21,6 +21,8 @@ import { StackTraceAnalyzer } from './StackTraceAnalyzer';
 import { ErrorHistory } from './ErrorHistory';
 import { ExecutionManager } from '../execution/ExecutionManager';
 import { AgentConfig } from '../../config/AgentConfig';
+import { UsageMetricsManager } from '../state/UsageMetricsManager';
+import { estimateTokens } from '../../../utils';
 
 /**
  * 터미널 에러 이벤트 (terminalMonitorService에서 사용하던 인터페이스)
@@ -301,7 +303,11 @@ export class ErrorManager {
     ): Promise<string> {
         try {
             // LLMApiClient의 sendMessage 메서드 사용
+            const _llmStart = Date.now();
             const response = await llmApiClient.sendMessage(prompt, { signal: abortSignal });
+            try {
+                UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, estimateTokens(response), true);
+            } catch { /* metrics should never break main flow */ }
             console.log(`[ErrorManager] 오류 수정 응답 수신 (${response.length} chars)`);
             return response;
         } catch (error) {

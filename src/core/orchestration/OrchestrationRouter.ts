@@ -36,6 +36,8 @@ import { StateManager } from '../managers/state/StateManager';
 import { PromptType, OllamaApi, AiModelType, NotificationService } from '../../services';
 import { SettingsManager } from '../managers/state/SettingsManager';
 import { ReferenceItem } from '../webview/types';
+import { UsageMetricsManager } from '../managers/state/UsageMetricsManager';
+import { estimateTokens } from '../../utils/tokenUtils';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -1133,10 +1135,19 @@ ${agentSummaries}${buildCommandsInfo}
 
 Based on the above, write a unified completion response to deliver to the user.`;
 
+        const _llmStart = Date.now();
         const response = await llm.sendMessageWithSystemPrompt(
             systemPrompt,
             [{ text: userMessage }],
         );
+        const _llmTime = Date.now() - _llmStart;
+        const _tokens = estimateTokens(response);
+        try {
+            const _modelName = await llm.getCurrentModelName();
+            UsageMetricsManager.getInstance().recordLLMCall(_llmTime, _tokens, true, _modelName);
+        } catch {
+            UsageMetricsManager.getInstance().recordLLMCall(_llmTime, _tokens, true);
+        }
 
         // Remove thinking tags
         return response.replace(THINKING_TAG_REGEX, '').trim();

@@ -8,6 +8,7 @@ import * as fs from "fs/promises";
 import { glob } from "glob";
 import { ProjectManager } from "../../project/ProjectManager";
 import { estimateTokens } from "../../../../utils";
+import { UsageMetricsManager } from "../../state/UsageMetricsManager";
 import { LLMManager } from "../../model/LLMManager";
 import { FileSearcher } from "./FileSearcher";
 import { getBatchScoringPrompt } from "../prompts/analysis/generalAnalysis";
@@ -884,9 +885,13 @@ export class RelevantFilesFinder {
 
         // ✅ 배치 LLM 호출: 여러 파일을 한 번에 평가
         const batchPrompt = this.buildBatchScoring(userQuery, fileContents);
+        const _llmStart = Date.now();
         const response = await this.llmManager.sendMessage(batchPrompt, {
           signal: abortSignal,
         });
+        try {
+          UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, estimateTokens(response), true);
+        } catch { /* metrics should never break main flow */ }
 
         // 배치 결과 파싱
         const batchScores = this.parseBatchRelevanceScores(

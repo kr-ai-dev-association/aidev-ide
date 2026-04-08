@@ -720,6 +720,9 @@ export class ConversationManager implements IConversationHandler {
     const maxExecutionNoToolRetries = 2; // 최대 재시도 횟수
     let consecutiveEmptyResponses = 0; // thinking-only 등 빈 응답 연속 횟수
     const maxConsecutiveEmptyResponses = 3; // 빈 응답 최대 재시도
+    // 같은 명령 반복 실패 추적 (run_command 무한 루프 방지)
+    const commandFailureCounts = new Map<string, number>();
+    const MAX_SAME_COMMAND_FAILURES = 3;
     let extractedFunctionName: string | null = null; // 사용자 쿼리에서 추출한 함수명 저장
 
     // 📝 구조화된 메타데이터 수집 (세션 히스토리용)
@@ -835,6 +838,7 @@ export class ConversationManager implements IConversationHandler {
           }
         };
 
+        const _llmStartGreeting = Date.now();
         greetingResponse =
           await this.llmManager.sendMessageWithSystemPromptStreaming(
             greetingSystemPrompt,
@@ -842,7 +846,11 @@ export class ConversationManager implements IConversationHandler {
             onGreetingChunk,
             { signal: abortSignal },
           );
-
+        {
+          const _t = Date.now() - _llmStartGreeting;
+          const _tok = estimateTokens(greetingResponse);
+          usageMetrics.recordLLMCall(_t, _tok, true, await this.llmManager.getCurrentModelName().catch(() => 'unknown'));
+        }
 
 
         // 인사말 응답도 세션에 저장
@@ -871,11 +879,17 @@ export class ConversationManager implements IConversationHandler {
       }
 
       // 비스트리밍 모드: 인사 응답용 시스템 프롬프트 사용
+      const _llmStartGreetingNS = Date.now();
       greetingResponse = await this.llmManager.sendMessageWithSystemPrompt(
         greetingSystemPrompt,
         accumulatedUserParts,
         { signal: abortSignal },
       );
+      {
+        const _t = Date.now() - _llmStartGreetingNS;
+        const _tok = estimateTokens(greetingResponse);
+        usageMetrics.recordLLMCall(_t, _tok, true, await this.llmManager.getCurrentModelName().catch(() => 'unknown'));
+      }
 
       // 응답 정제: extractResponseText 사용하여 일관된 정제
       let cleanGreetingResponse =
@@ -1764,6 +1778,7 @@ export class ConversationManager implements IConversationHandler {
               : false;
 
             let llmResponseForExecution: string;
+            const _llmStartPlanItem = Date.now();
             if (
               intent &&
               intent.category === "execution" &&
@@ -1837,6 +1852,11 @@ export class ConversationManager implements IConversationHandler {
                   { signal: abortSignal, nativeTools: nativeToolsForPlanItem },
                 );
             }
+            {
+              const _t = Date.now() - _llmStartPlanItem;
+              const _tok = estimateTokens(llmResponseForExecution);
+              usageMetrics.recordLLMCall(_t, _tok, true, await this.llmManager.getCurrentModelName().catch(() => 'unknown'));
+            }
 
             if (abortSignal?.aborted) { break; }
             const cleanExecutionResponse = llmResponseForExecution
@@ -1854,7 +1874,37 @@ export class ConversationManager implements IConversationHandler {
               console.log(`[ConversationManager] __done__ intercepted in plan item execution (plan item: "${currentPlanItem?.title}")`);
             }
 
-            if (filteredExecutionCalls.length > 0) {
+            // 같은 명령 반복 실패 방지: MAX_SAME_COMMAND_FAILURES 초과 시 스킵
+            const skippedByFailureLimit: string[] = [];
+            const allowedExecutionCalls = filteredExecutionCalls.filter(call => {
+              if (call.name === 'run_command' && call.params.command) {
+                const cmd = call.params.command;
+                const failCount = commandFailureCounts.get(cmd) || 0;
+                if (failCount >= MAX_SAME_COMMAND_FAILURES) {
+                  console.warn(`[ConversationManager] Skipping run_command — ${failCount} failures exceeded limit: ${cmd.substring(0, 80)}`);
+                  skippedByFailureLimit.push(cmd);
+                  return false;
+                }
+              }
+              return true;
+            });
+            if (skippedByFailureLimit.length > 0) {
+              accumulatedUserParts.push({
+                text: `[시스템 알림] 다음 명령어는 ${MAX_SAME_COMMAND_FAILURES}회 연속 실패하여 실행이 중단되었습니다: ${skippedByFailureLimit.join(', ')}. 다른 방법을 시도하거나 이 단계를 건너뛰세요.`,
+              });
+            }
+
+            if (allowedExecutionCalls.length === 0 && skippedByFailureLimit.length > 0) {
+              // 모든 도구가 반복 실패로 스킵됨 → plan item 완료 처리
+              console.log(`[ConversationManager] All tools skipped due to repeated failures, moving to next plan item`);
+              if (currentPlanItem) {
+                this.completePlanItem(taskManager, webviewToRespond, currentPlanItem.id);
+              }
+              turnCount++;
+              continue;
+            }
+
+            if (allowedExecutionCalls.length > 0) {
               WebviewBridge.sendProcessingStep(webviewToRespond, "executing");
               WebviewBridge.sendProcessingStatus(
                 webviewToRespond,
@@ -1872,7 +1922,7 @@ export class ConversationManager implements IConversationHandler {
                 inlineDiagnosticErrors: inlineDiagErrors2,
               } = await this.executeToolsWithUI(
                 toolExecutor,
-                filteredExecutionCalls,
+                allowedExecutionCalls,
                 webviewToRespond,
                 actionManager,
                 executionManager,
@@ -1916,16 +1966,29 @@ export class ConversationManager implements IConversationHandler {
                 );
               }
 
+              // run_command 실패 카운트 추적
+              for (let ri = 0; ri < allowedExecutionCalls.length; ri++) {
+                const call = allowedExecutionCalls[ri];
+                if (call.name === 'run_command' && call.params.command && toolResults[ri] && !toolResults[ri].success) {
+                  const cmd = call.params.command;
+                  const prev = commandFailureCounts.get(cmd) || 0;
+                  commandFailureCounts.set(cmd, prev + 1);
+                  console.warn(`[ConversationManager] run_command failed (${prev + 1}/${MAX_SAME_COMMAND_FAILURES}): ${cmd.substring(0, 80)}`);
+                } else if (call.name === 'run_command' && call.params.command && toolResults[ri]?.success) {
+                  commandFailureCounts.delete(call.params.command); // 성공하면 리셋
+                }
+              }
+
               const resultSummary =
                 ToolExecutionCoordinator.createToolResultSummary(
                   turnCount,
-                  filteredExecutionCalls,
+                  allowedExecutionCalls,
                   toolResults,
                 );
 
               if (
                 ToolExecutionCoordinator.hasSideEffects(
-                  filteredExecutionCalls,
+                  allowedExecutionCalls,
                   toolResults,
                 ) &&
                 currentPlanItem
@@ -4114,6 +4177,7 @@ export class ConversationManager implements IConversationHandler {
               }
             };
 
+            const _llmStartAnalysisS = Date.now();
             analysisResponse =
               await this.llmManager.sendMessageWithSystemPromptStreaming(
                 analysisPrompt,
@@ -4121,6 +4185,11 @@ export class ConversationManager implements IConversationHandler {
                 onAnalysisChunk,
                 { signal: abortSignal },
               );
+            {
+              const _t = Date.now() - _llmStartAnalysisS;
+              const _tok = estimateTokens(analysisResponse);
+              usageMetrics.recordLLMCall(_t, _tok, true, await this.llmManager.getCurrentModelName().catch(() => 'unknown'));
+            }
 
             // 스트리밍 완료 후 바로 종료 (정제 필요 없음 - 이미 출력됨)
             stateManager.transitionTo(AgentPhase.DONE);
@@ -4128,11 +4197,17 @@ export class ConversationManager implements IConversationHandler {
           }
 
           // 비스트리밍 모드
+          const _llmStartAnalysisNS = Date.now();
           analysisResponse = await this.llmManager.sendMessageWithSystemPrompt(
             analysisPrompt,
             accumulatedUserParts,
             { signal: abortSignal },
           );
+          {
+            const _t = Date.now() - _llmStartAnalysisNS;
+            const _tok = estimateTokens(analysisResponse);
+            usageMetrics.recordLLMCall(_t, _tok, true, await this.llmManager.getCurrentModelName().catch(() => 'unknown'));
+          }
 
           // 응답 정제: thinking 태그 및 JSON 래핑 제거
           cleanAnalysisResponse = StringUtils.cleanText(analysisResponse, {
@@ -4477,19 +4552,31 @@ export class ConversationManager implements IConversationHandler {
         }
       };
 
+      const _llmStartAskS = Date.now();
       response = await this.llmManager.sendMessageWithSystemPromptStreaming(
         systemPrompt,
         userParts,
         onAskChunk,
         { signal: options.abortSignal },
       );
+      {
+        const _t = Date.now() - _llmStartAskS;
+        const _tok = estimateTokens(response);
+        UsageMetricsManager.getInstance().recordLLMCall(_t, _tok, true, await this.llmManager.getCurrentModelName().catch(() => 'unknown'));
+      }
     } else {
       // 비스트리밍 모드: 기존 방식 (🔥 스트리밍 효과 추가)
+      const _llmStartAskNS = Date.now();
       response = await this.llmManager.sendMessageWithSystemPrompt(
         systemPrompt,
         userParts,
         { signal: options.abortSignal },
       );
+      {
+        const _t = Date.now() - _llmStartAskNS;
+        const _tok = estimateTokens(response);
+        UsageMetricsManager.getInstance().recordLLMCall(_t, _tok, true, await this.llmManager.getCurrentModelName().catch(() => 'unknown'));
+      }
       await WebviewBridge.streamText(
         options.webviewToRespond,
         "CODEPILOT",
@@ -4776,12 +4863,18 @@ export class ConversationManager implements IConversationHandler {
       );
 
       try {
+        const _llmStartSummary = Date.now();
         const verifiedSummary =
           await this.llmManager.sendMessageWithSystemPrompt(
             summaryPrompt,
             accumulatedParts,
             { signal: abortSignal },
           );
+        {
+          const _t = Date.now() - _llmStartSummary;
+          const _tok = estimateTokens(verifiedSummary);
+          UsageMetricsManager.getInstance().recordLLMCall(_t, _tok, true, await this.llmManager.getCurrentModelName().catch(() => 'unknown'));
+        }
 
         // 🔥 문제 해결: REVIEW 단계에서 도구 호출 및 thinking 제거 강화
         let summaryText =

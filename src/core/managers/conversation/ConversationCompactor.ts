@@ -11,6 +11,7 @@
 import { LLMManager } from "../model/LLMManager";
 import { StateManager } from "../state/StateManager";
 import { estimateTokens } from "../../../utils";
+import { UsageMetricsManager } from "../state/UsageMetricsManager";
 import { getSummarizationPrompt } from "../context/prompts/task";
 import { SummarizationOptions } from "../context/types/contextHistory";
 import { AgentConfig } from "../../config/AgentConfig";
@@ -409,6 +410,7 @@ export class ConversationCompactor {
     // StateManager가 있으면 compactorModel 사용, 없으면 메인 모델 사용
     let response: string;
     const llmOptions = { signal: abortSignal, maxTokens: maxSummaryTokens };
+    const _llmStart1 = Date.now();
     if (this.stateManager) {
       response = await this.llmManager.sendMessageWithCompactorModel(
         summarizationPrompt,
@@ -422,6 +424,14 @@ export class ConversationCompactor {
         userParts,
         llmOptions,
       );
+    }
+    const _llmTime1 = Date.now() - _llmStart1;
+    const _tokens1 = estimateTokens(response);
+    try {
+      const _modelName = await this.llmManager.getCurrentModelName();
+      UsageMetricsManager.getInstance().recordLLMCall(_llmTime1, _tokens1, true, _modelName);
+    } catch {
+      UsageMetricsManager.getInstance().recordLLMCall(_llmTime1, _tokens1, true);
     }
 
     const summary = this.extractSummaryFromResponse(response);
@@ -920,6 +930,7 @@ export class ConversationCompactor {
     // StateManager가 있으면 compactorModel 사용, 없으면 메인 모델 사용
     let response: string;
     const llmOptions = { signal: abortSignal, maxTokens: maxSummaryTokens };
+    const _llmStart2 = Date.now();
     if (this.stateManager) {
       response = await this.llmManager.sendMessageWithCompactorModel(
         summarizationPrompt,
@@ -933,6 +944,14 @@ export class ConversationCompactor {
         userParts,
         llmOptions,
       );
+    }
+    const _llmTime2 = Date.now() - _llmStart2;
+    const _tokens2 = estimateTokens(response);
+    try {
+      const _modelName = await this.llmManager.getCurrentModelName();
+      UsageMetricsManager.getInstance().recordLLMCall(_llmTime2, _tokens2, true, _modelName);
+    } catch {
+      UsageMetricsManager.getInstance().recordLLMCall(_llmTime2, _tokens2, true);
     }
 
     return this.extractSummaryFromResponse(response);
@@ -1090,6 +1109,7 @@ export class ConversationCompactor {
 
       // StateManager가 있으면 compactorModel 사용, 없으면 메인 모델 사용
       let response: string;
+      const _llmStart3 = Date.now();
       if (this.stateManager) {
         response = await this.llmManager.sendMessageWithCompactorModel(
           summarizationPrompt,
@@ -1103,6 +1123,14 @@ export class ConversationCompactor {
           userParts,
           { signal: abortSignal },
         );
+      }
+      const _llmTime3 = Date.now() - _llmStart3;
+      const _tokens3 = estimateTokens(response);
+      try {
+        const _modelName = await this.llmManager.getCurrentModelName();
+        UsageMetricsManager.getInstance().recordLLMCall(_llmTime3, _tokens3, true, _modelName);
+      } catch {
+        UsageMetricsManager.getInstance().recordLLMCall(_llmTime3, _tokens3, true);
       }
 
       const summary = this.extractSummaryFromResponse(response);

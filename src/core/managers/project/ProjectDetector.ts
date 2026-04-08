@@ -12,6 +12,8 @@ import {
     BuildTool
 } from './types';
 import { AgentConfig } from '../../config/AgentConfig';
+import { UsageMetricsManager } from '../state/UsageMetricsManager';
+import { estimateTokens } from '../../../utils';
 import { EnvironmentHealth } from '../conversation/handlers/ErrorClassifier';
 import { fileExistsAsync, readFileAsync, readdirAsync, readJsonFileAsync } from '../../utils';
 
@@ -1500,7 +1502,11 @@ JSON 형식으로 응답하세요:
 }`;
 
             // LLM 호출
+            const _llmStart = Date.now();
             const response = await llmApi.sendMessage(prompt, abortSignal);
+            try {
+                UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, estimateTokens(response), true);
+            } catch { /* metrics should never break main flow */ }
 
             // JSON 파싱 시도
             const jsonMatch = response.match(/\{[\s\S]*?\}/);

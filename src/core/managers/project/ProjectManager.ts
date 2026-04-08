@@ -28,6 +28,8 @@ import { TreeSitterAdapter } from './codeParser/TreeSitterAdapter';
 import * as vscode from 'vscode';
 import { OllamaApi, AiModelType } from '../../../services';
 import { AgentConfig } from '../../config/AgentConfig';
+import { UsageMetricsManager } from '../state/UsageMetricsManager';
+import { estimateTokens } from '../../../utils';
 import { getAllExclusionPaths, fileExistsAsync, readdirAsync } from '../../utils';
 
 export class ProjectManager {
@@ -257,6 +259,7 @@ export class ProjectManager {
 
             let response: string;
 
+            const _llmStart = Date.now();
             if (ollamaApi) {
                 response = await ollamaApi.sendMessage(projectTypePrompt, { signal: abortSignal });
             } else {
@@ -274,6 +277,10 @@ export class ProjectManager {
                     needsUserSelection: true
                 };
             }
+
+            try {
+                UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, estimateTokens(response), true);
+            } catch { /* metrics should never break main flow */ }
 
             console.log(`[ProjectManager] LLM 프로젝트 타입 감지 응답 수신 (${response.length} chars)`);
 
@@ -788,7 +795,12 @@ export class ProjectManager {
         try {
             console.log('[ProjectManager] 프로젝트 분석 시작');
             // LLMApiClient의 sendMessage 메서드 사용
-            return await llmApiClient.sendMessage(analysisPrompt);
+            const _llmStart = Date.now();
+            const response = await llmApiClient.sendMessage(analysisPrompt);
+            try {
+                UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, estimateTokens(response), true);
+            } catch { /* metrics should never break main flow */ }
+            return response;
         } catch (error) {
             console.error('[ProjectManager] 프로젝트 분석 중 오류:', error);
             throw error;

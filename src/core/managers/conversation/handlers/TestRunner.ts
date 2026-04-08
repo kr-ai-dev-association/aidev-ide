@@ -15,6 +15,7 @@ import { ExecutionManager } from "../../execution/ExecutionManager";
 
 import { AgentConfig } from "../../../config/AgentConfig";
 import { UsageMetricsManager } from "../../state/UsageMetricsManager";
+import { estimateTokens } from "../../../../utils";
 import { StringUtils } from "../../../utils/StringUtils";
 import { SubProjectDetector } from "../../project/SubProjectDetector";
 import { getValidationCommandPrompt } from "../../context/prompts/test/validationCommand";
@@ -622,7 +623,11 @@ export class TestRunner {
         modifiedFiles,
       }) + excludedNote;
 
+      const _llmStart = Date.now();
       const response = await llmManager.sendMessage(prompt);
+      try {
+        UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, estimateTokens(response), true);
+      } catch { /* metrics should never break main flow */ }
 
       // JSON 파싱 (markdown code fence 제거)
       const cleaned = response.replace(/```(?:json)?\s*/g, '').trim();
