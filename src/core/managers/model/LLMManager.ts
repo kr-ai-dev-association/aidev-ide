@@ -7,7 +7,6 @@
 import { OllamaApi, AdminModelApi, AiModelType } from '../../../services';
 import type { AdminModelConfig } from '../../../services/llm/AdminModelApi';
 import { withRetry, isRetryableError, LLMRetryConfig, LLMRetryResult, HIDDEN_RETRY_THRESHOLD, getRetryUserMessage } from './LLMRetryHelper';
-import { ConversationMessage, conversationMessagesToParts } from '../../../services/types';
 
 export interface LLMMessagePart {
     text?: string;
@@ -299,56 +298,6 @@ export class LLMManager {
                 this.currentCallController = null;
             }
         }
-    }
-
-    /**
-     * Role 기반 ConversationMessage 배열로 LLM에 메시지 전송
-     * 내부적으로 API별 형식으로 변환하여 전송
-     *
-     * - nativeToolCalling 지원 API: role/tool_result 구조 유지
-     * - 미지원 API: Part[] 텍스트 폴백
-     */
-    public async sendMessageWithMessages(
-        systemPrompt: string,
-        messages: ConversationMessage[],
-        options?: LLMRequestOptions
-    ): Promise<string> {
-        if (this.currentModelType === AiModelType.ADMIN) {
-            // Admin 모델은 아직 Part[] 폴백 (향후 AdminModelApi에 직접 지원 추가)
-            const parts = conversationMessagesToParts(messages);
-            return this.sendMessageWithSystemPrompt(systemPrompt, parts, options);
-        }
-
-        // Ollama: role 기반 직접 전송
-        await this.loadOllamaSettingsSafe();
-        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking, !!(options?.nativeTools?.length));
-        return this.ollamaApi.sendWithConversationMessages(
-            systemPrompt, messages,
-            { signal: options?.signal, disableThinking, thinkingLevel: options?.thinkingLevel, nativeTools: options?.nativeTools, maxTokens: options?.maxTokens },
-        );
-    }
-
-    /**
-     * Role 기반 ConversationMessage 배열로 스트리밍 전송
-     */
-    public async sendMessageWithMessagesStreaming(
-        systemPrompt: string,
-        messages: ConversationMessage[],
-        onChunk: (chunk: string, done: boolean) => void,
-        options?: LLMRequestOptions
-    ): Promise<string> {
-        if (this.currentModelType === AiModelType.ADMIN) {
-            const parts = conversationMessagesToParts(messages);
-            return this.sendMessageWithSystemPromptStreaming(systemPrompt, parts, onChunk, options);
-        }
-
-        // Ollama: role 기반 직접 스트리밍
-        await this.loadOllamaSettingsSafe();
-        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking, !!(options?.nativeTools?.length));
-        return this.ollamaApi.sendWithConversationMessagesStreaming(
-            systemPrompt, messages, onChunk,
-            { signal: options?.signal, disableThinking, thinkingLevel: options?.thinkingLevel, nativeTools: options?.nativeTools, onNativeToolComplete: options?.onNativeToolComplete, maxTokens: options?.maxTokens },
-        );
     }
 
     /**
