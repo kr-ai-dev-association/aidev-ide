@@ -7,41 +7,9 @@
 import { AdminModelConfig, AdminModelMessagePart, SendOptions, ChunkCallback } from '../AdminModelTypes';
 import { ILLMProvider } from './ILLMProvider';
 import { buildRequest, assertResponseField } from './providerUtils';
-import { ConversationMessage } from '../../types';
-
-type OpenAIMessage = { role: string; content: string; tool_call_id?: string; name?: string };
 
 export class OpenAICompatProvider implements ILLMProvider {
     constructor(private config: AdminModelConfig) { }
-
-    public static convertMessages(messages: ConversationMessage[], systemPrompt?: string): OpenAIMessage[] {
-        const result: OpenAIMessage[] = [];
-        if (systemPrompt) {
-            result.push({ role: 'system', content: systemPrompt });
-        }
-        for (const msg of messages) {
-            switch (msg.role) {
-                case 'system':
-                    result.push({ role: 'system', content: msg.content });
-                    break;
-                case 'user':
-                    result.push({ role: 'user', content: msg.content });
-                    break;
-                case 'assistant':
-                    result.push({ role: 'assistant', content: msg.content });
-                    break;
-                case 'tool_result':
-                    if (msg.toolCallId) {
-                        result.push({ role: 'tool', content: msg.content, tool_call_id: msg.toolCallId, name: msg.toolName });
-                    } else {
-                        const status = msg.isError ? 'Failed' : 'Success';
-                        result.push({ role: 'user', content: `[Tool Result: ${msg.toolName || 'unknown'}] Status: ${status}\n${msg.content}` });
-                    }
-                    break;
-            }
-        }
-        return result;
-    }
 
     async send(
         messageOrParts: string | AdminModelMessagePart[],

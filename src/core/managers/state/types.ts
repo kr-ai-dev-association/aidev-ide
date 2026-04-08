@@ -99,8 +99,6 @@ export interface ConversationEntry {
 
     // 요약 참조 (압축 후)
     compactedSummaryId?: string;   // 요약으로 대체되면 요약 ID 참조
-
-    conversationMessages?: import('../../../services/types').ConversationMessage[];
 }
 
 /**

@@ -27,7 +27,6 @@ import { StateManager } from "../state/StateManager";
 import { UsageMetricsManager } from "../state/UsageMetricsManager";
 import { AiModelType, OllamaApi } from "../../../services";
 import type { NotificationService } from "../../../services";
-import { ConversationMessage } from "../../../services/types";
 import { AgentStateManager, AgentPhase } from "./AgentStateManager";
 import { getSimpleSummaryPrompt } from "../context/prompts/task";
 import * as fs from "fs/promises";
@@ -704,10 +703,6 @@ export class ConversationManager implements IConversationHandler {
     let conversationTurnId = crypto.randomUUID(); // 턴 단위 변경 그룹화용
     let lastExecutionTurnId = conversationTurnId; // 마지막 tool 실행 시의 turnId (review 메시지에 사용)
     let accumulatedUserParts = [...userParts];
-    // Role 기반 메시지 히스토리 (accumulatedUserParts와 병렬 관리, 점진적 전환)
-    const conversationMessages: ConversationMessage[] = userParts
-      .filter(p => p.text)
-      .map(p => ({ role: 'user' as const, content: p.text!, timestamp: Date.now(), ...(p.inlineData && { inlineData: p.inlineData }) }));
     let testFixAttempts = 0; // 테스트 실패 시 자동 수정 시도 횟수
     let pendingRetryPrompt = false; // retry 프롬프트가 LLM에 전달 대기 중인지
     let pendingMCPResultInterpretation = false; // MCP 도구 결과가 LLM 해석 대기 중인지
@@ -725,9 +720,6 @@ export class ConversationManager implements IConversationHandler {
     const maxExecutionNoToolRetries = 2; // 최대 재시도 횟수
     let consecutiveEmptyResponses = 0; // thinking-only 등 빈 응답 연속 횟수
     const maxConsecutiveEmptyResponses = 3; // 빈 응답 최대 재시도
-    // 같은 명령 반복 실패 추적 (run_command 무한 루프 방지)
-    const commandFailureCounts = new Map<string, number>();
-    const MAX_SAME_COMMAND_FAILURES = 3;
     let extractedFunctionName: string | null = null; // 사용자 쿼리에서 추출한 함수명 저장
 
     // 📝 구조화된 메타데이터 수집 (세션 히스토리용)
@@ -1165,19 +1157,6 @@ export class ConversationManager implements IConversationHandler {
               `[ConversationManager] Context compacted. Saved ${compactionResult.savedTokens} tokens (${compactionResult.originalTokens} → ${compactionResult.compactedTokens})`,
             );
 
-            // Role 기반: 압축 후 conversationMessages도 재구성
-            const keepCount = Math.min(4, conversationMessages.length);
-            const recentRoleMessages = conversationMessages.slice(-keepCount);
-            conversationMessages.length = 0;
-            if (compactionResult.summary) {
-              conversationMessages.push({
-                role: 'system',
-                content: `[Previous conversation summary]\n${compactionResult.summary}`,
-                timestamp: Date.now(),
-              });
-            }
-            conversationMessages.push(...recentRoleMessages);
-
             // v9.7.0: 컨텍스트 압축 메트릭 기록
             usageMetrics.recordContextCompaction(compactionResult.savedTokens);
 
@@ -1216,78 +1195,6 @@ export class ConversationManager implements IConversationHandler {
         );
         // 압축 실패해도 계속 진행
       }
-
-      // ─── 스트리밍 즉시 파일 생성 인프라 (plan item + 메인 루프 공용) ───
-      const isStreamingEnabled = options.extensionContext
-        ? await SettingsManager.getInstance(options.extensionContext).isStreamingEnabled()
-        : false;
-      const isAutoToolForStreaming = await SettingsManager.getInstance().isAutoToolExecutionEnabled();
-      const isAutoUpdateForStreaming = await SettingsManager.getInstance().isAutoUpdateEnabled();
-
-      const streamingCreatedPaths = new Set<string>();
-      const streamingUpdatedPaths = new Set<string>();
-      const streamingHandledPaths = new Set<string>();
-      let streamingCreatePromise: Promise<void> = Promise.resolve();
-
-      const executeStreamingFileOp = (filePath: string, capturedCall: ToolUse, needsApproval: boolean = false) => {
-        if (!isStreamingEnabled) return;
-        const isCreate = capturedCall.name === 'create_file';
-        const trackingSet = isCreate ? streamingCreatedPaths : streamingUpdatedPaths;
-        const actionLabel = isCreate ? '생성' : '수정';
-        if (needsApproval) {
-          streamingHandledPaths.add(`${capturedCall.name}:${filePath}`);
-        }
-        streamingCreatePromise = streamingCreatePromise.then(async () => {
-          if (abortSignal?.aborted) { return; }
-          if (needsApproval) {
-            const detailDisplay = `: ${filePath.substring(0, 50)}${filePath.length > 50 ? '...' : ''}`;
-            WebviewBridge.receiveMessage(webviewToRespond, 'System', `⏳ [Pending] 파일 ${actionLabel}${detailDisplay} - 사용자 승인 필요`);
-            const result = await vscode.window.showInformationMessage(
-              `파일 ${actionLabel}: ${filePath}`, { modal: true }, '실행', '건너뛰기');
-            if (result !== '실행') { return; }
-          }
-          const streamRoot = ProjectManager.getInstance().getCurrentProject()?.root || '';
-          const streamCtx: ToolExecutionContext = {
-            projectRoot: streamRoot, workspaceRoot: streamRoot,
-            actionManager, executionManager, terminalManager,
-            contextManager: this.contextManager,
-          };
-          const fileName = filePath.split('/').pop() || filePath;
-          WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `파일 ${actionLabel} 중: ${fileName}...`);
-          const streamResults = await toolExecutor.executeTools([capturedCall], streamCtx, undefined, undefined, abortSignal);
-          if (streamResults[0]?.success && capturedCall.params.path) {
-            const p = capturedCall.params.path as string;
-            trackingSet.add(p);
-            if (isCreate) {
-              if (!createdFiles.includes(p) && !modifiedFiles.includes(p)) createdFiles.push(p);
-            } else {
-              if (!modifiedFiles.includes(p) && !createdFiles.includes(p)) modifiedFiles.push(p);
-            }
-            if (streamResults[0]) {
-              ToolExecutionCoordinator.sendSingleToolResultToUI(webviewToRespond, capturedCall, streamResults[0]);
-            }
-          } else if (streamResults[0] && !streamResults[0].success) {
-            const reason = streamResults[0].message || streamResults[0].error?.message || '실행 실패';
-            const isSecurityBlock = streamResults[0].error?.code === 'BLOCKED_BY_VALIDATOR';
-            const icon = isSecurityBlock ? '🚫 [차단]' : '❌ [Failed]';
-            WebviewBridge.receiveMessage(webviewToRespond, 'System', `${icon} ${reason}`);
-            if (isSecurityBlock) {
-              streamingHandledPaths.add(`${capturedCall.name}:${filePath}`);
-            }
-          }
-        });
-      };
-
-      const onNativeToolComplete = (toolName: string, args: Record<string, any>) => {
-        if ((toolName !== 'create_file' && toolName !== 'update_file') || !args.path) { return; }
-        const p = args.path as string;
-        const trackingSet = toolName === 'create_file' ? streamingCreatedPaths : streamingUpdatedPaths;
-        const handledKey = `${toolName}:${p}`;
-        if (trackingSet.has(p) || streamingHandledPaths.has(handledKey)) { return; }
-        const capturedCall: ToolUse = { name: toolName, params: { ...args } };
-        const needsApproval = !isAutoToolForStreaming || !isAutoUpdateForStreaming;
-        executeStreamingFileOp(p, capturedCall, needsApproval);
-      };
 
       // [수정] 루프 시작 시점에 현재 계획 상태를 UI에 즉시 동기화 (PLAN 모드에서는 숨김)
       const allItems = taskManager.listPlanItems();
@@ -1916,19 +1823,18 @@ export class ConversationManager implements IConversationHandler {
                 }
               };
               llmResponseForExecution =
-                await this.llmManager.sendMessageWithMessagesStreaming(
+                await this.llmManager.sendMessageWithSystemPromptStreaming(
                   activeSystemPrompt + planContextForExecution,
-                  conversationMessages,
+                  accumulatedUserParts,
                   planItemOnChunk,
-                  { signal: abortSignal, nativeTools: nativeToolsForPlanItem, onNativeToolComplete },
+                  { signal: abortSignal, nativeTools: nativeToolsForPlanItem },
                 );
-              await streamingCreatePromise;
             } else {
               llmResponseForExecution =
-                await this.llmManager.sendMessageWithMessages(
+                await this.llmManager.sendMessageWithSystemPrompt(
                   activeSystemPrompt + planContextForExecution,
-                  conversationMessages,
-                  { signal: abortSignal, nativeTools: nativeToolsForPlanItem, onNativeToolComplete },
+                  accumulatedUserParts,
+                  { signal: abortSignal, nativeTools: nativeToolsForPlanItem },
                 );
             }
 
@@ -1948,41 +1854,7 @@ export class ConversationManager implements IConversationHandler {
               console.log(`[ConversationManager] __done__ intercepted in plan item execution (plan item: "${currentPlanItem?.title}")`);
             }
 
-            // 같은 명령 반복 실패 방지: MAX_SAME_COMMAND_FAILURES 초과 시 스킵
-            const skippedByFailureLimit: string[] = [];
-            const allowedExecutionCalls = filteredExecutionCalls.filter(call => {
-              if (call.name === 'run_command' && call.params.command) {
-                const cmd = call.params.command;
-                const failCount = commandFailureCounts.get(cmd) || 0;
-                if (failCount >= MAX_SAME_COMMAND_FAILURES) {
-                  console.warn(`[ConversationManager] Skipping run_command — ${failCount} failures exceeded limit: ${cmd.substring(0, 80)}`);
-                  skippedByFailureLimit.push(cmd);
-                  return false;
-                }
-              }
-              return true;
-            });
-            if (skippedByFailureLimit.length > 0) {
-              accumulatedUserParts.push({
-                text: `[시스템 알림] 다음 명령어는 ${MAX_SAME_COMMAND_FAILURES}회 연속 실패하여 실행이 중단되었습니다: ${skippedByFailureLimit.join(', ')}. 다른 방법을 시도하거나 이 단계를 건너뛰세요.`,
-              });
-              conversationMessages.push({
-                role: 'system',
-                content: `Commands skipped due to repeated failures (${MAX_SAME_COMMAND_FAILURES}x): ${skippedByFailureLimit.join(', ')}`,
-                timestamp: Date.now(),
-              });
-            }
-
-            if (allowedExecutionCalls.length === 0 && skippedByFailureLimit.length > 0) {
-              console.log(`[ConversationManager] All tools skipped due to repeated failures, moving to next plan item`);
-              if (currentPlanItem) {
-                this.completePlanItem(taskManager, webviewToRespond, currentPlanItem.id);
-              }
-              turnCount++;
-              continue;
-            }
-
-            if (allowedExecutionCalls.length > 0) {
+            if (filteredExecutionCalls.length > 0) {
               WebviewBridge.sendProcessingStep(webviewToRespond, "executing");
               WebviewBridge.sendProcessingStatus(
                 webviewToRespond,
@@ -2044,19 +1916,6 @@ export class ConversationManager implements IConversationHandler {
                 );
               }
 
-              // run_command 실패 카운트 추적
-              for (let ri = 0; ri < filteredExecutionCalls.length; ri++) {
-                const call = filteredExecutionCalls[ri];
-                if (call.name === 'run_command' && call.params.command && toolResults[ri] && !toolResults[ri].success) {
-                  const cmd = call.params.command;
-                  const prev = commandFailureCounts.get(cmd) || 0;
-                  commandFailureCounts.set(cmd, prev + 1);
-                  console.warn(`[ConversationManager] run_command failed (${prev + 1}/${MAX_SAME_COMMAND_FAILURES}): ${cmd.substring(0, 80)}`);
-                } else if (call.name === 'run_command' && call.params.command && toolResults[ri]?.success) {
-                  commandFailureCounts.delete(call.params.command);
-                }
-              }
-
               const resultSummary =
                 ToolExecutionCoordinator.createToolResultSummary(
                   turnCount,
@@ -2095,17 +1954,6 @@ export class ConversationManager implements IConversationHandler {
               if (nextItem) {
                 accumulatedUserParts.push({ text: llmResponseForExecution });
                 accumulatedUserParts.push({ text: resultSummary });
-                // Role 기반: tool 결과 보존
-                for (let ti = 0; ti < toolResults.length; ti++) {
-                  conversationMessages.push({
-                    role: 'tool_result',
-                    content: toolResults[ti]?.message || toolResults[ti]?.data?.output || '',
-                    toolName: filteredExecutionCalls[ti]?.name,
-                    toolCallId: filteredExecutionCalls[ti]?.toolCallId,
-                    isError: !toolResults[ti]?.success,
-                    timestamp: Date.now(),
-                  });
-                }
                 turnCount++;
                 continue;
               } else {
@@ -2350,6 +2198,13 @@ export class ConversationManager implements IConversationHandler {
         `LLM 응답 대기 중...`,
       );
 
+      // 스트리밍 설정 확인
+      const isStreamingEnabled = options.extensionContext
+        ? await SettingsManager.getInstance(
+            options.extensionContext,
+          ).isStreamingEnabled()
+        : false;
+
       // 네이티브 툴 콜링 설정 확인 (INVESTIGATION/EXECUTION 단계에서만 tools 배열 전달)
       const isToolCallingPhase = (currentPhase as AgentPhase) === AgentPhase.INVESTIGATION || (currentPhase as AgentPhase) === AgentPhase.EXECUTION;
       if (isToolCallingPhase) {
@@ -2394,6 +2249,16 @@ export class ConversationManager implements IConversationHandler {
       // 대신 스트리밍 완료 후 텍스트만 streamText로 표시
       const shouldStreamToUI = ((currentPhase as AgentPhase) === AgentPhase.REVIEW || (currentPhase as AgentPhase) === AgentPhase.DONE) || pendingMCPResultInterpretation || isPlanMode;
 
+      // 스트리밍 즉시 파일 생성 설정 (onChunk 동기 핸들러에서 사용)
+      const isAutoToolForStreaming = await SettingsManager.getInstance().isAutoToolExecutionEnabled();
+      const isAutoUpdateForStreaming = await SettingsManager.getInstance().isAutoUpdateEnabled();
+
+      // Fix: 스트리밍 중 완성된 create_file/update_file 즉시 실행 추적 (턴별 리셋)
+      const streamingCreatedPaths = new Set<string>();
+      const streamingUpdatedPaths = new Set<string>();
+      // 스트리밍 중 pending 처리된 경로 (승인 여부 무관 — post-stream 중복 방지용)
+      const streamingHandledPaths = new Set<string>();
+
       if (isStreamingEnabled) {
         // 스트리밍 모드: 실시간으로 웹뷰에 청크 전송
         console.log(
@@ -2417,8 +2282,81 @@ export class ConversationManager implements IConversationHandler {
         }
 
         let accumulatedResponse = "";
+        let streamingCreatePromise: Promise<void> = Promise.resolve();
         let streamLastFileContentPos = 0;
         const FILE_END_MARKER = '</file_content>';
+
+        // 스트리밍 즉시 파일 생성/수정 공통 실행 함수 (FILE_END_MARKER + onNativeToolComplete 공용)
+        // needsApproval=true: 실행 전 사용자 승인 모달 표시
+        const executeStreamingFileOp = (path: string, capturedCall: ToolUse, needsApproval: boolean = false) => {
+          const isCreate = capturedCall.name === 'create_file';
+          const trackingSet = isCreate ? streamingCreatedPaths : streamingUpdatedPaths;
+          const actionLabel = isCreate ? '생성' : '수정';
+
+          if (needsApproval) {
+            streamingHandledPaths.add(`${capturedCall.name}:${path}`);
+          }
+          streamingCreatePromise = streamingCreatePromise.then(async () => {
+            if (abortSignal?.aborted) { return; }
+            if (needsApproval) {
+              const detailDisplay = `: ${path.substring(0, 50)}${path.length > 50 ? '...' : ''}`;
+              WebviewBridge.receiveMessage(webviewToRespond, 'System', `⏳ [Pending] 파일 ${actionLabel}${detailDisplay} - 사용자 승인 필요`);
+              const result = await vscode.window.showInformationMessage(
+                `파일 ${actionLabel}: ${path}`,
+                { modal: true },
+                '실행',
+                '건너뛰기',
+              );
+              if (result !== '실행') { return; }
+            }
+            const streamRoot = ProjectManager.getInstance().getCurrentProject()?.root || '';
+            const streamCtx: ToolExecutionContext = {
+              projectRoot: streamRoot, workspaceRoot: streamRoot,
+              actionManager, executionManager, terminalManager,
+              contextManager: this.contextManager,
+            };
+            const fileName = path.split('/').pop() || path;
+            WebviewBridge.sendProcessingStatus(webviewToRespond, 'executing', `파일 ${actionLabel} 중: ${fileName}...`);
+            const streamResults = await toolExecutor.executeTools([capturedCall], streamCtx, undefined, undefined, abortSignal);
+            if (streamResults[0]?.success && capturedCall.params.path) {
+              const p = capturedCall.params.path as string;
+              trackingSet.add(p);
+              if (isCreate) {
+                if (!createdFiles.includes(p) && !modifiedFiles.includes(p)) {
+                  createdFiles.push(p);
+                }
+              } else {
+                if (!modifiedFiles.includes(p) && !createdFiles.includes(p)) {
+                  modifiedFiles.push(p);
+                }
+              }
+              if (streamResults[0]) {
+                ToolExecutionCoordinator.sendSingleToolResultToUI(webviewToRespond, capturedCall, streamResults[0]);
+              }
+            } else if (streamResults[0] && !streamResults[0].success) {
+              const reason = streamResults[0].message || streamResults[0].error?.message || '실행 실패';
+              const isSecurityBlock = streamResults[0].error?.code === 'BLOCKED_BY_VALIDATOR';
+              const icon = isSecurityBlock ? '🚫 [차단]' : '❌ [Failed]';
+              WebviewBridge.receiveMessage(webviewToRespond, 'System', `${icon} ${reason}`);
+              if (isSecurityBlock) {
+                streamingHandledPaths.add(`${capturedCall.name}:${path}`);
+              }
+            }
+          });
+        };
+
+        // 네이티브 tool_call 완성 시 콜백
+        // ON+ON: 즉시 실행 / ON+파일OFF 또는 도구OFF: 즉시 pending
+        const onNativeToolComplete = (toolName: string, args: Record<string, any>) => {
+          if ((toolName !== 'create_file' && toolName !== 'update_file') || !args.path) { return; }
+          const p = args.path as string;
+          const trackingSet = toolName === 'create_file' ? streamingCreatedPaths : streamingUpdatedPaths;
+          const handledKey = `${toolName}:${p}`;
+          if (trackingSet.has(p) || streamingHandledPaths.has(handledKey)) { return; }
+          const capturedCall: ToolUse = { name: toolName, params: { ...args } };
+          const needsApproval = !isAutoToolForStreaming || !isAutoUpdateForStreaming;
+          executeStreamingFileOp(p, capturedCall, needsApproval);
+        };
 
         // 🔥 onChunk는 SYNC여야 함 (LLM API가 await 안 함)
         const onChunk = (chunk: string, done: boolean) => {
@@ -2515,9 +2453,9 @@ export class ConversationManager implements IConversationHandler {
             );
         } else {
           llmResponse =
-            await this.llmManager.sendMessageWithMessagesStreaming(
+            await this.llmManager.sendMessageWithSystemPromptStreaming(
               activeSystemPrompt + planContext,
-              conversationMessages,
+              accumulatedUserParts,
               onChunk,
               { signal: abortSignal, nativeTools: nativeToolsForCall, onNativeToolComplete, thinkingLevel,
                 onRetryNotify: (attempt, message) => {
@@ -2556,9 +2494,9 @@ export class ConversationManager implements IConversationHandler {
             { signal: abortSignal, thinkingLevel, onRetryNotify: retryNotify },
           );
         } else {
-          llmResponse = await this.llmManager.sendMessageWithMessages(
+          llmResponse = await this.llmManager.sendMessageWithSystemPrompt(
             activeSystemPrompt + planContext,
-            conversationMessages,
+            accumulatedUserParts,
             { signal: abortSignal, nativeTools: nativeToolsForCall, thinkingLevel, onRetryNotify: retryNotify },
           );
         }
@@ -2583,13 +2521,6 @@ export class ConversationManager implements IConversationHandler {
       };
 
       console.log(`[ConversationManager] LLM Raw Response (Turn ${turnCount + 1}): (${llmResponse.length} chars)`);
-
-      // Role 기반: assistant 응답 보존
-      conversationMessages.push({
-        role: 'assistant',
-        content: llmResponse,
-        timestamp: Date.now(),
-      });
 
       // 0.5. thinking 내용을 UI processing-steps 영역에 표시
       const thinkingMatch = llmResponse.match(/<think>([\s\S]*?)<\/think>/);
@@ -3328,18 +3259,6 @@ export class ConversationManager implements IConversationHandler {
                 );
               turnResultsSummary += resultSummary;
               turnHasSideEffects = true;
-
-              // Role 기반: tool 결과 보존
-              for (let ti = 0; ti < toolResults.length; ti++) {
-                conversationMessages.push({
-                  role: 'tool_result',
-                  content: toolResults[ti]?.message || toolResults[ti]?.data?.output || '',
-                  toolName: toolCalls[ti]?.name,
-                  toolCallId: toolCalls[ti]?.toolCallId,
-                  isError: !toolResults[ti]?.success,
-                  timestamp: Date.now(),
-                });
-              }
 
               // 🔥 create_file 하드 가드 차단 감지 → glob_search 강제 유도
               const blockedByReadFail = toolResults.filter(
@@ -4454,7 +4373,6 @@ export class ConversationManager implements IConversationHandler {
             filesCreated: createdFiles,
             filesModified: modifiedFiles,
             uiMessages: collectedUIMessages,
-            conversationMessages,
             result: "success",
             model: options.currentModelType,
             conversationTurnId: lastExecutionTurnId, // Undo 복원 시 turnCheckpointStack 매칭용

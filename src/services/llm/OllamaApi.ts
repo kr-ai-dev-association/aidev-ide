@@ -5,10 +5,9 @@ import { URL } from 'url';
 import { StateManager } from '../../core/managers/state/StateManager';
 import { DEFAULT_OLLAMA_URL } from '../../core/config/ApiDefaults';
 import { Tool } from '../../core/tools/types';
-import { ConversationMessage } from '../types';
 
 type SendOptions = { signal?: AbortSignal; retries?: number; xmlRetry?: boolean; disableThinking?: boolean; thinkingLevel?: string; nativeTools?: any[]; onNativeToolComplete?: (toolName: string, args: Record<string, any>) => void; maxTokens?: number };
-type OllamaMessage = { role: 'system' | 'user' | 'assistant' | 'tool'; content: string; tool_call_id?: string };
+type OllamaMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 type MessageBuilder = (userContent: string) => OllamaMessage[];
 
 /**
@@ -212,44 +211,6 @@ export class OllamaApi {
             ],
             options
         );
-    }
-
-    public static convertMessages(messages: ConversationMessage[], systemPrompt?: string): OllamaMessage[] {
-        const result: OllamaMessage[] = [];
-        if (systemPrompt) {
-            result.push({ role: 'system', content: systemPrompt });
-        }
-        for (const msg of messages) {
-            switch (msg.role) {
-                case 'system':
-                    result.push({ role: 'system', content: msg.content });
-                    break;
-                case 'user':
-                    result.push({ role: 'user', content: msg.content });
-                    break;
-                case 'assistant':
-                    result.push({ role: 'assistant', content: msg.content });
-                    break;
-                case 'tool_result':
-                    if (msg.toolCallId) {
-                        result.push({ role: 'tool', content: msg.content, tool_call_id: msg.toolCallId });
-                    } else {
-                        const status = msg.isError ? 'Failed' : 'Success';
-                        result.push({ role: 'user', content: `[Tool Result: ${msg.toolName || 'unknown'}] Status: ${status}\n${msg.content}` });
-                    }
-                    break;
-            }
-        }
-        return result;
-    }
-
-    public async sendWithConversationMessages(
-        systemPrompt: string,
-        messages: ConversationMessage[],
-        options?: SendOptions,
-    ): Promise<string> {
-        const ollamaMessages = OllamaApi.convertMessages(messages, systemPrompt);
-        return this.sendMessageInternal(ollamaMessages, options);
     }
 
     /**
@@ -615,16 +576,6 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
         );
     }
 
-    public async sendWithConversationMessagesStreaming(
-        systemPrompt: string,
-        messages: ConversationMessage[],
-        onChunk: (chunk: string, done: boolean) => void,
-        options?: SendOptions,
-    ): Promise<string> {
-        const ollamaMessages = OllamaApi.convertMessages(messages, systemPrompt);
-        return this.sendMessagesStreaming(ollamaMessages, onChunk, options);
-    }
-
     /**
      * /api/chat 포맷으로 스트리밍 전송하는 내부 메서드
      */
@@ -666,7 +617,7 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
             let fullText = '';
             let thinkingText = '';
             let ndjsonBuffer = '';
-            const streamingToolCalls: Array<{ id?: string; name: string; arguments: Record<string, any> }> = [];
+            const streamingToolCalls: Array<{ name: string; arguments: Record<string, any> }> = [];
             const req = (url.protocol === 'https:' ? https : http).request(url, requestOptions, (res) => {
                 if (res.statusCode && res.statusCode >= 400) {
                     let errorData = '';
@@ -706,7 +657,7 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
                                     const args = typeof fn.arguments === 'string'
                                         ? JSON.parse(fn.arguments)
                                         : (fn.arguments || {});
-                                    streamingToolCalls.push({ id: tc.id, name: fn.name, arguments: args });
+                                    streamingToolCalls.push({ name: fn.name, arguments: args });
                                     // Ollama는 청크마다 완성된 tool_call이 옴 → 즉시 콜백
                                     try { options?.onNativeToolComplete?.(fn.name, args); } catch { /* skip */ }
                                 }
@@ -757,7 +708,7 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
 
                     if (streamingToolCalls.length > 0) {
                         const converted = streamingToolCalls
-                            .map(tc => JSON.stringify({ tool: tc.name, toolCallId: tc.id, ...tc.arguments }))
+                            .map(tc => JSON.stringify({ tool: tc.name, ...tc.arguments }))
                             .join('\n');
                         const fullResult = thinkingText.trim()
                             ? `<think>${thinkingText}</think>\n${converted}`
