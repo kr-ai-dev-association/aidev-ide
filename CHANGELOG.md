@@ -38,11 +38,6 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 - **SubAgentLoop update_file 무한 재시도 방지**: 같은 파일 `update_file` 3회 실패 시 실행 자체를 스킵하고 "다른 방법 사용" 피드백 전달
 - **run_command 반복 실패 무한 루프 방지**: 같은 명령어 3회 연속 실패 시 스킵 + LLM에 피드백 전달
 
-### AGENT 모드 — 완전 자율화
-
-- **턴 제한 제거**: `MAX_AGENT_TURNS=25` 경고 프롬프트, `MAX_TURNS_WARNING_THRESHOLD` 제거 — 턴 무제한
-- **연속 실패 프롬프트 제거**: `MAX_CONSECUTIVE_TOOL_FAILURES=3` 제거 — LLM이 에러를 보고 자율 판단
-
 ---
 
 ## v1.0.63 (2026-04-07)
