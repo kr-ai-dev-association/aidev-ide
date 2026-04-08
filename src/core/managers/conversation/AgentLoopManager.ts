@@ -120,7 +120,11 @@ export class AgentLoopManager {
     const streamingCreatedPaths = new Set<string>();
     const streamingUpdatedPaths = new Set<string>();
 
-    // AGENT 모드: 턴 제한 없음 (LLM 자율 판단, 컨텍스트 압축이 관리)
+    // Error accumulation tracking
+    const consecutiveToolFailures = new Map<string, number>();
+    const MAX_CONSECUTIVE_TOOL_FAILURES = 3;
+    const MAX_TURNS_WARNING_THRESHOLD = 20;
+    const MAX_AGENT_TURNS = 25;
 
     try {
     // ─── Main Loop ───
@@ -128,6 +132,15 @@ export class AgentLoopManager {
       if (abortSignal?.aborted) {
         console.log(`[AgentLoopManager] Aborted at turn ${turnCount}`);
         break;
+      }
+
+      // max_turns 경고
+      if (turnCount >= MAX_TURNS_WARNING_THRESHOLD) {
+        const remaining = MAX_AGENT_TURNS - turnCount;
+        accumulatedUserParts.push({
+          text: `[System] 주의: 남은 턴이 ${remaining}회입니다. 작업을 마무리하고 최종 결과를 정리하세요.`,
+        });
+        console.log(`[AgentLoopManager] Turn limit warning: ${remaining} turns remaining`);
       }
 
       // 1. Inject worker notifications (spawn_agent results)
@@ -478,6 +491,25 @@ export class AgentLoopManager {
             isError: !toolResults[ti]?.success,
             timestamp: Date.now(),
           });
+        }
+
+        // 에러 누적 감지
+        for (let i = 0; i < filteredToolCalls.length; i++) {
+          const call = filteredToolCalls[i];
+          const result = toolResults[i];
+          if (result?.success) {
+            consecutiveToolFailures.delete(call.name);
+          } else {
+            const count = (consecutiveToolFailures.get(call.name) || 0) + 1;
+            consecutiveToolFailures.set(call.name, count);
+            if (count >= MAX_CONSECUTIVE_TOOL_FAILURES) {
+              accumulatedUserParts.push({
+                text: `[System] ${call.name} 도구가 ${count}회 연속 실패했습니다. 다른 방법을 시도하거나, 파일을 다시 읽은 후 정확한 내용으로 재시도하세요.`,
+              });
+              console.warn(`[AgentLoopManager] ${call.name} failed ${count} times consecutively — nudging alternative approach`);
+              consecutiveToolFailures.set(call.name, 0);
+            }
+          }
         }
 
         turnCount++;
