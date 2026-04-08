@@ -16,7 +16,7 @@ import * as vscode from "vscode";
 import * as crypto from "crypto";
 import { LLMManager } from "../model/LLMManager";
 import { WebviewBridge } from "../../webview/WebviewBridge";
-import { ConversationMessage } from "../../../services/types";
+import { ConversationMessage, conversationMessagesToParts } from "../../../services/types";
 import { ToolParser } from "../../tools/ToolParser";
 import { ToolExecutor } from "../../tools/ToolExecutor";
 import { ToolExecutionContext } from "../../tools/IToolHandler";
@@ -78,12 +78,13 @@ export class AgentLoopManager {
     // Append agent mode prompt to system prompt
     const activeSystemPrompt = systemPrompt + '\n\n' + getAgentModePrompt(maxTestFixAttempts);
 
-    let accumulatedUserParts = [...userParts];
-    // Role 기반 메시지 히스토리 (병렬 관리)
     const conversationMessages: ConversationMessage[] = userParts
       .filter(p => p.text)
       .map(p => ({ role: 'user' as const, content: p.text!, timestamp: Date.now() }));
+    // accumulatedUserParts는 conversationMessages에서 파생 — 기존 인프라 호환용
+    const refreshTextParts = () => conversationMessagesToParts(conversationMessages);
     let turnCount = 0;
+    let prevStreamingCount = 0; // 스트리밍 실행 누적 수 (턴별 비교용)
     let conversationTurnId = crypto.randomUUID();
 
     // Metadata collection for session history
@@ -136,7 +137,7 @@ export class AgentLoopManager {
       const notifications = agentTaskMgr.consumePendingNotifications();
       if (notifications.length > 0) {
         for (const notifXml of notifications) {
-          accumulatedUserParts.push({ text: notifXml });
+          conversationMessages.push({ role: 'system', content: notifXml, timestamp: Date.now() });
         }
         console.log(`[AgentLoopManager] Injected ${notifications.length} task notification(s)`);
       }
@@ -144,14 +145,14 @@ export class AgentLoopManager {
       // 2. Inject work_plan status
       const workPlanStatus = getWorkPlanStatus();
       if (workPlanStatus) {
-        accumulatedUserParts.push({ text: workPlanStatus });
+        conversationMessages.push({ role: 'system', content: workPlanStatus, timestamp: Date.now() });
       }
 
       // 3. New turn ID
       conversationTurnId = crypto.randomUUID();
 
-      // 4. Trim accumulated parts (memory leak prevention)
-      accumulatedUserParts = this.trimAccumulatedParts(accumulatedUserParts);
+      // 4. Trim conversation messages (memory leak prevention)
+      this.trimConversationMessages(conversationMessages);
 
       // 5. Context compaction
       try {
@@ -164,30 +165,59 @@ export class AgentLoopManager {
         const maxTokens = modelLimits?.maxInputTokens || 128000;
 
         // Tier 1: Tool result trim (no LLM call)
-        const trimResult = compactor.trimToolResults(accumulatedUserParts, activeSystemPrompt, maxTokens);
+        const trimTextParts = refreshTextParts();
+        const trimResult = compactor.trimToolResults(trimTextParts, activeSystemPrompt, maxTokens);
         if (trimResult.trimmed) {
-          accumulatedUserParts = trimResult.parts;
           console.log(`[AgentLoopManager] Tier1 trim: saved ${trimResult.savedTokens} tokens`);
         }
 
         // Tier 1.5: Microcompact — 도구 결과를 1줄 요약 (LLM 호출 없음, 70% 초과 시)
-        const microResult = compactor.microcompact(accumulatedUserParts, activeSystemPrompt, maxTokens);
+        const microParts = refreshTextParts();
+        const microResult = compactor.microcompact(microParts, activeSystemPrompt, maxTokens);
         if (microResult.compacted) {
-          accumulatedUserParts = microResult.parts;
           console.log(`[AgentLoopManager] Microcompact: saved ${microResult.savedTokens} tokens`);
         }
 
         // Tier 2: LLM summary (if still over threshold)
-        if (compactor.needsCompaction(accumulatedUserParts, activeSystemPrompt, maxTokens)) {
+        const compactionCheckParts = refreshTextParts();
+        if (compactor.needsCompaction(compactionCheckParts, activeSystemPrompt, maxTokens)) {
           console.log(`[AgentLoopManager] Token threshold exceeded. Starting context compaction...`);
           WebviewBridge.sendProcessingStatus(webviewToRespond, "context", "컨텍스트 압축 중...");
 
+          const compactionParts = refreshTextParts();
           const compactionResult = await compactor.compact(
-            accumulatedUserParts, activeSystemPrompt, maxTokens, abortSignal,
+            compactionParts, activeSystemPrompt, maxTokens, abortSignal,
           );
 
           if (compactionResult.compacted) {
-            accumulatedUserParts = compactionResult.recentMessages;
+
+            // Role 기반: 압축 후 conversationMessages 재구성 (Claude Code 방식)
+            const keepCount = Math.min(4, conversationMessages.length);
+            let recentRoleMessages = conversationMessages.slice(-keepCount);
+            while (recentRoleMessages.length > 0 && recentRoleMessages[0].role === 'tool_result') {
+              recentRoleMessages.shift();
+            }
+            if (recentRoleMessages.length > 0) {
+              const last = recentRoleMessages[recentRoleMessages.length - 1];
+              if (last.role === 'assistant' && last.content && /\{"tool"/.test(last.content)) {
+                recentRoleMessages.push({
+                  role: 'tool_result',
+                  content: '[Tool result missing due to context compaction]',
+                  isError: true,
+                  timestamp: Date.now(),
+                });
+              }
+            }
+            conversationMessages.length = 0;
+            if (compactionResult.summary) {
+              conversationMessages.push({
+                role: 'user',
+                content: `[Previous conversation summary]\n${compactionResult.summary}`,
+                timestamp: Date.now(),
+              });
+            }
+            conversationMessages.push(...recentRoleMessages);
+
             console.log(`[AgentLoopManager] Context compacted. Saved ${compactionResult.savedTokens} tokens`);
             usageMetrics.recordContextCompaction(compactionResult.savedTokens);
             WebviewBridge.receiveMessage(
@@ -198,9 +228,9 @@ export class AgentLoopManager {
         }
 
         // Update context info in UI
-        const currentContextTokens = compactor.calculateTotalTokens(accumulatedUserParts, activeSystemPrompt);
+        const currentContextTokens = compactor.calculateTotalTokens(refreshTextParts(), activeSystemPrompt);
         WebviewBridge.updateContextInfo(webviewToRespond, {
-          messageCount: accumulatedUserParts.length,
+          messageCount: conversationMessages.length,
           tokenUsage: {
             current: currentContextTokens,
             max: maxTokens,
@@ -257,9 +287,12 @@ export class AgentLoopManager {
         let streamingFileOpPromise = Promise.resolve();
 
         // Streaming pre-execution: create_file/update_file 즉시 실행
+        // streamingPendingPaths: 실행 중인 파일 (중복 실행 방지용, 성공 전에도 추가)
+        const streamingPendingPaths = new Set<string>();
         const executeStreamingFileOp = (path: string, capturedCall: ToolUse, isUpdate: boolean) => {
           const trackingSet = isUpdate ? streamingUpdatedPaths : streamingCreatedPaths;
-          trackingSet.add(path);
+          // 실행 시작 시 pending에 추가 (중복 실행 방지), 성공 시에만 tracking set에 추가
+          streamingPendingPaths.add(`${capturedCall.name}:${path}`);
 
           streamingFileOpPromise = streamingFileOpPromise.then(async () => {
             if (abortSignal?.aborted) return;
@@ -272,15 +305,22 @@ export class AgentLoopManager {
               const results = await toolExecutor.executeTools([capturedCall], streamCtx);
               if (results[0]?.success) {
                 const p = capturedCall.params.path as string;
-                trackingSet.add(p);
+                trackingSet.add(p); // 성공한 경우에만 tracking set에 추가
                 if (isUpdate) {
                   if (!modifiedFiles.includes(p)) modifiedFiles.push(p);
                 } else {
                   if (!createdFiles.includes(p) && !modifiedFiles.includes(p)) createdFiles.push(p);
                 }
                 ToolExecutionCoordinator.sendSingleToolResultToUI(webviewToRespond, capturedCall, results[0]);
+              } else {
+                // 실패 시 pending에서 제거 → 나중에 재실행 가능
+                streamingPendingPaths.delete(`${capturedCall.name}:${path}`);
+                console.log(`[AgentLoopManager] Streaming pre-exec failed: ${capturedCall.name}(${path})`);
               }
-            } catch (e) { /* streaming pre-exec failure is non-fatal */ }
+            } catch (e) {
+              streamingPendingPaths.delete(`${capturedCall.name}:${path}`);
+              console.log(`[AgentLoopManager] Streaming pre-exec error: ${capturedCall.name}(${path})`, e);
+            }
           });
         };
 
@@ -291,7 +331,7 @@ export class AgentLoopManager {
           const isUpdate = toolName === 'update_file';
           const trackingSet = isUpdate ? streamingUpdatedPaths : streamingCreatedPaths;
           const handledKey = `${toolName}:${p}`;
-          if (trackingSet.has(p) || streamingHandledPaths.has(handledKey)) return;
+          if (trackingSet.has(p) || streamingPendingPaths.has(handledKey) || streamingHandledPaths.has(handledKey)) return;
           const capturedCall: ToolUse = { name: toolName, params: { ...args } };
           executeStreamingFileOp(p, capturedCall, isUpdate);
         };
@@ -311,7 +351,7 @@ export class AgentLoopManager {
                   const p = call.params.path as string;
                   const isUpdate = call.name === 'update_file';
                   const trackingSet = isUpdate ? streamingUpdatedPaths : streamingCreatedPaths;
-                  if (!trackingSet.has(p) && !streamingHandledPaths.has(`${call.name}:${p}`)) {
+                  if (!trackingSet.has(p) && !streamingPendingPaths.has(`${call.name}:${p}`) && !streamingHandledPaths.has(`${call.name}:${p}`)) {
                     executeStreamingFileOp(p, call, isUpdate);
                   }
                 }
@@ -373,7 +413,7 @@ export class AgentLoopManager {
       // Role 기반: assistant 응답 보존
       conversationMessages.push({
         role: 'assistant',
-        content: llmResponse,
+        content: llmResponse.replace(/<think>[\s\S]*?<\/think>/gi, '').trim(),
         timestamp: Date.now(),
       });
 
@@ -423,9 +463,10 @@ export class AgentLoopManager {
           'spawn_agent', 'work_plan', 'memory_save', 'memory_delete',
         ].join(', ');
         console.warn(`[AgentLoopManager] Unknown tools: ${unknownNames}. Re-prompting.`);
-        accumulatedUserParts.push({ text: llmResponse });
-        accumulatedUserParts.push({
-          text: `[시스템] 알 수 없는 도구: ${unknownNames}. 다음 도구만 사용하세요: ${availableTools}`,
+        conversationMessages.push({
+          role: 'system',
+          content: `[시스템] 알 수 없는 도구: ${unknownNames}. 다음 도구만 사용하세요: ${availableTools}`,
+          timestamp: Date.now(),
         });
         turnCount++;
         continue;
@@ -462,18 +503,11 @@ export class AgentLoopManager {
           abortSignal,
         );
 
-        // Build result summary and add to context
-        const resultSummary = ToolExecutionCoordinator.createToolResultSummary(
-          turnCount, filteredToolCalls, toolResults,
-        );
-        accumulatedUserParts.push({ text: llmResponse });
-        accumulatedUserParts.push({ text: resultSummary });
-
         // Role 기반: tool 결과 보존
         for (let ti = 0; ti < toolResults.length; ti++) {
           conversationMessages.push({
             role: 'tool_result',
-            content: toolResults[ti]?.message || toolResults[ti]?.data?.output || '',
+            content: [toolResults[ti]?.message, toolResults[ti]?.data?.output, toolResults[ti]?.data?.content, toolResults[ti]?.data?.files?.map((f: any) => `${f.path}:\n${f.content}`).join('\n')].filter(Boolean).join('\n') || '',
             toolName: filteredToolCalls[ti]?.name,
             toolCallId: filteredToolCalls[ti]?.toolCallId,
             isError: !toolResults[ti]?.success,
@@ -501,7 +535,18 @@ export class AgentLoopManager {
           `에이전트 작업 대기 중 (${agentTaskMgrCheck.getRunningTaskCount()}개 실행 중)...`,
         );
         await agentTaskMgrCheck.waitForAnyTaskCompletion();
-        accumulatedUserParts.push({ text: llmResponse });
+        turnCount++;
+        continue;
+      }
+
+      // 스트리밍 pre-execution에서 현재 턴에서 tool call이 있었는지 확인
+      // turnStartStreamingCount는 턴 시작 시점의 스냅샷이므로, 현재 크기와 비교하면 이번 턴 실행 여부를 정확히 판단
+      const currentCreated = streamingCreatedPaths.size;
+      const currentUpdated = streamingUpdatedPaths.size;
+      const hadStreamingExecutionThisTurn = (currentCreated + currentUpdated) > prevStreamingCount;
+      prevStreamingCount = currentCreated + currentUpdated;
+      if (hadStreamingExecutionThisTurn) {
+        console.log(`[AgentLoopManager] Turn ${turnCount + 1}: Text with streaming-executed tools this turn → continuing`);
         turnCount++;
         continue;
       }
@@ -603,7 +648,7 @@ export class AgentLoopManager {
         const { SessionMemoryExtractor } = await import("../../memory/SessionMemoryExtractor");
         const extractor = SessionMemoryExtractor.getInstance(this.llmManager);
         const compactorForExtraction = ConversationCompactor.getInstance(this.llmManager);
-        const extractionTokens = compactorForExtraction.calculateTotalTokens(accumulatedUserParts, activeSystemPrompt);
+        const extractionTokens = compactorForExtraction.calculateTotalTokens(refreshTextParts(), activeSystemPrompt);
         if (extractor.shouldExtract(extractionTokens, turnCount)) {
           const summary = compactorForExtraction.getLastSummary();
           if (summary) {
@@ -790,26 +835,30 @@ export class AgentLoopManager {
   }
 
   /**
-   * Trim accumulated parts to prevent memory leak (mirrors ConversationManager.trimAccumulatedParts)
+   * conversationMessages 메모리 정리 (in-place)
+   * - 최대 항목 수 초과 시 오래된 항목 제거
+   * - read_file 중복 제거
+   * - 개별 항목의 텍스트 길이 제한
    */
-  private trimAccumulatedParts(parts: UserPart[]): UserPart[] {
-    // 1. Limit item count
-    if (parts.length > AgentConfig.MAX_ACCUMULATED_PARTS) {
+  private trimConversationMessages(messages: ConversationMessage[]): void {
+    // 1. 항목 수 제한
+    if (messages.length > AgentConfig.MAX_ACCUMULATED_PARTS) {
       console.log(
-        `[AgentLoopManager] Trimming parts: ${parts.length} → ${AgentConfig.ACCUMULATED_PARTS_TRIM_TARGET}`,
+        `[AgentLoopManager] Trimming conversationMessages: ${messages.length} → ${AgentConfig.ACCUMULATED_PARTS_TRIM_TARGET}`,
       );
-      const firstPart = parts[0];
-      const recentParts = parts.slice(-AgentConfig.ACCUMULATED_PARTS_TRIM_TARGET + 1);
-      parts = [firstPart, ...recentParts];
+      const firstMsg = messages[0];
+      const recentMsgs = messages.slice(-AgentConfig.ACCUMULATED_PARTS_TRIM_TARGET + 1);
+      messages.length = 0;
+      messages.push(firstMsg, ...recentMsgs);
     }
 
-    // 2. Deduplicate read_file results
+    // 2. read_file 중복 제거 (같은 파일을 여러 번 읽은 경우 최신 결과만 유지)
     const fileReadPattern = /\[Tool: read_file\][\s\S]*?File:\s*([^\n]+)/;
     const lastReadIndex = new Map<string, number>();
-    for (let i = parts.length - 1; i >= 0; i--) {
-      const text = parts[i]?.text;
-      if (!text) continue;
-      const match = text.match(fileReadPattern);
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const content = messages[i]?.content;
+      if (!content) continue;
+      const match = content.match(fileReadPattern);
       if (match) {
         const filePath = match[1].trim();
         if (!lastReadIndex.has(filePath)) {
@@ -818,15 +867,15 @@ export class AgentLoopManager {
       }
     }
     let dedupeCount = 0;
-    for (let i = 0; i < parts.length; i++) {
-      const text = parts[i]?.text;
-      if (!text) continue;
-      const match = text.match(fileReadPattern);
+    for (let i = 0; i < messages.length; i++) {
+      const content = messages[i]?.content;
+      if (!content) continue;
+      const match = content.match(fileReadPattern);
       if (match) {
         const filePath = match[1].trim();
         const lastIdx = lastReadIndex.get(filePath);
         if (lastIdx !== undefined && lastIdx !== i) {
-          parts[i] = { text: `[이전 read_file 결과 생략: ${filePath} — 최신 결과가 아래에 있음]` };
+          messages[i] = { ...messages[i], content: `[이전 read_file 결과 생략: ${filePath} — 최신 결과가 아래에 있음]` };
           dedupeCount++;
         }
       }
@@ -835,15 +884,13 @@ export class AgentLoopManager {
       console.log(`[AgentLoopManager] Deduped ${dedupeCount} duplicate read_file results`);
     }
 
-    // 3. Limit individual part text length
-    for (const part of parts) {
-      if (part.text && part.text.length > AgentConfig.MAX_PART_TEXT_LENGTH) {
-        part.text = part.text.substring(0, AgentConfig.PART_TEXT_TRIM_LENGTH) +
+    // 3. 개별 항목 텍스트 길이 제한
+    for (const msg of messages) {
+      if (msg.content && msg.content.length > AgentConfig.MAX_PART_TEXT_LENGTH) {
+        msg.content = msg.content.substring(0, AgentConfig.PART_TEXT_TRIM_LENGTH) +
           '\n\n... [내용이 너무 길어 일부가 생략되었습니다] ...';
       }
     }
-
-    return parts;
   }
 
   /**

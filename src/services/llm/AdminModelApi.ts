@@ -10,6 +10,7 @@ import { ILLMProvider } from './providers/ILLMProvider';
 import { OpenAICompatProvider } from './providers/OpenAICompatProvider';
 import { AnthropicProvider } from './providers/AnthropicProvider';
 import { GeminiProvider } from './providers/GeminiProvider';
+import type { ConversationMessage } from '../types';
 
 export class AdminModelApi {
     private config: AdminModelConfig | null = null;
@@ -80,6 +81,47 @@ export class AdminModelApi {
             throw new Error('Admin model is not configured.');
         }
         return this.provider.stream(systemPrompt, userParts, onChunk, options);
+    }
+
+    /**
+     * Role 기반 ConversationMessage[] 직접 전송 (비스트리밍)
+     */
+    public async sendWithConversationMessages(
+        systemPrompt: string,
+        messages: ConversationMessage[],
+        options?: SendOptions
+    ): Promise<string> {
+        if (!this.config || !this.provider) {
+            throw new Error('Admin model is not configured.');
+        }
+        // OpenAICompatProvider만 role 기반 직접 전송 지원
+        if (this.provider instanceof OpenAICompatProvider) {
+            return this.provider.sendWithMessages(systemPrompt, messages, options);
+        }
+        // 다른 provider (Gemini native, Anthropic)는 텍스트 폴백
+        const { conversationMessagesToParts } = await import('../types');
+        const parts = conversationMessagesToParts(messages);
+        return this.provider.send(parts, systemPrompt, options);
+    }
+
+    /**
+     * Role 기반 ConversationMessage[] 스트리밍 전송
+     */
+    public async sendWithConversationMessagesStreaming(
+        systemPrompt: string,
+        messages: ConversationMessage[],
+        onChunk: ChunkCallback,
+        options?: SendOptions
+    ): Promise<string> {
+        if (!this.config || !this.provider) {
+            throw new Error('Admin model is not configured.');
+        }
+        if (this.provider instanceof OpenAICompatProvider) {
+            return this.provider.streamWithMessages(systemPrompt, messages, onChunk, options);
+        }
+        const { conversationMessagesToParts } = await import('../types');
+        const parts = conversationMessagesToParts(messages);
+        return this.provider.stream(systemPrompt, parts, onChunk, options);
     }
 
     /**

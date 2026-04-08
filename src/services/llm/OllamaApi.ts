@@ -237,14 +237,10 @@ export class OllamaApi {
                     result.push({ role: 'assistant', content: msg.content });
                     break;
                 case 'tool_result':
-                    // Ollama는 tool role을 OpenAI 호환으로 지원 (nativeToolCalling 활성화 시)
-                    // 비지원 모델은 user 메시지로 폴백
-                    if (msg.toolCallId) {
-                        result.push({ role: 'tool', content: msg.content, tool_call_id: msg.toolCallId });
-                    } else {
-                        const status = msg.isError ? 'Failed' : 'Success';
-                        result.push({ role: 'user', content: `[Tool Result: ${msg.toolName || 'unknown'}] Status: ${status}\n${msg.content}` });
-                    }
+                    // Cline 방식: 항상 role: 'user'로 전체 내용 포함
+                    // role: 'tool'은 GPT 등 일부 모델 챗 템플릿에서 assistant tool_calls 페어링 필수 → 문제 발생
+                    const toolStatus = msg.isError ? 'Failed' : 'Success';
+                    result.push({ role: 'user', content: `[Tool Result: ${msg.toolName || 'unknown'}] Status: ${toolStatus}\n${msg.content}` });
                     break;
             }
         }
@@ -261,6 +257,12 @@ export class OllamaApi {
         options?: SendOptions,
     ): Promise<string> {
         const ollamaMessages = OllamaApi.convertMessages(messages, systemPrompt);
+        // 디버그: Ollama에 전달되는 실제 메시지 배열 로그
+        console.log(`[OllamaApi] sendWithConversationMessages: ${ollamaMessages.length} messages`);
+        for (let i = 0; i < ollamaMessages.length; i++) {
+            const m = ollamaMessages[i];
+            console.log(`[OllamaApi]   [${i}] role=${m.role}, content=${(m.content || '').substring(0, 200)}${(m.content || '').length > 200 ? '...' : ''}`);
+        }
         return this.sendMessageInternal(ollamaMessages, options);
     }
 
@@ -637,6 +639,12 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
         options?: SendOptions,
     ): Promise<string> {
         const ollamaMessages = OllamaApi.convertMessages(messages, systemPrompt);
+        // 디버그: Ollama 스트리밍에 전달되는 실제 메시지 배열 로그
+        console.log(`[OllamaApi] sendWithConversationMessagesStreaming: ${ollamaMessages.length} messages`);
+        for (let i = 0; i < ollamaMessages.length; i++) {
+            const m = ollamaMessages[i];
+            console.log(`[OllamaApi]   [${i}] role=${m.role}, content=${(m.content || '').substring(0, 200)}${(m.content || '').length > 200 ? '...' : ''}`);
+        }
         return this.sendMessagesStreaming(ollamaMessages, onChunk, options);
     }
 

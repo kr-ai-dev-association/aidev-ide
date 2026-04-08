@@ -314,9 +314,13 @@ export class LLMManager {
         options?: LLMRequestOptions
     ): Promise<string> {
         if (this.currentModelType === AiModelType.ADMIN) {
-            // Admin 모델은 아직 Part[] 폴백 (향후 AdminModelApi에 직접 지원 추가)
-            const parts = conversationMessagesToParts(messages);
-            return this.sendMessageWithSystemPrompt(systemPrompt, parts, options);
+            // Admin 모델도 role 기반 직접 전송 (OpenAI compat → role 분리, 나머지 → 텍스트 폴백)
+            return this.adminModelApi.sendWithConversationMessages(systemPrompt, messages, {
+                signal: options?.signal,
+                disableThinking: options?.disableThinking,
+                thinkingLevel: options?.thinkingLevel,
+                nativeTools: options?.nativeTools,
+            });
         }
 
         // Ollama: role 기반 직접 전송
@@ -338,8 +342,13 @@ export class LLMManager {
         options?: LLMRequestOptions
     ): Promise<string> {
         if (this.currentModelType === AiModelType.ADMIN) {
-            const parts = conversationMessagesToParts(messages);
-            return this.sendMessageWithSystemPromptStreaming(systemPrompt, parts, onChunk, options);
+            return this.adminModelApi.sendWithConversationMessagesStreaming(systemPrompt, messages, onChunk, {
+                signal: options?.signal,
+                disableThinking: options?.disableThinking,
+                thinkingLevel: options?.thinkingLevel,
+                nativeTools: options?.nativeTools,
+                onNativeToolComplete: options?.onNativeToolComplete,
+            });
         }
 
         // Ollama: role 기반 직접 스트리밍

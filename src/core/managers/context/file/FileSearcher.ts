@@ -142,16 +142,16 @@ export class FileSearcher {
         const multiline = options?.multiline ?? false;
 
         const args: string[] = [
-            '--json',
             '-e', pattern,
         ];
 
-        // output_mode별 플래그
+        // output_mode별 플래그 (--json은 -l/-c와 충돌하므로 content 모드에서만 사용)
         if (outputMode === 'files_with_matches') {
             args.push('-l');
         } else if (outputMode === 'count') {
             args.push('-c');
         } else {
+            args.push('--json');
             // content 모드에서만 context 적용
             args.push('--context', contextLines.toString());
         }
@@ -217,6 +217,29 @@ export class FileSearcher {
                 }
 
                 try {
+                    // files_with_matches / count 모드: plain text 출력 (--json 없음)
+                    if (outputMode === 'files_with_matches') {
+                        const filePath = line.trim();
+                        if (filePath && !fileMap.has(filePath)) {
+                            fileMap.set(filePath, [{ line: 0, column: 0, content: '', context: { before: [], after: [] } }]);
+                        }
+                        lineCount++;
+                        return;
+                    }
+                    if (outputMode === 'count') {
+                        // count 모드: "파일:숫자" 형식
+                        const colonIdx = line.lastIndexOf(':');
+                        if (colonIdx > 0) {
+                            const filePath = line.substring(0, colonIdx);
+                            const count = parseInt(line.substring(colonIdx + 1)) || 0;
+                            if (!fileMap.has(filePath)) {
+                                fileMap.set(filePath, [{ line: count, column: 0, content: `${count} matches`, context: { before: [], after: [] } }]);
+                            }
+                        }
+                        lineCount++;
+                        return;
+                    }
+
                     const parsed = JSON.parse(line);
 
                     if (parsed.type === 'match') {

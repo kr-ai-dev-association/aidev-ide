@@ -7,7 +7,7 @@
 import { AdminModelConfig, AdminModelMessagePart, SendOptions, ChunkCallback } from '../AdminModelTypes';
 import { ILLMProvider } from './ILLMProvider';
 import { buildRequest, assertResponseField } from './providerUtils';
-import { ConversationMessage } from '../../types';
+import type { ConversationMessage } from '../../types';
 
 type OpenAIMessage = { role: string; content: string; tool_call_id?: string; name?: string };
 
@@ -35,13 +35,9 @@ export class OpenAICompatProvider implements ILLMProvider {
                     result.push({ role: 'assistant', content: msg.content });
                     break;
                 case 'tool_result':
-                    if (msg.toolCallId) {
-                        result.push({ role: 'tool', content: msg.content, tool_call_id: msg.toolCallId, name: msg.toolName });
-                    } else {
-                        // toolCallId 없으면 user 메시지로 폴백
-                        const status = msg.isError ? 'Failed' : 'Success';
-                        result.push({ role: 'user', content: `[Tool Result: ${msg.toolName || 'unknown'}] Status: ${status}\n${msg.content}` });
-                    }
+                    // Cline 방식: 항상 role: 'user'로 전체 내용 포함
+                    const toolStatus = msg.isError ? 'Failed' : 'Success';
+                    result.push({ role: 'user', content: `[Tool Result: ${msg.toolName || 'unknown'}] Status: ${toolStatus}\n${msg.content}` });
                     break;
             }
         }
@@ -127,6 +123,86 @@ export class OpenAICompatProvider implements ILLMProvider {
         return finishReason === 'length' ? content + '\n[MAX_TOKENS_REACHED]' : content;
     }
 
+    /**
+     * Role 기반 ConversationMessage[] 직접 전송 (비스트리밍)
+     */
+    async sendWithMessages(
+        systemPrompt: string,
+        conversationMessages: ConversationMessage[],
+        options?: SendOptions
+    ): Promise<string> {
+        const messages = OpenAICompatProvider.convertMessages(conversationMessages, systemPrompt);
+
+        const requestBody: Record<string, unknown> = {
+            model: this.config.model,
+            messages,
+            temperature: this.config.defaultTemperature ?? 0.7,
+            top_p: this.config.topP ?? 0.9,
+            stream: false,
+            max_tokens: this.config.maxOutputTokens || this.config.maxTokens || 16384,
+        };
+
+        const isGeminiCompat = (this.config.endpoint || '').includes('generativelanguage.googleapis.com');
+        if (isGeminiCompat) {
+            if (!options?.disableThinking) {
+                requestBody.reasoning_effort = options?.thinkingLevel || 'medium';
+            }
+        } else if (options?.disableThinking) {
+            requestBody.think = false;
+        }
+
+        if (options?.nativeTools && options.nativeTools.length > 0) {
+            requestBody.tools = options.nativeTools;
+            requestBody.tool_choice = 'auto';
+        }
+
+        const { url, headers } = buildRequest(this.config, this.config.endpoint);
+        console.log(`[OpenAICompatProvider] sendWithMessages: model=${this.config.model} messages=${messages.length} nativeTools=${!!options?.nativeTools}`);
+
+        const response = await fetch(url, {
+            method: 'POST', headers, body: JSON.stringify(requestBody), signal: options?.signal
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Admin Model API error: ${response.status} ${response.statusText} - ${errorText}`);
+        }
+
+        const data: any = await response.json();
+        assertResponseField(data, 'choices');
+
+        if (!data.choices || data.choices.length === 0) {
+            throw new Error('Invalid response from Admin Model API: no choices');
+        }
+
+        const toolCalls = data.choices[0]?.message?.tool_calls;
+        if (toolCalls && toolCalls.length > 0) {
+            return toolCalls.map((tc: any) => {
+                const fn = tc.function;
+                const args = typeof fn.arguments === 'string' ? JSON.parse(fn.arguments) : (fn.arguments || {});
+                return JSON.stringify({ tool: fn.name, ...args });
+            }).join('\n');
+        }
+
+        const respContent = data.choices[0]?.message?.content || '';
+        const finishReason = data.choices[0]?.finish_reason;
+        return finishReason === 'length' ? respContent + '\n[MAX_TOKENS_REACHED]' : respContent;
+    }
+
+    /**
+     * Role 기반 ConversationMessage[] 스트리밍 전송
+     */
+    async streamWithMessages(
+        systemPrompt: string,
+        conversationMessages: ConversationMessage[],
+        onChunk: ChunkCallback,
+        options?: SendOptions
+    ): Promise<string> {
+        const messages = OpenAICompatProvider.convertMessages(conversationMessages, systemPrompt);
+        // 기존 stream 로직 재사용: userParts 대신 이미 변환된 messages 사용
+        return this._streamWithOpenAIMessages(messages, onChunk, options);
+    }
+
     async stream(
         systemPrompt: string,
         userParts: AdminModelMessagePart[],
@@ -138,7 +214,17 @@ export class OpenAICompatProvider implements ILLMProvider {
             messages.push({ role: 'system', content: systemPrompt });
         }
         messages.push({ role: 'user', content: userParts.map(p => p.text || '').join('\n') });
+        return this._streamWithOpenAIMessages(messages, onChunk, options);
+    }
 
+    /**
+     * OpenAI messages 배열로 스트리밍 (stream / streamWithMessages 공용)
+     */
+    async _streamWithOpenAIMessages(
+        messages: Array<{ role: string; content: string }>,
+        onChunk: ChunkCallback,
+        options?: SendOptions
+    ): Promise<string> {
         const requestBody: Record<string, unknown> = {
             model: this.config.model,
             messages,

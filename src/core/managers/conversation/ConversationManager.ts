@@ -13,7 +13,7 @@ import { ToolParser } from "../../tools/ToolParser";
 import { ToolExecutor } from "../../tools/ToolExecutor";
 import { ToolRegistry } from "../../tools/ToolRegistry";
 import { ToolExecutionContext } from "../../tools/IToolHandler";
-import { ConversationMessage } from "../../../services/types";
+import { ConversationMessage, conversationMessagesToParts } from "../../../services/types";
 import { StreamingCodeApplier } from "../../tools/StreamingCodeApplier";
 import { ActionManager } from "../action/ActionManager";
 import { ExecutionManager } from "../execution/ExecutionManager";
@@ -713,11 +713,12 @@ export class ConversationManager implements IConversationHandler {
       : 'medium';
     let conversationTurnId = crypto.randomUUID(); // 턴 단위 변경 그룹화용
     let lastExecutionTurnId = conversationTurnId; // 마지막 tool 실행 시의 turnId (review 메시지에 사용)
-    let accumulatedUserParts = [...userParts];
-    // Role 기반 메시지 히스토리 (accumulatedUserParts와 병렬 관리, 점진적 전환)
+    // Role 기반 메시지 히스토리 (단일 소스 — accumulatedUserParts 제거)
     const conversationMessages: ConversationMessage[] = userParts
       .filter(p => p.text)
       .map(p => ({ role: 'user' as const, content: p.text!, timestamp: Date.now(), ...(p.inlineData && { inlineData: p.inlineData }) }));
+    // accumulatedUserParts는 conversationMessages에서 파생 — 기존 인프라 호환용
+    const refreshTextParts = () => conversationMessagesToParts(conversationMessages);
     let testFixAttempts = 0; // 테스트 실패 시 자동 수정 시도 횟수
     let pendingRetryPrompt = false; // retry 프롬프트가 LLM에 전달 대기 중인지
     let pendingMCPResultInterpretation = false; // MCP 도구 결과가 LLM 해석 대기 중인지
@@ -856,7 +857,7 @@ export class ConversationManager implements IConversationHandler {
         greetingResponse =
           await this.llmManager.sendMessageWithSystemPromptStreaming(
             greetingSystemPrompt,
-            accumulatedUserParts,
+            refreshTextParts(),
             onGreetingChunk,
             { signal: abortSignal },
           );
@@ -891,7 +892,7 @@ export class ConversationManager implements IConversationHandler {
       // 비스트리밍 모드: 인사 응답용 시스템 프롬프트 사용
       greetingResponse = await this.llmManager.sendMessageWithSystemPrompt(
         greetingSystemPrompt,
-        accumulatedUserParts,
+        refreshTextParts(),
         { signal: abortSignal },
       );
 
@@ -1050,8 +1051,10 @@ export class ConversationManager implements IConversationHandler {
           AgentConfig.MAX_PROJECT_INVENTORY_FILES,
         );
         if (inventory) {
-          accumulatedUserParts.push({
-            text: `${inventory}\n\n**중요**: 위 프로젝트 파일 구조를 참고하여 필요한 파일만 선택적으로 읽으세요. 모든 파일을 읽을 필요는 없습니다.`,
+          conversationMessages.push({
+            role: 'user',
+            content: `${inventory}\n\n**중요**: 위 프로젝트 파일 구조를 참고하여 필요한 파일만 선택적으로 읽으세요. 모든 파일을 읽을 필요는 없습니다.`,
+            timestamp: Date.now(),
           });
           console.log(
             `[ConversationManager] Pre-loaded project file inventory for INVESTIGATION phase`,
@@ -1095,12 +1098,12 @@ export class ConversationManager implements IConversationHandler {
       // 각 턴마다 새로운 conversationTurnId 생성 (턴 단위 변경 그룹화)
       conversationTurnId = crypto.randomUUID();
 
-      // 🔒 메모리 누수 방지: accumulatedUserParts 정리
-      accumulatedUserParts = this.trimAccumulatedParts(accumulatedUserParts);
+      // 🔒 메모리 누수 방지: conversationMessages 정리
+      this.trimConversationMessages(conversationMessages);
 
       // 파일 삭제 후 import 정리 메시지 주입
       if (this._pendingImportCleanupMsg) {
-        accumulatedUserParts.push({ text: this._pendingImportCleanupMsg });
+        conversationMessages.push({ role: 'system', content: this._pendingImportCleanupMsg, timestamp: Date.now() });
         this._pendingImportCleanupMsg = null;
       }
 
@@ -1120,26 +1123,52 @@ export class ConversationManager implements IConversationHandler {
         const maxTokens = modelLimits?.maxInputTokens || 128000;
 
         // Tier 1: 도구 결과 경량 트림 (LLM 호출 없이 오래된 도구 결과 축약)
+        const trimTextParts = refreshTextParts();
         const trimResult = compactor.trimToolResults(
-          accumulatedUserParts,
+          trimTextParts,
           systemPrompt,
           maxTokens,
         );
         if (trimResult.trimmed) {
-          accumulatedUserParts = trimResult.parts;
+          // Rebuild conversationMessages: keep roles, update content from trimmed parts
+          if (trimResult.parts.length === conversationMessages.length) {
+            for (let i = 0; i < trimResult.parts.length; i++) {
+              conversationMessages[i].content = trimResult.parts[i].text || conversationMessages[i].content;
+            }
+          } else {
+            // Length changed — rebuild from parts (lose role info, all become 'user')
+            conversationMessages.length = 0;
+            conversationMessages.push(...trimResult.parts.map(p => ({
+              role: 'user' as const, content: p.text || '', timestamp: Date.now(),
+              ...(p.inlineData && { inlineData: p.inlineData }),
+            })));
+          }
           console.log(
             `[ConversationManager] Tier1 tool result trim: saved ${trimResult.savedTokens} tokens`,
           );
         }
 
         // Tier 1.5: Microcompact — 도구 결과를 1줄 요약으로 축약 (LLM 호출 없음, 70% 초과 시)
+        const microTextParts = refreshTextParts();
         const microResult = compactor.microcompact(
-          accumulatedUserParts,
+          microTextParts,
           systemPrompt,
           maxTokens,
         );
         if (microResult.compacted) {
-          accumulatedUserParts = microResult.parts;
+          // Rebuild conversationMessages: keep roles, update content from compacted parts
+          if (microResult.parts.length === conversationMessages.length) {
+            for (let i = 0; i < microResult.parts.length; i++) {
+              conversationMessages[i].content = microResult.parts[i].text || conversationMessages[i].content;
+            }
+          } else {
+            // Length changed — rebuild from parts (lose role info, all become 'user')
+            conversationMessages.length = 0;
+            conversationMessages.push(...microResult.parts.map(p => ({
+              role: 'user' as const, content: p.text || '', timestamp: Date.now(),
+              ...(p.inlineData && { inlineData: p.inlineData }),
+            })));
+          }
           console.log(
             `[ConversationManager] Microcompact: saved ${microResult.savedTokens} tokens`,
           );
@@ -1148,7 +1177,7 @@ export class ConversationManager implements IConversationHandler {
         // Tier 2: LLM 요약 (Microcompact 후에도 threshold 초과 시)
         if (
           compactor.needsCompaction(
-            accumulatedUserParts,
+            refreshTextParts(),
             systemPrompt,
             maxTokens,
           )
@@ -1163,23 +1192,41 @@ export class ConversationManager implements IConversationHandler {
           );
 
           const compactionResult = await compactor.compact(
-            accumulatedUserParts,
+            refreshTextParts(),
             systemPrompt,
             maxTokens,
             abortSignal,
           );
 
           if (compactionResult.compacted) {
-            accumulatedUserParts = compactionResult.recentMessages;
-
-            // Role 기반: 압축 후 conversationMessages도 재구성
-            // 요약 + 최근 keepRecentCount 메시지만 유지
+            // Role 기반: 압축 후 conversationMessages 재구성 (Claude Code 방식)
+            // 1. 요약을 role:'user'로 삽입 (system 대신 — chat template 호환성)
+            // 2. 최근 메시지 유지 시 assistant-tool_result 페어링 보장
             const keepCount = Math.min(4, conversationMessages.length);
-            const recentRoleMessages = conversationMessages.slice(-keepCount);
+            let recentRoleMessages = conversationMessages.slice(-keepCount);
+
+            // 페어링 보장: 첫 메시지가 tool_result면 대응하는 assistant가 잘렸으므로 제거
+            while (recentRoleMessages.length > 0 && recentRoleMessages[0].role === 'tool_result') {
+              recentRoleMessages.shift();
+            }
+            // 마지막 메시지가 assistant(tool call)인데 뒤에 tool_result가 없으면
+            // synthetic tool_result 추가 (GPT chat template 페어링 요구사항)
+            if (recentRoleMessages.length > 0) {
+              const last = recentRoleMessages[recentRoleMessages.length - 1];
+              if (last.role === 'assistant' && last.content && /\{"tool"/.test(last.content)) {
+                recentRoleMessages.push({
+                  role: 'tool_result',
+                  content: '[Tool result missing due to context compaction]',
+                  isError: true,
+                  timestamp: Date.now(),
+                });
+              }
+            }
+
             conversationMessages.length = 0;
             if (compactionResult.summary) {
               conversationMessages.push({
-                role: 'system',
+                role: 'user',
                 content: `[Previous conversation summary]\n${compactionResult.summary}`,
                 timestamp: Date.now(),
               });
@@ -1204,10 +1251,10 @@ export class ConversationManager implements IConversationHandler {
 
         // 현재 대화 컨텍스트의 토큰만 계산 (세션 누적 제거 - 이중 계산 방지)
         const currentContextTokens = compactor.calculateTotalTokens(
-          accumulatedUserParts,
+          refreshTextParts(),
           systemPrompt,
         );
-        const currentMessageCount = accumulatedUserParts.length;
+        const currentMessageCount = conversationMessages.length;
 
         console.log(
           `[ConversationManager] 토큰 사용량: ${currentContextTokens.toLocaleString()} / ${maxTokens.toLocaleString()} (${((currentContextTokens / maxTokens) * 100).toFixed(1)}%)`,
@@ -1344,7 +1391,7 @@ export class ConversationManager implements IConversationHandler {
           createdFiles,
           modifiedFiles,
           systemPrompt,
-          accumulatedUserParts,
+          conversationMessages,
           abortSignal,
           options,
           userQuery,
@@ -1537,7 +1584,7 @@ export class ConversationManager implements IConversationHandler {
             testFixAttempts,
             maxTestFixAttempts,
             isAutoTestRetryEnabled,
-            accumulatedUserParts,
+            conversationMessages,
             turnCount,
             true, // allPlanItemsDone
           );
@@ -1613,11 +1660,11 @@ export class ConversationManager implements IConversationHandler {
 
           // 🔥 v1.0.24: EXECUTION 중 LSP 에러 즉시 피드백
           if (inlineDiagErrors1) {
-            accumulatedUserParts.push({ text: inlineDiagErrors1 });
+            conversationMessages.push({ role: 'system', content: inlineDiagErrors1, timestamp: Date.now() });
           }
 
           // 🔥 PreToolUseValidator에 의해 차단된 경우
-          const blockResult = this.handleBlockedTools(hasBlockedByValidator, blockedMessages, hasSuccessfulPlanExecution, stateManager, accumulatedUserParts, webviewToRespond);
+          const blockResult = this.handleBlockedTools(hasBlockedByValidator, blockedMessages, hasSuccessfulPlanExecution, stateManager, conversationMessages, webviewToRespond);
           if (blockResult === "break") break;
 
           // 🔥 사용자가 스킵한 경우에도 플랜 아이템 완료 처리 (무한 루프 방지)
@@ -1666,7 +1713,7 @@ export class ConversationManager implements IConversationHandler {
               testFixAttempts,
               maxTestFixAttempts,
               isAutoTestRetryEnabled,
-              accumulatedUserParts,
+              conversationMessages,
               turnCount,
               true, // allPlanItemsDone
             );
@@ -1702,10 +1749,12 @@ export class ConversationManager implements IConversationHandler {
               );
 
               // 에러 메시지 추가: investigation item이 EXECUTION phase에 도달했다는 것은 FSM 위반
-              accumulatedUserParts.push({
-                text: getFsmViolationInvestigationInExecutionPrompt(
+              conversationMessages.push({
+                role: 'system',
+                content: getFsmViolationInvestigationInExecutionPrompt(
                   currentPlanItem.title,
                 ),
+                timestamp: Date.now(),
               });
 
               // 다음 계획 항목이 있으면 계속, 없으면 자동 테스트 후 REVIEW로 전환
@@ -1725,7 +1774,7 @@ export class ConversationManager implements IConversationHandler {
                   testFixAttempts,
                   maxTestFixAttempts,
                   isAutoTestRetryEnabled,
-                  accumulatedUserParts,
+                  conversationMessages,
                   turnCount,
                   true, // allPlanItemsDone
                 );
@@ -1775,7 +1824,7 @@ export class ConversationManager implements IConversationHandler {
             }
 
             // Pre-load된 파일 목록과 실제 내용을 EXECUTION 컨텍스트에 명확하게 포함
-            // ⚠️ 핵심 수정: Pre-load된 파일의 실제 내용을 accumulatedUserParts에서 추출하여 포함
+            // ⚠️ 핵심 수정: Pre-load된 파일의 실제 내용을 conversationMessages에서 추출하여 포함
             let preloadedFilesContextForExecution = "";
             const preloadedFilesContent: Array<{
               path: string;
@@ -1783,18 +1832,18 @@ export class ConversationManager implements IConversationHandler {
             }> = [];
             const processedPaths = new Set<string>(); // 중복 체크용
 
-            // accumulatedUserParts에서 Pre-load된 파일 내용 추출
-            for (const part of accumulatedUserParts) {
+            // conversationMessages에서 Pre-load된 파일 내용 추출
+            for (const msg of conversationMessages) {
               try {
                 if (
-                  part.text &&
-                  part.text.includes("[System] ⚠️ **이미 읽은 파일")
+                  msg.content &&
+                  msg.content.includes("[System] ⚠️ **이미 읽은 파일")
                 ) {
                   // 개선된 정규식: 파일 경로 추출 (언어 태그 지원)
-                  const fileMatch = part.text.match(
+                  const fileMatch = msg.content.match(
                     /이미 읽은 파일[^:]*:\s*(.+?)(?:\n|$)/,
                   );
-                  const contentMatch = part.text.match(
+                  const contentMatch = msg.content.match(
                     /```[\w]*\n([\s\S]*?)```/,
                   );
 
@@ -1867,11 +1916,18 @@ export class ConversationManager implements IConversationHandler {
                 ? await SettingsManager.getInstance(options.extensionContext).isNativeToolCallingEnabled()
                 : false;
               if (isNativeEnabled) {
-                const adminConfig = this.llmManager.getAdminModelConfig();
-                const nativeSupported = adminConfig?.nativeToolCallingSupported === true || String(adminConfig?.nativeToolCallingSupported) === 'true';
-                if (nativeSupported) {
+                const currentModel = this.llmManager.getCurrentModel();
+                if (currentModel === AiModelType.ADMIN) {
+                  const adminConfig = this.llmManager.getAdminModelConfig();
+                  const nativeSupported = adminConfig?.nativeToolCallingSupported === true || String(adminConfig?.nativeToolCallingSupported) === 'true';
+                  if (nativeSupported) {
+                    nativeToolsForPlanItem = ToolSpecBuilder.buildOpenAIToolsConfig(allowedTools);
+                    console.log(`[ConversationManager] EXECUTION plan item: Native tool calling enabled for ${adminConfig?.model}`);
+                  }
+                } else {
+                  // Ollama 모델: 설정이 켜져있으면 도구 스펙 전달
                   nativeToolsForPlanItem = ToolSpecBuilder.buildOpenAIToolsConfig(allowedTools);
-                  console.log(`[ConversationManager] EXECUTION plan item: Native tool calling enabled for ${adminConfig?.model}`);
+                  console.log(`[ConversationManager] EXECUTION plan item: Native tool calling enabled for Ollama`);
                 }
               }
             }
@@ -1893,7 +1949,7 @@ export class ConversationManager implements IConversationHandler {
               llmResponseForExecution =
                 await this.llmManager.sendMessageWithCommandModel(
                   activeSystemPrompt + planContextForExecution,
-                  accumulatedUserParts,
+                  refreshTextParts(),
                   this.stateManager,
                   { signal: abortSignal },
                 );
@@ -1903,8 +1959,30 @@ export class ConversationManager implements IConversationHandler {
               );
               let planItemStreamBuffer = '';
               let planItemLastTool = '';
+              let planItemFileContentPos = 0;
+              const PLAN_FILE_END_MARKER = '</file_content>';
               const planItemOnChunk = (chunk: string) => {
                 planItemStreamBuffer += chunk;
+
+                // 파싱형 스트리밍 즉시 파일 생성: </file_content> 감지 시 즉시 실행
+                if (!isPlanMode && isAutoToolForStreaming && isAutoUpdateForStreaming) {
+                  let endIdx = planItemStreamBuffer.indexOf(PLAN_FILE_END_MARKER, planItemFileContentPos);
+                  while (endIdx !== -1) {
+                    const segmentEnd = endIdx + PLAN_FILE_END_MARKER.length;
+                    const segment = planItemStreamBuffer.substring(0, segmentEnd);
+                    planItemFileContentPos = segmentEnd;
+                    const segCalls = ToolParser.parseCodeBlockFormat(segment, []);
+                    for (const call of segCalls) {
+                      if (call.name === 'create_file' && call.params.path && !streamingCreatedPaths.has(call.params.path as string)) {
+                        executeStreamingFileOp(call.params.path as string, call, false);
+                      }
+                      if (call.name === 'update_file' && call.params.path && !streamingUpdatedPaths.has(call.params.path as string)) {
+                        executeStreamingFileOp(call.params.path as string, call, false);
+                      }
+                    }
+                    endIdx = planItemStreamBuffer.indexOf(PLAN_FILE_END_MARKER, planItemFileContentPos);
+                  }
+                }
 
                 // 툴 패턴 감지 (JSON 기반)
                 const toolLabels: Record<string, string> = {
@@ -1960,9 +2038,23 @@ export class ConversationManager implements IConversationHandler {
             }
 
             if (abortSignal?.aborted) { break; }
+
+            // 디버그: plan item LLM 응답 로그 (tool call 미생성 원인 분석용)
+            console.log(`[ConversationManager] Plan item LLM response (${llmResponseForExecution?.length || 0} chars): ${llmResponseForExecution?.substring(0, 500) || '(empty)'}`);
+
             const cleanExecutionResponse = llmResponseForExecution
               .replace(/<think>[\s\S]*?<\/think>/gi, "")
               .trim();
+
+            // Role 기반: plan item assistant 응답을 conversationMessages에 보존
+            if (cleanExecutionResponse) {
+              conversationMessages.push({
+                role: 'assistant',
+                content: cleanExecutionResponse,
+                timestamp: Date.now(),
+              });
+            }
+
             const toolCallsFromExecution = ToolParser.parseToolCalls(
               cleanExecutionResponse,
             );
@@ -1970,9 +2062,37 @@ export class ConversationManager implements IConversationHandler {
             // __done__은 SubAgentLoop 전용 — ConversationManager plan item 실행 시
             // ToolExecutor에 넘기면 "Unknown tool: __done__" 에러로 패널에 ❌ 표시됨
             // 여기서 필터링하여 ToolExecutor로 전달하지 않음
-            const filteredExecutionCalls = toolCallsFromExecution.filter(c => c.name !== '__done__');
+            const filteredExecutionCalls = toolCallsFromExecution.filter(c => {
+              if (c.name === '__done__') return false;
+              // Streaming pre-executed 파일 스킵 (이중 실행 방지)
+              if (c.name === 'create_file' && c.params.path) {
+                const p = c.params.path as string;
+                if (streamingCreatedPaths.has(p)) {
+                  console.log(`[ConversationManager] Plan item: streaming-pre-executed create_file skipped: ${p}`);
+                  conversationMessages.push({
+                    role: 'tool_result',
+                    content: `File ${p} created successfully (streaming pre-executed).`,
+                    toolName: 'create_file', toolCallId: c.toolCallId, isError: false, timestamp: Date.now(),
+                  });
+                  return false;
+                }
+              }
+              if (c.name === 'update_file' && c.params.path) {
+                const p = c.params.path as string;
+                if (streamingUpdatedPaths.has(p)) {
+                  console.log(`[ConversationManager] Plan item: streaming-pre-executed update_file skipped: ${p}`);
+                  conversationMessages.push({
+                    role: 'tool_result',
+                    content: `File ${p} updated successfully (streaming pre-executed).`,
+                    toolName: 'update_file', toolCallId: c.toolCallId, isError: false, timestamp: Date.now(),
+                  });
+                  return false;
+                }
+              }
+              return true;
+            });
             if (toolCallsFromExecution.length !== filteredExecutionCalls.length) {
-              console.log(`[ConversationManager] __done__ intercepted in plan item execution (plan item: "${currentPlanItem?.title}")`);
+              console.log(`[ConversationManager] Plan item: ${toolCallsFromExecution.length - filteredExecutionCalls.length} tool calls filtered (plan item: "${currentPlanItem?.title}")`);
             }
 
             // 같은 명령 반복 실패 방지: MAX_SAME_COMMAND_FAILURES 초과 시 스킵
@@ -1990,12 +2110,9 @@ export class ConversationManager implements IConversationHandler {
               return true;
             });
             if (skippedByFailureLimit.length > 0) {
-              accumulatedUserParts.push({
-                text: `[시스템 알림] 다음 명령어는 ${MAX_SAME_COMMAND_FAILURES}회 연속 실패하여 실행이 중단되었습니다: ${skippedByFailureLimit.join(', ')}. 다른 방법을 시도하거나 이 단계를 건너뛰세요.`,
-              });
               conversationMessages.push({
                 role: 'system',
-                content: `Commands skipped due to repeated failures (${MAX_SAME_COMMAND_FAILURES}x): ${skippedByFailureLimit.join(', ')}`,
+                content: `[시스템 알림] 다음 명령어는 ${MAX_SAME_COMMAND_FAILURES}회 연속 실패하여 실행이 중단되었습니다: ${skippedByFailureLimit.join(', ')}. 다른 방법을 시도하거나 이 단계를 건너뛰세요.`,
                 timestamp: Date.now(),
               });
             }
@@ -2053,11 +2170,11 @@ export class ConversationManager implements IConversationHandler {
 
               // 🔥 v1.0.24: EXECUTION 중 LSP 에러 즉시 피드백
               if (inlineDiagErrors2) {
-                accumulatedUserParts.push({ text: inlineDiagErrors2 });
+                conversationMessages.push({ role: 'system', content: inlineDiagErrors2, timestamp: Date.now() });
               }
 
               // 🔥 PreToolUseValidator에 의해 차단된 경우
-              const blockResult2 = this.handleBlockedTools(hasBlockedByValidator2, blockedMessages2, hasSuccessfulToolExecution, stateManager, accumulatedUserParts, webviewToRespond);
+              const blockResult2 = this.handleBlockedTools(hasBlockedByValidator2, blockedMessages2, hasSuccessfulToolExecution, stateManager, conversationMessages, webviewToRespond);
               if (blockResult2 === "break") break;
 
               // 🔥 사용자가 스킵한 경우에도 플랜 아이템 완료 처리 (무한 루프 방지)
@@ -2112,8 +2229,10 @@ export class ConversationManager implements IConversationHandler {
               );
               if (blockedByReadFailPlan.length > 0) {
                 const blockedPathsPlan = blockedByReadFailPlan.map((r: any) => r.message || '').join(', ');
-                accumulatedUserParts.push({
-                  text: `\n[System] ⚠️ 파일 경로 확인이 필요합니다.\n\n다음 경로의 파일이 존재하지 않습니다: ${blockedPathsPlan}\n**반드시 glob_search 도구로 파일의 실제 위치를 검색하세요.**\n예: { "tool": "glob_search", "pattern": "**/{파일명}" }\nglob_search 결과에서 파일이 발견되면 올바른 경로를 사용하세요.\n파일이 프로젝트에 없으면 사용자에게 알려주세요.`,
+                conversationMessages.push({
+                  role: 'system',
+                  content: `\n[System] ⚠️ 파일 경로 확인이 필요합니다.\n\n다음 경로의 파일이 존재하지 않습니다: ${blockedPathsPlan}\n**반드시 glob_search 도구로 파일의 실제 위치를 검색하세요.**\n예: { "tool": "glob_search", "pattern": "**/{파일명}" }\nglob_search 결과에서 파일이 발견되면 올바른 경로를 사용하세요.\n파일이 프로젝트에 없으면 사용자에게 알려주세요.`,
+                  timestamp: Date.now(),
                 });
                 console.log(`[ConversationManager] CREATE_BLOCKED_AFTER_READ_FAIL detected (plan mode), injecting glob_search guidance for: ${blockedPathsPlan}`);
               }
@@ -2121,13 +2240,11 @@ export class ConversationManager implements IConversationHandler {
               // 다음 계획 항목이 있으면 계속, 없으면 자동 테스트 후 REVIEW로 전환
               const nextItem = taskManager.getNextPendingItem();
               if (nextItem) {
-                accumulatedUserParts.push({ text: llmResponseForExecution });
-                accumulatedUserParts.push({ text: resultSummary });
                 // Role 기반: tool 결과 보존
                 for (let ti = 0; ti < toolResults.length; ti++) {
                   conversationMessages.push({
                     role: 'tool_result',
-                    content: toolResults[ti]?.message || toolResults[ti]?.data?.output || '',
+                    content: [toolResults[ti]?.message, toolResults[ti]?.data?.output, toolResults[ti]?.data?.content, toolResults[ti]?.data?.files?.map((f: any) => `${f.path}:\n${f.content}`).join('\n')].filter(Boolean).join('\n') || '',
                     toolName: filteredExecutionCalls[ti]?.name,
                     toolCallId: filteredExecutionCalls[ti]?.toolCallId,
                     isError: !toolResults[ti]?.success,
@@ -2138,6 +2255,17 @@ export class ConversationManager implements IConversationHandler {
                 continue;
               } else {
                 // 모든 plan item 완료 → 자동 테스트 후 REVIEW 전환
+                // Role 기반: 마지막 plan item tool 결과도 conversationMessages에 보존
+                for (let ti = 0; ti < toolResults.length; ti++) {
+                  conversationMessages.push({
+                    role: 'tool_result',
+                    content: [toolResults[ti]?.message, toolResults[ti]?.data?.output, toolResults[ti]?.data?.content, toolResults[ti]?.data?.files?.map((f: any) => `${f.path}:\n${f.content}`).join('\n')].filter(Boolean).join('\n') || '',
+                    toolName: filteredExecutionCalls[ti]?.name,
+                    toolCallId: filteredExecutionCalls[ti]?.toolCallId,
+                    isError: !toolResults[ti]?.success,
+                    timestamp: Date.now(),
+                  });
+                }
                 if (abortSignal?.aborted) { break; }
                 const testTransition = await this.runTestsAndTransition(
                   webviewToRespond,
@@ -2148,7 +2276,7 @@ export class ConversationManager implements IConversationHandler {
                   testFixAttempts,
                   maxTestFixAttempts,
                   isAutoTestRetryEnabled,
-                  accumulatedUserParts,
+                  conversationMessages,
                   turnCount,
                   true, // allPlanItemsDone
                 );
@@ -2185,9 +2313,10 @@ export class ConversationManager implements IConversationHandler {
                 );
 
                 const planItemTitle = currentPlanItem?.title || "현재 작업";
-                accumulatedUserParts.push({ text: llmResponseForExecution });
-                accumulatedUserParts.push({
-                  text: getExecutionNoToolCallWarningPrompt(planItemTitle),
+                conversationMessages.push({
+                  role: 'system',
+                  content: getExecutionNoToolCallWarningPrompt(planItemTitle),
+                  timestamp: Date.now(),
                 });
                 turnCount++;
                 continue;
@@ -2257,7 +2386,7 @@ export class ConversationManager implements IConversationHandler {
                   console.log(
                     `[ConversationManager] EXECUTION phase: Text response received (length: ${textResponse.length}). Skipping display (EXECUTION phase blocks CODEPILOT text).`,
                   );
-                  accumulatedUserParts.push({ text: llmResponseForExecution });
+                  // llmResponseForExecution은 이미 conversationMessages에 assistant로 저장됨
                 }
               }
 
@@ -2291,7 +2420,7 @@ export class ConversationManager implements IConversationHandler {
                   testFixAttempts,
                   maxTestFixAttempts,
                   isAutoTestRetryEnabled,
-                  accumulatedUserParts,
+                  conversationMessages,
                   turnCount,
                   true, // allPlanItemsDone
                 );
@@ -2334,7 +2463,7 @@ export class ConversationManager implements IConversationHandler {
                 testFixAttempts,
                 maxTestFixAttempts,
                 isAutoTestRetryEnabled,
-                accumulatedUserParts,
+                conversationMessages,
                 turnCount,
                 true, // allPlanItemsDone
               );
@@ -2525,7 +2654,7 @@ export class ConversationManager implements IConversationHandler {
           llmResponse =
             await this.llmManager.sendMessageWithErrorFallbackModel(
               activeSystemPrompt + planContext,
-              accumulatedUserParts,
+              refreshTextParts(),
               this.stateManager,
               { signal: abortSignal },
             );
@@ -2537,7 +2666,7 @@ export class ConversationManager implements IConversationHandler {
           llmResponse =
             await this.llmManager.sendMessageWithCommandModelStreaming(
               activeSystemPrompt + planContext,
-              accumulatedUserParts,
+              refreshTextParts(),
               onChunk,
               this.stateManager,
               { signal: abortSignal },
@@ -2569,7 +2698,7 @@ export class ConversationManager implements IConversationHandler {
           );
           llmResponse = await this.llmManager.sendMessageWithErrorFallbackModel(
             activeSystemPrompt + planContext,
-            accumulatedUserParts,
+            refreshTextParts(),
             this.stateManager,
             { signal: abortSignal, thinkingLevel, onRetryNotify: retryNotify },
           );
@@ -2580,7 +2709,7 @@ export class ConversationManager implements IConversationHandler {
           );
           llmResponse = await this.llmManager.sendMessageWithCommandModel(
             activeSystemPrompt + planContext,
-            accumulatedUserParts,
+            refreshTextParts(),
             this.stateManager,
             { signal: abortSignal, thinkingLevel, onRetryNotify: retryNotify },
           );
@@ -2613,12 +2742,16 @@ export class ConversationManager implements IConversationHandler {
 
       console.log(`[ConversationManager] LLM Raw Response (Turn ${turnCount + 1}): (${llmResponse.length} chars)`);
 
-      // Role 기반: assistant 응답 보존
-      conversationMessages.push({
-        role: 'assistant',
-        content: llmResponse,
-        timestamp: Date.now(),
-      });
+      // Role 기반: assistant 응답 보존 (plan JSON, tool call JSON은 제외 — 다음 턴에서 모델 혼란 방지)
+      const cleanedForHistory = llmResponse.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      const isPlanJsonResponse = /("plan"\s*:\s*\[)/.test(cleanedForHistory);
+      if (!isPlanJsonResponse && cleanedForHistory) {
+        conversationMessages.push({
+          role: 'assistant',
+          content: cleanedForHistory,
+          timestamp: Date.now(),
+        });
+      }
 
       // 0.5. thinking 내용을 UI processing-steps 영역에 표시
       const thinkingMatch = llmResponse.match(/<think>([\s\S]*?)<\/think>/);
@@ -2838,8 +2971,10 @@ export class ConversationManager implements IConversationHandler {
                   console.log(
                     `[ConversationManager] PLAN mode: No visible plan text (only thinking). Requesting plan output.`,
                   );
-                  accumulatedUserParts.push({
-                    text: "지금 바로 구현 계획을 Markdown 텍스트로 출력해주세요. 도구 호출 없이 텍스트만 출력하세요.",
+                  conversationMessages.push({
+                    role: 'user',
+                    content: "지금 바로 구현 계획을 Markdown 텍스트로 출력해주세요. 도구 호출 없이 텍스트만 출력하세요.",
+                    timestamp: Date.now(),
                   });
                   turnCount++;
                   continue;
@@ -2857,7 +2992,7 @@ export class ConversationManager implements IConversationHandler {
                   if (isStreamingEnabled && shouldStreamToUI) {
                     WebviewBridge.removeLastMessage(webviewToRespond);
                   }
-                  accumulatedUserParts.push({ text: getExecutionNudgePrompt() });
+                  conversationMessages.push({ role: 'system', content: getExecutionNudgePrompt(), timestamp: Date.now() });
                   turnCount++;
                   continue; // 즉시 재요청
                 } else {
@@ -2966,8 +3101,10 @@ export class ConversationManager implements IConversationHandler {
           console.warn(
             `[ConversationManager] EXECUTION phase: LLM provided natural language text instead of tool calls. Rejecting and requesting again.`,
           );
-          accumulatedUserParts.push({
-            text: getExecutionOutputContractViolationPrompt(),
+          conversationMessages.push({
+            role: 'system',
+            content: getExecutionOutputContractViolationPrompt(),
+            timestamp: Date.now(),
           });
           turnCount++;
           continue; // 즉시 재요청
@@ -2989,9 +3126,10 @@ export class ConversationManager implements IConversationHandler {
           'list_imports', 'stat_file', 'fetch_url', 'lsp',
         ].join(', ');
         console.warn(`[ConversationManager] Unknown tool names detected: ${unknownNames}. Re-prompting.`);
-        accumulatedUserParts.push({ text: llmResponse });
-        accumulatedUserParts.push({
-          text: `[시스템] 알 수 없는 도구를 호출했습니다: ${unknownNames}. 이 도구들은 존재하지 않습니다. 반드시 다음 도구 목록만 사용하세요: ${availableTools}. 도구 호출 형식: {"tool": "도구이름", ...파라미터}`,
+        conversationMessages.push({
+          role: 'system',
+          content: `[시스템] 알 수 없는 도구를 호출했습니다: ${unknownNames}. 이 도구들은 존재하지 않습니다. 반드시 다음 도구 목록만 사용하세요: ${availableTools}. 도구 호출 형식: {"tool": "도구이름", ...파라미터}`,
+          timestamp: Date.now(),
         });
         turnCount++;
         continue;
@@ -3098,8 +3236,10 @@ export class ConversationManager implements IConversationHandler {
               if (isStreamingEnabled) {
                 WebviewBridge.removeLastMessage(webviewToRespond);
               }
-              accumulatedUserParts.push({
-                text: "[시스템 알림] 빈 플랜이 반환되었습니다. 사용자가 요청한 작업(에러 수정, 코드 변경 등)을 수행하기 위한 구체적인 실행 계획을 JSON 형식으로 다시 생성하세요. 반드시 plan 배열 안에 kind: 'execution' 항목을 포함해야 합니다.",
+              conversationMessages.push({
+                role: 'system',
+                content: "[시스템 알림] 빈 플랜이 반환되었습니다. 사용자가 요청한 작업(에러 수정, 코드 변경 등)을 수행하기 위한 구체적인 실행 계획을 JSON 형식으로 다시 생성하세요. 반드시 plan 배열 안에 kind: 'execution' 항목을 포함해야 합니다.",
+                timestamp: Date.now(),
               });
               turnCount++;
               continue;
@@ -3187,11 +3327,28 @@ export class ConversationManager implements IConversationHandler {
               if (streamingCreatedPaths.has(p)) {
                 console.log(`[ConversationManager] Streaming-pre-executed create_file skipped: ${p}`);
                 turnResultsSummary += `\n[도구 결과] create_file(${p}): 성공 (스트리밍 중 즉시 생성됨)`;
+                // Role 기반: streaming pre-executed tool의 synthetic tool_result 추가
+                conversationMessages.push({
+                  role: 'tool_result',
+                  content: `File ${p} created successfully (streaming pre-executed).`,
+                  toolName: 'create_file',
+                  toolCallId: call.toolCallId,
+                  isError: false,
+                  timestamp: Date.now(),
+                });
                 return false;
               }
               if (streamingHandledPaths.has(`create_file:${p}`)) {
                 console.log(`[ConversationManager] Streaming-rejected create_file skipped: ${p}`);
                 turnResultsSummary += `\n[도구 결과] create_file(${p}): 건너뜀 (스트리밍 중 사용자가 거부)`;
+                conversationMessages.push({
+                  role: 'tool_result',
+                  content: `File ${p} skipped (user rejected during streaming).`,
+                  toolName: 'create_file',
+                  toolCallId: call.toolCallId,
+                  isError: true,
+                  timestamp: Date.now(),
+                });
                 return false;
               }
             }
@@ -3200,11 +3357,27 @@ export class ConversationManager implements IConversationHandler {
               if (streamingUpdatedPaths.has(p)) {
                 console.log(`[ConversationManager] Streaming-pre-executed update_file skipped: ${p}`);
                 turnResultsSummary += `\n[도구 결과] update_file(${p}): 성공 (스트리밍 중 즉시 수정됨)`;
+                conversationMessages.push({
+                  role: 'tool_result',
+                  content: `File ${p} updated successfully (streaming pre-executed).`,
+                  toolName: 'update_file',
+                  toolCallId: call.toolCallId,
+                  isError: false,
+                  timestamp: Date.now(),
+                });
                 return false;
               }
               if (streamingHandledPaths.has(`update_file:${p}`)) {
                 console.log(`[ConversationManager] Streaming-rejected update_file skipped: ${p}`);
                 turnResultsSummary += `\n[도구 결과] update_file(${p}): 건너뜀 (스트리밍 중 사용자가 거부)`;
+                conversationMessages.push({
+                  role: 'tool_result',
+                  content: `File ${p} skipped (user rejected during streaming).`,
+                  toolName: 'update_file',
+                  toolCallId: call.toolCallId,
+                  isError: true,
+                  timestamp: Date.now(),
+                });
                 return false;
               }
             }
@@ -3278,10 +3451,11 @@ export class ConversationManager implements IConversationHandler {
                   console.warn(
                     `[ConversationManager] EXECUTION phase: ${executionNoToolRetryCount} consecutive read-only turns. Nudging for modification tools.`,
                   );
-                  accumulatedUserParts.push({
-                    text:
-                      `\n[System] 파일 읽기를 여러 턴 연속 수행했습니다. 이제 update_file 또는 create_file로 수정을 진행하세요.\n` +
+                  conversationMessages.push({
+                    role: 'system',
+                    content: `\n[System] 파일 읽기를 여러 턴 연속 수행했습니다. 이제 update_file 또는 create_file로 수정을 진행하세요.\n` +
                       `파일을 완전히 재작성해야 한다면 create_file을 사용하세요.`,
+                    timestamp: Date.now(),
                   });
                 }
               } else if (!onlyInvestigationTools) {
@@ -3341,11 +3515,11 @@ export class ConversationManager implements IConversationHandler {
 
               // 🔥 v1.0.24: EXECUTION 중 LSP 에러 즉시 피드백
               if (inlineDiagErrors3) {
-                accumulatedUserParts.push({ text: inlineDiagErrors3 });
+                conversationMessages.push({ role: 'system', content: inlineDiagErrors3, timestamp: Date.now() });
               }
 
               // 🔥 PreToolUseValidator에 의해 차단된 경우
-              const blockResult3 = this.handleBlockedTools(hasBlockedByValidator3, blockedMessages3, hasSuccessfulExecution, stateManager, accumulatedUserParts, webviewToRespond);
+              const blockResult3 = this.handleBlockedTools(hasBlockedByValidator3, blockedMessages3, hasSuccessfulExecution, stateManager, conversationMessages, webviewToRespond);
               if (blockResult3 === "break") break;
 
               // 🔥 사용자가 스킵한 경우에도 REVIEW로 전환 (무한 루프 방지)
@@ -3371,7 +3545,7 @@ export class ConversationManager implements IConversationHandler {
               for (let ti = 0; ti < toolResults.length; ti++) {
                 conversationMessages.push({
                   role: 'tool_result',
-                  content: toolResults[ti]?.message || toolResults[ti]?.data?.output || '',
+                  content: [toolResults[ti]?.message, toolResults[ti]?.data?.output].filter(Boolean).join('\n') || '',
                   toolName: toolCalls[ti]?.name,
                   toolCallId: toolCalls[ti]?.toolCallId,
                   isError: !toolResults[ti]?.success,
@@ -3385,8 +3559,10 @@ export class ConversationManager implements IConversationHandler {
               );
               if (blockedByReadFail.length > 0) {
                 const blockedPaths = blockedByReadFail.map((r: any) => r.message || '').join(', ');
-                accumulatedUserParts.push({
-                  text: `\n[System] ⚠️ 파일 경로 확인이 필요합니다.\n\n다음 경로의 파일이 존재하지 않습니다: ${blockedPaths}\n**반드시 glob_search 도구로 파일의 실제 위치를 검색하세요.**\n예: { "tool": "glob_search", "pattern": "**/{파일명}" }\nglob_search 결과에서 파일이 발견되면 올바른 경로를 사용하세요.\n파일이 프로젝트에 없으면 사용자에게 알려주세요.`,
+                conversationMessages.push({
+                  role: 'system',
+                  content: `\n[System] ⚠️ 파일 경로 확인이 필요합니다.\n\n다음 경로의 파일이 존재하지 않습니다: ${blockedPaths}\n**반드시 glob_search 도구로 파일의 실제 위치를 검색하세요.**\n예: { "tool": "glob_search", "pattern": "**/{파일명}" }\nglob_search 결과에서 파일이 발견되면 올바른 경로를 사용하세요.\n파일이 프로젝트에 없으면 사용자에게 알려주세요.`,
+                  timestamp: Date.now(),
                 });
                 console.log(`[ConversationManager] CREATE_BLOCKED_AFTER_READ_FAIL detected, injecting glob_search guidance for: ${blockedPaths}`);
               }
@@ -3418,8 +3594,10 @@ export class ConversationManager implements IConversationHandler {
 
       // create_file content 누락 등 툴 파싱 경고를 사용자 컨텍스트에 추가
       if (toolParseWarnings.length > 0) {
-        accumulatedUserParts.push({
-          text: getCreateFileContentMissingPrompt(toolParseWarnings.join("\n")),
+        conversationMessages.push({
+          role: 'system',
+          content: getCreateFileContentMissingPrompt(toolParseWarnings.join("\n")),
+          timestamp: Date.now(),
         });
       }
 
@@ -3435,7 +3613,7 @@ export class ConversationManager implements IConversationHandler {
         taskManager,
         webviewToRespond,
         retryCoordinator,
-        accumulatedUserParts,
+        conversationMessages,
         createdFiles,
         modifiedFiles,
         testFixAttempts,
@@ -3603,10 +3781,10 @@ export class ConversationManager implements IConversationHandler {
             intent.category === "documentation");
         if (investigationDoneToken && isTextAllowedIntentForSkip) {
           let hasRipgrepResults = false;
-          for (const part of accumulatedUserParts) {
+          for (const msg of conversationMessages) {
             if (
-              part.text &&
-              part.text.includes("**검색 결과 (이미 검색함)**")
+              msg.content &&
+              msg.content.includes("**검색 결과 (이미 검색함)**")
             ) {
               hasRipgrepResults = true;
               break;
@@ -3656,10 +3834,10 @@ export class ConversationManager implements IConversationHandler {
         ) {
           // ripgrep_search 결과가 있는지 확인
           let hasRipgrepResults = false;
-          for (const part of accumulatedUserParts) {
+          for (const msg of conversationMessages) {
             if (
-              part.text &&
-              part.text.includes("**검색 결과 (이미 검색함)**")
+              msg.content &&
+              msg.content.includes("**검색 결과 (이미 검색함)**")
             ) {
               hasRipgrepResults = true;
               break;
@@ -3820,8 +3998,10 @@ export class ConversationManager implements IConversationHandler {
         );
 
         // 텍스트만 출력하는 것을 차단하고 강력한 안내 메시지 제공
-        accumulatedUserParts.push({
-          text: getInvestigationTextOnlyWarningPrompt(),
+        conversationMessages.push({
+          role: 'system',
+          content: getInvestigationTextOnlyWarningPrompt(),
+          timestamp: Date.now(),
         });
         turnCount++;
         continue;
@@ -3875,8 +4055,10 @@ export class ConversationManager implements IConversationHandler {
               `[ConversationManager] Empty/thinking-only response (${consecutiveEmptyResponses}/${maxConsecutiveEmptyResponses}), retrying...`,
             );
             // 다음 턴에서 더 구체적인 프롬프트 제공
-            accumulatedUserParts.push({
-              text: '[시스템] 이전 응답이 비어있습니다. 도구 호출(```json 코드블록) 또는 텍스트 응답을 반드시 출력하세요.',
+            conversationMessages.push({
+              role: 'system',
+              content: '[시스템] 이전 응답이 비어있습니다. 도구 호출(```json 코드블록) 또는 텍스트 응답을 반드시 출력하세요.',
+              timestamp: Date.now(),
             });
             turnCount++;
             continue;
@@ -3933,8 +4115,6 @@ export class ConversationManager implements IConversationHandler {
 
         // LLM이 추가 도구도 호출한 경우 (텍스트 + 도구 혼합) → 계속 진행
         if (totalToolCalls.length > 0) {
-          accumulatedUserParts.push({ text: llmResponse });
-          accumulatedUserParts.push({ text: turnResultsSummary });
           // Role 기반: tool 결과는 위 executeToolsWithUI 루프에서 이미 추가됨
           turnCount++;
           continue;
@@ -3984,7 +4164,7 @@ export class ConversationManager implements IConversationHandler {
             testFixAttempts,
             maxTestFixAttempts,
             isAutoTestRetryEnabled,
-            accumulatedUserParts,
+            conversationMessages,
             turnCount,
             true, // allPlanItemsDone
           );
@@ -4023,14 +4203,12 @@ export class ConversationManager implements IConversationHandler {
             console.log(
               `[ConversationManager] Action missing, providing nudge (turn ${turnCount + 1}).`,
             );
-            accumulatedUserParts.push({ text: llmResponse });
-
             const nudgeText =
               currentPhase === AgentPhase.INVESTIGATION
                 ? getInvestigationNudgePrompt()
                 : getExecutionNudgePrompt();
 
-            accumulatedUserParts.push({ text: nudgeText });
+            conversationMessages.push({ role: 'system', content: nudgeText, timestamp: Date.now() });
             turnCount++;
             continue;
           }
@@ -4040,8 +4218,8 @@ export class ConversationManager implements IConversationHandler {
       // 🔥 문제 해결: analysis intent이고 (investigation_done 토큰이 있거나 ripgrep_search 결과가 있으면) 여기서 바로 답변 생성
       // ripgrep_search 결과 확인
       let hasRipgrepResultsForAutoAnswer = false;
-      for (const part of accumulatedUserParts) {
-        if (part.text && part.text.includes("**검색 결과 (이미 검색함)**")) {
+      for (const msg of conversationMessages) {
+        if (msg.content && msg.content.includes("**검색 결과 (이미 검색함)**")) {
           hasRipgrepResultsForAutoAnswer = true;
           break;
         }
@@ -4070,16 +4248,16 @@ export class ConversationManager implements IConversationHandler {
         let ripgrepResults: unknown = null;
         let ripgrepPattern = "";
 
-        // accumulatedUserParts에서 ripgrep_search 결과 찾기
-        for (const part of accumulatedUserParts) {
-          if (part.text && part.text.includes("**검색 결과 (이미 검색함)**")) {
+        // conversationMessages에서 ripgrep_search 결과 찾기
+        for (const msg of conversationMessages) {
+          if (msg.content && msg.content.includes("**검색 결과 (이미 검색함)**")) {
             // JSON 결과 추출
-            const jsonMatch = part.text.match(/```json\n([\s\S]*?)\n```/);
+            const jsonMatch = msg.content.match(/```json\n([\s\S]*?)\n```/);
             if (jsonMatch) {
               try {
                 ripgrepResults = JSON.parse(jsonMatch[1]);
                 // 패턴 추출
-                const patternMatch = part.text.match(
+                const patternMatch = msg.content.match(
                   /\*\*검색 결과 \(이미 검색함\)\*\*: (.+?)\n/,
                 );
                 if (patternMatch) {
@@ -4092,7 +4270,7 @@ export class ConversationManager implements IConversationHandler {
                 break;
               } catch (e) {
                 console.warn(
-                  "[ConversationManager] Failed to parse ripgrep_search results from accumulatedUserParts:",
+                  "[ConversationManager] Failed to parse ripgrep_search results from conversationMessages:",
                   e,
                 );
               }
@@ -4236,7 +4414,7 @@ export class ConversationManager implements IConversationHandler {
             analysisResponse =
               await this.llmManager.sendMessageWithSystemPromptStreaming(
                 analysisPrompt,
-                accumulatedUserParts,
+                refreshTextParts(),
                 onAnalysisChunk,
                 { signal: abortSignal },
               );
@@ -4249,7 +4427,7 @@ export class ConversationManager implements IConversationHandler {
           // 비스트리밍 모드
           analysisResponse = await this.llmManager.sendMessageWithSystemPrompt(
             analysisPrompt,
-            accumulatedUserParts,
+            refreshTextParts(),
             { signal: abortSignal },
           );
 
@@ -4336,7 +4514,7 @@ export class ConversationManager implements IConversationHandler {
             testFixAttempts,
             maxTestFixAttempts,
             isAutoTestRetryEnabled,
-            accumulatedUserParts,
+            conversationMessages,
             turnCount,
             false, // allPlanItemsDone
             lastTurnHadSuccessfulToolExecution,
@@ -4370,7 +4548,7 @@ export class ConversationManager implements IConversationHandler {
           testFixAttempts,
           maxTestFixAttempts,
           isAutoTestRetryEnabled,
-          accumulatedUserParts,
+          conversationMessages,
           turnCount,
           allPlanItemsCompleted, // allPlanItemsDone
           lastTurnHadSuccessfulToolExecution,
@@ -4402,7 +4580,7 @@ export class ConversationManager implements IConversationHandler {
         createdFiles,
         modifiedFiles,
         systemPrompt,
-        accumulatedUserParts,
+        conversationMessages,
         abortSignal,
         options,
         userQuery,
@@ -4536,7 +4714,7 @@ export class ConversationManager implements IConversationHandler {
         const { SessionMemoryExtractor } = await import("../../memory/SessionMemoryExtractor");
         const extractor = SessionMemoryExtractor.getInstance(this.llmManager);
         const compactorForExtraction = ConversationCompactor.getInstance(this.llmManager);
-        const extractionTokens = compactorForExtraction.calculateTotalTokens(accumulatedUserParts, systemPrompt);
+        const extractionTokens = compactorForExtraction.calculateTotalTokens(refreshTextParts(), systemPrompt);
         if (extractor.shouldExtract(extractionTokens, turnCount)) {
           const summary = compactorForExtraction.getLastSummary();
           if (summary) {
@@ -5020,7 +5198,7 @@ export class ConversationManager implements IConversationHandler {
     createdFiles: string[],
     modifiedFiles: string[],
     systemPrompt: string,
-    accumulatedUserParts: UserPart[],
+    conversationMessages: ConversationMessage[],
     abortSignal: AbortSignal | undefined,
     options: ConversationOptions,
     userQuery: string,
@@ -5079,7 +5257,7 @@ export class ConversationManager implements IConversationHandler {
           modifiedFiles,
           workspaceRoot,
           activeSystemPrompt,
-          accumulatedUserParts,
+          conversationMessagesToParts(conversationMessages),
           abortSignal,
         );
 
@@ -5133,7 +5311,7 @@ export class ConversationManager implements IConversationHandler {
         );
         const compactor = ConversationCompactor.getInstance(this.llmManager);
         const currentTokens = compactor.calculateTotalTokens(
-          accumulatedUserParts,
+          conversationMessagesToParts(conversationMessages),
           systemPrompt,
         );
         sessionManager.setTotalTokensUsed(currentTokens);
@@ -5190,7 +5368,7 @@ export class ConversationManager implements IConversationHandler {
     blockedMessages: string[],
     hasSuccessful: boolean,
     stateManager: AgentStateManager,
-    accumulatedUserParts: UserPart[],
+    conversationMessages: ConversationMessage[],
     webview?: vscode.Webview,
   ): "break" | "continue" | null {
     if (!hasBlocked || blockedMessages.length === 0) {
@@ -5213,8 +5391,10 @@ export class ConversationManager implements IConversationHandler {
       return "break";
     }
 
-    accumulatedUserParts.push({
-      text: `[시스템 알림] 다음 파일은 보안 규칙에 의해 접근이 차단되었습니다: ${blockedMessages.join(", ")}. 해당 파일을 제외하고 나머지 파일로 작업을 계속하세요.`,
+    conversationMessages.push({
+      role: 'system',
+      content: `[시스템 알림] 다음 파일은 보안 규칙에 의해 접근이 차단되었습니다: ${blockedMessages.join(", ")}. 해당 파일을 제외하고 나머지 파일로 작업을 계속하세요.`,
+      timestamp: Date.now(),
     });
     return "continue";
   }
@@ -5257,7 +5437,7 @@ export class ConversationManager implements IConversationHandler {
     taskManager: TaskManager,
     webview: vscode.Webview,
     retryCoordinator: RetryCoordinator,
-    accumulatedUserParts: UserPart[],
+    conversationMessages: ConversationMessage[],
     createdFiles: string[],
     modifiedFiles: string[],
     testFixAttempts: number,
@@ -5282,8 +5462,7 @@ export class ConversationManager implements IConversationHandler {
       };
     }
 
-    accumulatedUserParts.push({ text: llmResponse });
-    accumulatedUserParts.push({ text: turnResultsSummary });
+    // llmResponse는 이미 conversationMessages에 assistant로, turnResultsSummary는 tool_result로 저장됨
 
     const nextPendingItem = taskManager.getNextPendingItem();
 
@@ -5328,8 +5507,10 @@ export class ConversationManager implements IConversationHandler {
       console.log(
         "[ConversationManager] Investigation phase: continuing to allow plan creation or work execution.",
       );
-      accumulatedUserParts.push({
-        text: getInvestigationToolResultFollowupPrompt(),
+      conversationMessages.push({
+        role: 'system',
+        content: getInvestigationToolResultFollowupPrompt(),
+        timestamp: Date.now(),
       });
       return {
         turnAction: { action: "continue" },
@@ -5358,10 +5539,12 @@ export class ConversationManager implements IConversationHandler {
       console.log(
         `[ConversationManager] EXECUTION phase: ${intent!.subtype} intent requires write tool. Continuing.`,
       );
-      accumulatedUserParts.push({
-        text: isCodeModifyIntent
+      conversationMessages.push({
+        role: 'system',
+        content: isCodeModifyIntent
           ? getCodeModifyRequiresFileToolPrompt()
           : `\n[System] 조사 결과를 바탕으로 실제 파일을 생성하세요. create_file, update_file 등의 도구를 사용하여 사용자가 요청한 코드를 작성하세요.`,
+        timestamp: Date.now(),
       });
       return {
         turnAction: { action: "continue" },
@@ -5383,7 +5566,7 @@ export class ConversationManager implements IConversationHandler {
         testFixAttempts,
         maxTestFixAttempts,
         isAutoTestRetryEnabled,
-        accumulatedUserParts,
+        conversationMessages,
         turnCount,
       );
       return {
@@ -5434,8 +5617,10 @@ export class ConversationManager implements IConversationHandler {
         "executing",
         `[실행] 명령 실행 준비 중...`,
       );
-      accumulatedUserParts.push({
-        text: `\n[System] ⚠️ 명령 실행이 필요합니다.\n\n사용자가 명령 실행을 요청했습니다. run_command 도구를 사용하여 적절한 명령을 실행하세요.\n프로젝트 구조를 파악했다면, 이제 실제 명령을 실행하세요.`,
+      conversationMessages.push({
+        role: 'system',
+        content: `\n[System] ⚠️ 명령 실행이 필요합니다.\n\n사용자가 명령 실행을 요청했습니다. run_command 도구를 사용하여 적절한 명령을 실행하세요.\n프로젝트 구조를 파악했다면, 이제 실제 명령을 실행하세요.`,
+        timestamp: Date.now(),
       });
       return {
         turnAction: { action: "continue" },
@@ -5888,7 +6073,7 @@ export class ConversationManager implements IConversationHandler {
     testFixAttempts: number,
     maxTestFixAttempts: number,
     isAutoTestRetryEnabled: boolean,
-    accumulatedUserParts: UserPart[],
+    conversationMessages: ConversationMessage[],
     turnCount: number,
     allPlanItemsDone: boolean = false,
     hasWriteToolSinceLastTest: boolean = true,
@@ -5969,7 +6154,7 @@ export class ConversationManager implements IConversationHandler {
     testFixAttempts = retryDecision.testFixAttempts;
 
     if (retryDecision.action === "retry") {
-      accumulatedUserParts.push({ text: retryDecision.prompt! });
+      conversationMessages.push({ role: 'system', content: retryDecision.prompt!, timestamp: Date.now() });
       return {
         turnAction: { action: "continue" },
         testFixAttempts,
@@ -6001,20 +6186,21 @@ export class ConversationManager implements IConversationHandler {
   // ─── 메모리 누수 방지 ───
 
   /**
-   * accumulatedUserParts 메모리 정리
+   * conversationMessages 메모리 정리 (in-place)
    * - 최대 항목 수 초과 시 오래된 항목 제거
    * - 개별 항목의 텍스트 길이 제한
    */
-  private trimAccumulatedParts(parts: UserPart[]): UserPart[] {
+  private trimConversationMessages(messages: ConversationMessage[]): void {
     // 1. 항목 수 제한
-    if (parts.length > AgentConfig.MAX_ACCUMULATED_PARTS) {
+    if (messages.length > AgentConfig.MAX_ACCUMULATED_PARTS) {
       console.log(
-        `[ConversationManager] Trimming accumulatedUserParts: ${parts.length} → ${AgentConfig.ACCUMULATED_PARTS_TRIM_TARGET}`,
+        `[ConversationManager] Trimming conversationMessages: ${messages.length} → ${AgentConfig.ACCUMULATED_PARTS_TRIM_TARGET}`,
       );
       // 첫 번째 항목(원래 사용자 쿼리)과 최근 항목들 유지
-      const firstPart = parts[0];
-      const recentParts = parts.slice(-AgentConfig.ACCUMULATED_PARTS_TRIM_TARGET + 1);
-      parts = [firstPart, ...recentParts];
+      const firstMsg = messages[0];
+      const recentMsgs = messages.slice(-AgentConfig.ACCUMULATED_PARTS_TRIM_TARGET + 1);
+      messages.length = 0;
+      messages.push(firstMsg, ...recentMsgs);
     }
 
     // 2. read_file 중복 제거 (같은 파일을 여러 번 읽은 경우 최신 결과만 유지)
@@ -6022,10 +6208,10 @@ export class ConversationManager implements IConversationHandler {
     const lastReadIndex = new Map<string, number>(); // filePath → 마지막 인덱스
 
     // 역순으로 탐색하여 각 파일의 마지막 읽기 위치 기록
-    for (let i = parts.length - 1; i >= 0; i--) {
-      const text = parts[i]?.text;
-      if (!text) continue;
-      const match = text.match(fileReadPattern);
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const content = messages[i]?.content;
+      if (!content) continue;
+      const match = content.match(fileReadPattern);
       if (match) {
         const filePath = match[1].trim();
         if (!lastReadIndex.has(filePath)) {
@@ -6036,16 +6222,16 @@ export class ConversationManager implements IConversationHandler {
 
     // 중복된 이전 읽기 결과를 축약으로 교체
     let dedupeCount = 0;
-    for (let i = 0; i < parts.length; i++) {
-      const text = parts[i]?.text;
-      if (!text) continue;
-      const match = text.match(fileReadPattern);
+    for (let i = 0; i < messages.length; i++) {
+      const content = messages[i]?.content;
+      if (!content) continue;
+      const match = content.match(fileReadPattern);
       if (match) {
         const filePath = match[1].trim();
         const lastIdx = lastReadIndex.get(filePath);
         if (lastIdx !== undefined && lastIdx !== i) {
           // 이전 읽기 → 축약으로 교체
-          parts[i] = { text: `[이전 read_file 결과 생략: ${filePath} — 최신 결과가 아래에 있음]` };
+          messages[i] = { ...messages[i], content: `[이전 read_file 결과 생략: ${filePath} — 최신 결과가 아래에 있음]` };
           dedupeCount++;
         }
       }
@@ -6055,17 +6241,15 @@ export class ConversationManager implements IConversationHandler {
     }
 
     // 3. 개별 항목 텍스트 길이 제한
-    for (const part of parts) {
-      if (part.text && part.text.length > AgentConfig.MAX_PART_TEXT_LENGTH) {
+    for (const msg of messages) {
+      if (msg.content && msg.content.length > AgentConfig.MAX_PART_TEXT_LENGTH) {
         console.log(
-          `[ConversationManager] Trimming part text: ${part.text.length} → ${AgentConfig.PART_TEXT_TRIM_LENGTH}`,
+          `[ConversationManager] Trimming message content: ${msg.content.length} → ${AgentConfig.PART_TEXT_TRIM_LENGTH}`,
         );
-        part.text = part.text.substring(0, AgentConfig.PART_TEXT_TRIM_LENGTH) +
+        msg.content = msg.content.substring(0, AgentConfig.PART_TEXT_TRIM_LENGTH) +
           '\n\n... [내용이 너무 길어 일부가 생략되었습니다] ...';
       }
     }
-
-    return parts;
   }
 
   /**
