@@ -241,7 +241,7 @@ export class ToolParser {
                 continue;
             }
 
-            toolCalls.push({ name: toolName as ToolName, params, partial: false });
+            toolCalls.push({ name: toolName as ToolName, params, partial: false, toolCallId: parsed.toolCallId });
         }
 
         // Remove duplicate tool calls (same name + same parameters)

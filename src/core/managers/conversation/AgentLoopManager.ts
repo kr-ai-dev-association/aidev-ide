@@ -16,6 +16,7 @@ import * as vscode from "vscode";
 import * as crypto from "crypto";
 import { LLMManager } from "../model/LLMManager";
 import { WebviewBridge } from "../../webview/WebviewBridge";
+import { ConversationMessage } from "../../../services/types";
 import { ToolParser } from "../../tools/ToolParser";
 import { ToolExecutor } from "../../tools/ToolExecutor";
 import { ToolExecutionContext } from "../../tools/IToolHandler";
@@ -78,6 +79,10 @@ export class AgentLoopManager {
     const activeSystemPrompt = systemPrompt + '\n\n' + getAgentModePrompt(maxTestFixAttempts);
 
     let accumulatedUserParts = [...userParts];
+    // Role 기반 메시지 히스토리 (병렬 관리)
+    const conversationMessages: ConversationMessage[] = userParts
+      .filter(p => p.text)
+      .map(p => ({ role: 'user' as const, content: p.text!, timestamp: Date.now() }));
     let turnCount = 0;
     let conversationTurnId = crypto.randomUUID();
 
@@ -334,9 +339,9 @@ export class AgentLoopManager {
             );
           }
         };
-        llmResponse = await this.llmManager.sendMessageWithSystemPromptStreaming(
+        llmResponse = await this.llmManager.sendMessageWithMessagesStreaming(
           activeSystemPrompt,
-          accumulatedUserParts,
+          conversationMessages,
           onChunk,
           {
             signal: abortSignal,
@@ -351,9 +356,9 @@ export class AgentLoopManager {
         // Wait for all streaming pre-executions to complete
         await streamingFileOpPromise;
       } else {
-        llmResponse = await this.llmManager.sendMessageWithSystemPrompt(
+        llmResponse = await this.llmManager.sendMessageWithMessages(
           activeSystemPrompt,
-          accumulatedUserParts,
+          conversationMessages,
           {
             signal: abortSignal,
             nativeTools: nativeToolsForCall,
@@ -376,6 +381,13 @@ export class AgentLoopManager {
       usageMetrics.incrementTurnCount();
 
       console.log(`[AgentLoopManager] Turn ${turnCount + 1}: LLM responded (${llmResponse.length} chars)`);
+
+      // Role 기반: assistant 응답 보존
+      conversationMessages.push({
+        role: 'assistant',
+        content: llmResponse,
+        timestamp: Date.now(),
+      });
 
       // 11. Show thinking content
       const thinkingMatch = llmResponse.match(/<think>([\s\S]*?)<\/think>/);
@@ -468,6 +480,18 @@ export class AgentLoopManager {
         );
         accumulatedUserParts.push({ text: llmResponse });
         accumulatedUserParts.push({ text: resultSummary });
+
+        // Role 기반: tool 결과 보존
+        for (let ti = 0; ti < toolResults.length; ti++) {
+          conversationMessages.push({
+            role: 'tool_result',
+            content: toolResults[ti]?.message || toolResults[ti]?.data?.output || '',
+            toolName: filteredToolCalls[ti]?.name,
+            toolCallId: filteredToolCalls[ti]?.toolCallId,
+            isError: !toolResults[ti]?.success,
+            timestamp: Date.now(),
+          });
+        }
 
         // 에러 누적 감지: 같은 도구 3회 연속 실패 시 다른 방법 시도 프롬프트
         for (let i = 0; i < filteredToolCalls.length; i++) {

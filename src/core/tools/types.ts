@@ -94,6 +94,7 @@ export interface ToolUse {
     params: Record<string, string>;
     partial?: boolean;  // 스트리밍 중 부분 블록
     isNativeToolCall?: boolean;  // 네이티브 툴 콜 여부
+    toolCallId?: string;  // 네이티브 tool_call ID (tool_result 페어링용)
 }
 
 /**

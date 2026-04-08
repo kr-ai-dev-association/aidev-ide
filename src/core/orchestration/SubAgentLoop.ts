@@ -573,16 +573,42 @@ export class SubAgentLoop {
                     }
                 }
 
+                // 4.9. Skip update_file for files that exceeded MAX_SAME_FILE_UPDATE_FAILURES
+                const exhaustedSkips: { call: ToolUse; index: number }[] = [];
+                const filteredCallsToExecute: ToolUse[] = [];
+                for (let ci = 0; ci < callsToExecute.length; ci++) {
+                    const call = callsToExecute[ci];
+                    if (call.name === 'update_file' && call.params.path) {
+                        const fp = call.params.path as string;
+                        const failCount = (this as any)._fileFailureCounts?.get(fp) || 0;
+                        if (failCount >= MAX_SAME_FILE_UPDATE_FAILURES) {
+                            console.warn(`[SubAgentLoop:${this.subtask.id}] Skipping update_file for ${fp} — ${failCount} failures exceeded limit (${MAX_SAME_FILE_UPDATE_FAILURES})`);
+                            exhaustedSkips.push({ call, index: ci });
+                            continue;
+                        }
+                    }
+                    filteredCallsToExecute.push(call);
+                }
+
                 // 5. Execute tools (connect UI callbacks)
-                const results = callsToExecute.length > 0
+                const results = filteredCallsToExecute.length > 0
                     ? await this.toolExecutor.executeTools(
-                        callsToExecute,
+                        filteredCallsToExecute,
                         this.toolContext,
                         this.callbacks?.onToolComplete,
                         this.callbacks?.onToolStart,
                         this.abortSignal,
                     )
                     : [];
+
+                // Synthetic feedback for exhausted update_file retries
+                for (const { call } of exhaustedSkips) {
+                    uniqueCalls.push(call);
+                    results.push({
+                        success: false,
+                        message: `[Skipped] update_file for ${call.params.path} has been skipped — maximum retry limit (${MAX_SAME_FILE_UPDATE_FAILURES}) exceeded. Try a different approach: use read_file to get the current file content, then create a new update_file with the correct SEARCH block. Or use create_file to overwrite the entire file.`,
+                    });
+                }
 
                 // Synthetic feedback for rejected tools (included in LLM context)
                 for (const call of rejectedCalls) {

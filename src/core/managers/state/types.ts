@@ -99,6 +99,9 @@ export interface ConversationEntry {
 
     // 요약 참조 (압축 후)
     compactedSummaryId?: string;   // 요약으로 대체되면 요약 ID 참조
+
+    // Role 기반 대화 히스토리 (세션 간 연속성)
+    conversationMessages?: import('../../../services/types').ConversationMessage[];
 }
 
 /**
