@@ -114,6 +114,7 @@ export class AgentLoopManager {
     // Streaming pre-execution tracking (persists across turns)
     const streamingCreatedPaths = new Set<string>();
     const streamingUpdatedPaths = new Set<string>();
+    let prevStreamingCount = 0; // 턴별 streaming 실행 델타 비교용
 
     // AGENT 모드: 턴 제한 없음 (LLM 자율 판단, 컨텍스트 압축이 관리)
 
@@ -459,6 +460,17 @@ export class AgentLoopManager {
         turnCount++;
         continue;
       }
+
+      // 15.5. Streaming pre-execution check: 파싱된 tool call은 전부 스킵됐지만 실제 streaming으로 실행된 게 있으면 계속
+      const currentStreamingTotal = streamingCreatedPaths.size + streamingUpdatedPaths.size;
+      if (currentStreamingTotal > prevStreamingCount) {
+        console.log(`[AgentLoopManager] Turn ${turnCount + 1}: Text with streaming-executed tools this turn → continuing`);
+        prevStreamingCount = currentStreamingTotal;
+        accumulatedUserParts.push({ text: llmResponse });
+        turnCount++;
+        continue;
+      }
+      prevStreamingCount = currentStreamingTotal;
 
       // 16. Branch: text-only response → check for running workers
       const textResponse = cleanResponse;
