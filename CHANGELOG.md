@@ -12,6 +12,8 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 - **턴 제한 제거**: `MAX_AGENT_TURNS=25` 경고 프롬프트, `MAX_TURNS_WARNING_THRESHOLD` 제거 — 턴 무제한
 - **연속 실패 프롬프트 제거**: `MAX_CONSECUTIVE_TOOL_FAILURES=3` 제거 — LLM이 에러를 보고 자율 판단
+- **AGENT 모드 streaming 조기 종료 수정**: streaming pre-execution으로 파일이 생성된 후 tool call이 스킵되면 "text-only → task completed"로 1턴 만에 종료되던 문제 수정 — streaming 실행 델타 체크로 계속 진행
+- **Proactive Execution 프롬프트 추가**: 패키지 설치, 빌드 검증, 타입 체크, 테스트 실행을 LLM이 자율적으로 수행하도록 AGENT 시스템 프롬프트에 지시 추가
 
 ### 무한 루프 방지
 
