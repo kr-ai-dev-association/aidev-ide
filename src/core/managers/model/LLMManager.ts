@@ -7,6 +7,7 @@
 import { OllamaApi, AdminModelApi, AiModelType } from '../../../services';
 import type { AdminModelConfig } from '../../../services/llm/AdminModelApi';
 import { withRetry, isRetryableError, LLMRetryConfig, LLMRetryResult, HIDDEN_RETRY_THRESHOLD, getRetryUserMessage } from './LLMRetryHelper';
+import { ConversationMessage, conversationMessagesToParts } from '../../../services/types';
 
 export interface LLMMessagePart {
     text?: string;
@@ -298,6 +299,35 @@ export class LLMManager {
                 this.currentCallController = null;
             }
         }
+    }
+
+    public async sendMessageWithMessages(
+        systemPrompt: string,
+        messages: ConversationMessage[],
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        // Ollama: role 기반 직접 전송
+        await this.loadOllamaSettingsSafe();
+        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking, !!(options?.nativeTools?.length));
+        return this.ollamaApi.sendWithConversationMessages(
+            systemPrompt, messages,
+            { signal: options?.signal, disableThinking, thinkingLevel: options?.thinkingLevel, nativeTools: options?.nativeTools, maxTokens: options?.maxTokens },
+        );
+    }
+
+    public async sendMessageWithMessagesStreaming(
+        systemPrompt: string,
+        messages: ConversationMessage[],
+        onChunk: (chunk: string, done: boolean) => void,
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        // Ollama: role 기반 직접 스트리밍
+        await this.loadOllamaSettingsSafe();
+        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking, !!(options?.nativeTools?.length));
+        return this.ollamaApi.sendWithConversationMessagesStreaming(
+            systemPrompt, messages, onChunk,
+            { signal: options?.signal, disableThinking, thinkingLevel: options?.thinkingLevel, nativeTools: options?.nativeTools, onNativeToolComplete: options?.onNativeToolComplete, maxTokens: options?.maxTokens },
+        );
     }
 
     /**

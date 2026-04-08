@@ -2,7 +2,39 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.63**
+> **현재 버전: v1.0.64**
+
+---
+
+## v1.0.64 (2026-04-08)
+
+### Role 기반 대화 메시지 구조 도입
+
+- **ConversationMessage 타입 정의**: `{ role, content, toolCalls, toolCallId }` 구조화 메시지
+- **API별 변환 레이어**: `OllamaApi.convertMessages()`, `OpenAICompatProvider.convertMessages()`
+- **LLMManager 확장**: `sendMessageWithMessages()`, `sendMessageWithMessagesStreaming()`
+- **assistant 응답 + tool 결과 보존**: 다중 턴 대화 품질 향상
+- **LLM 호출 전환**: ConversationManager, AgentLoopManager 메인 루프를 `conversationMessages` 경로로 전환
+
+### API 직접 role 전송
+
+- **Ollama role 직접 전송**: 텍스트 폴백 제거, role별 메시지 배열 직접 전송
+- **tool_use/tool_result 페어링**: `toolCallId` 추가 + 네이티브 tool calling 지원
+
+### 세션 히스토리 + 압축 대응
+
+- **세션 저장**: `ConversationEntry.conversationMessages` 저장
+- **압축 후 재구성**: 요약 + 최근 4개 메시지로 재구성
+
+### 스트리밍 인프라 리팩터링
+
+- **스코프 끌어올림**: plan item + 메인 루프 공용 스트리밍 인프라
+- **plan item 스트리밍 즉시 생성**: `onNativeToolComplete` 전달
+
+### 버그 수정
+
+- **SubAgentLoop update_file 무한 재시도 방지**: 같은 파일 3회 실패 시 실행 스킵
+- **run_command 반복 실패 무한 루프 방지**: 같은 명령어 3회 연속 실패 시 스킵 + LLM에 피드백
 
 ---
 
