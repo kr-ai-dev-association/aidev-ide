@@ -7,6 +7,8 @@
  */
 
 import { LLMManager } from '../model/LLMManager';
+import { UsageMetricsManager } from '../state/UsageMetricsManager';
+import { estimateTokens } from '../../../utils';
 
 export interface Suggestion {
     text: string;      // Short button label (max 40 chars)
@@ -61,11 +63,15 @@ Output: [{"text":"다른 컴포넌트에 적용","prompt":"수정된 버튼을 �
 Input: ${context}
 Output: `;
 
+            const _llmStart = Date.now();
             const response = await this.llmManager.sendMessageWithSystemPrompt(
                 'Output ONLY a JSON array. No thinking, no explanation. Copy the format exactly.',
                 [{ text: prompt }],
                 { maxTokens: 2000, disableThinking: true, disableRetry: true, retry: { querySource: 'background' } },
             );
+            try {
+                UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, estimateTokens(response), true);
+            } catch { /* metrics should never break main flow */ }
 
             // Strip <think>...</think> tags (some LLMs wrap response in thinking blocks)
             // Also handle unclosed <think> tags (no </think>)

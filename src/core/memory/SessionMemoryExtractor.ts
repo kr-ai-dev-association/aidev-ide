@@ -6,6 +6,8 @@
 
 import { LLMManager } from '../managers/model/LLMManager';
 import { MemoryManager } from './MemoryManager';
+import { UsageMetricsManager } from '../managers/state/UsageMetricsManager';
+import { estimateTokens } from '../../utils';
 
 interface ExtractionConfig {
     minTokensForExtraction: number;  // Minimum tokens in session before extraction
@@ -75,11 +77,15 @@ Rules:
 Conversation summary:
 ${conversationSummary}`;
 
+            const _llmStart = Date.now();
             const response = await this.llmManager.sendMessageWithSystemPrompt(
                 'You are a JSON-only extraction assistant. Output only valid JSON arrays.',
                 [{ text: extractionPrompt }],
                 { signal: abortSignal, maxTokens: this.config.maxExtractionTokens, retry: { querySource: 'background' } },
             );
+            try {
+                UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, estimateTokens(response), true);
+            } catch { /* metrics should never break main flow */ }
 
             // Parse response
             const jsonMatch = response.match(/\[[\s\S]*\]/);

@@ -10,6 +10,8 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   PromptSuggestionService: () => (/* binding */ PromptSuggestionService)
 /* harmony export */ });
+/* harmony import */ var _state_UsageMetricsManager__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(77);
+/* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(23);
 /**
  * Prompt Suggestion Service
  * After each conversation completes, suggests 2-3 follow-up actions.
@@ -17,6 +19,8 @@ __webpack_require__.r(__webpack_exports__);
  *
  * Claude Code reference: src/services/PromptSuggestion/
  */
+
+
 class PromptSuggestionService {
     static instance;
     llmManager;
@@ -54,7 +58,12 @@ Output: [{"text":"다른 컴포넌트에 적용","prompt":"수정된 버튼을 �
 
 Input: ${context}
 Output: `;
+            const _llmStart = Date.now();
             const response = await this.llmManager.sendMessageWithSystemPrompt('Output ONLY a JSON array. No thinking, no explanation. Copy the format exactly.', [{ text: prompt }], { maxTokens: 2000, disableThinking: true, disableRetry: true, retry: { querySource: 'background' } });
+            try {
+                _state_UsageMetricsManager__WEBPACK_IMPORTED_MODULE_0__.UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, (0,_utils__WEBPACK_IMPORTED_MODULE_1__.estimateTokens)(response), true);
+            }
+            catch { /* metrics should never break main flow */ }
             // Strip <think>...</think> tags (some LLMs wrap response in thinking blocks)
             // Also handle unclosed <think> tags (no </think>)
             const cleaned = response

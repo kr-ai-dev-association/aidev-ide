@@ -8,6 +8,8 @@ import { LLMManager } from "../model/LLMManager";
 import { StateManager } from "../state/StateManager";
 import { getIntentPrompt } from "../context/prompts/phase";
 import { PromptComposer } from "../context/prompts/PromptComposer";
+import { UsageMetricsManager } from "../state/UsageMetricsManager";
+import { estimateTokens } from "../../../utils";
 
 export type IntentCategory =
   | "code"
@@ -208,6 +210,7 @@ export class IntentDetector {
 
     try {
       let response: string;
+      const _llmStart = Date.now();
 
       // StateManager가 있으면 Intent 모델 사용, 없으면 메인 모델 사용
       if (this.stateManager) {
@@ -220,6 +223,10 @@ export class IntentDetector {
       } else {
         response = await this.llmManager.sendMessage(prompt, {});
       }
+
+      try {
+        UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, estimateTokens(response), true);
+      } catch { /* metrics should never break main flow */ }
 
       return this.safeParseIntentResponse(response);
     } catch (error) {

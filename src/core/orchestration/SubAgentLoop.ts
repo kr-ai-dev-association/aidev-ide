@@ -24,6 +24,7 @@ import { SubTask, AgentLoopResult, AgentLoopCallbacks, THINKING_TAG_REGEX } from
 import { AgentConfig } from '../config/AgentConfig';
 import { SettingsManager } from '../managers/state/SettingsManager';
 import { StateManager } from '../managers/state/StateManager';
+import { UsageMetricsManager } from '../managers/state/UsageMetricsManager';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -108,8 +109,11 @@ export class SubAgentLoop {
         const alreadyStattedFiles = new Set<string>();
 
         // Native tool calling configuration (computed once before loop)
+        // 사용자 설정(isNativeToolCallingEnabled) + 서버 설정(nativeToolCallingSupported) 둘 다 확인
+        const isNativeUserEnabled = await SettingsManager.getInstance().isNativeToolCallingEnabled();
         const adminConfig = this.llmManager.getAdminModelConfig();
-        const isNativeAdmin = this.llmManager.getCurrentModel() === AiModelType.ADMIN
+        const isNativeAdmin = isNativeUserEnabled
+            && this.llmManager.getCurrentModel() === AiModelType.ADMIN
             && (adminConfig?.nativeToolCallingSupported === true || String(adminConfig?.nativeToolCallingSupported) === 'true');
 
         const systemPrompt = this.buildSystemPrompt(isNativeAdmin);
@@ -165,6 +169,7 @@ export class SubAgentLoop {
                 // Fix 8: Track create_file executed immediately during streaming
                 let streamingCreatedPaths = new Set<string>();
                 let streamingHandledPaths = new Set<string>(); // pending handled (regardless of approval)
+                const _llmStart = Date.now();
                 try {
                     if (this.useStreaming) {
                         // Streaming mode: no per-call timeout needed (data keeps flowing), only total timeout applies
@@ -308,6 +313,7 @@ export class SubAgentLoop {
                         } catch (timeoutErr) {
                             if (timeoutController.signal.aborted) {
                                 clearTimeout(timeoutId);
+                                UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, 0, false);
                                 consecutiveFailures++;
                                 errors.push(`LLM call timeout (${AgentConfig.SUB_AGENT_LLM_CALL_TIMEOUT / 1000}s)`);
                                 if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
@@ -324,8 +330,10 @@ export class SubAgentLoop {
                     }
                 } catch (streamErr: any) {
                     if (this.abortSignal?.aborted) {
+                        UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, 0, false);
                         throw streamErr; // Propagate external abort signal as-is
                     }
+                    UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, 0, false);
                     consecutiveFailures++;
                     errors.push(`LLM call failed: ${streamErr?.message || streamErr}`);
                     if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
@@ -334,6 +342,16 @@ export class SubAgentLoop {
                     }
                     conversationParts.push({ text: this.buildRecoveryNudge(consecutiveFailures) });
                     continue;
+                }
+
+                // Record LLM call metrics
+                const _llmTime = Date.now() - _llmStart;
+                const _tokens = estimateTokens(response);
+                try {
+                    const _modelName = await this.llmManager.getCurrentModelName();
+                    UsageMetricsManager.getInstance().recordLLMCall(_llmTime, _tokens, true, _modelName);
+                } catch {
+                    UsageMetricsManager.getInstance().recordLLMCall(_llmTime, _tokens, true);
                 }
 
                 tokenEstimate += estimateTokens(response);
@@ -573,16 +591,42 @@ export class SubAgentLoop {
                     }
                 }
 
+                // 4.9. Skip update_file for files that exceeded MAX_SAME_FILE_UPDATE_FAILURES
+                const exhaustedSkips: { call: ToolUse; index: number }[] = [];
+                const filteredCallsToExecute: ToolUse[] = [];
+                for (let ci = 0; ci < callsToExecute.length; ci++) {
+                    const call = callsToExecute[ci];
+                    if (call.name === 'update_file' && call.params.path) {
+                        const fp = call.params.path as string;
+                        const failCount = (this as any)._fileFailureCounts?.get(fp) || 0;
+                        if (failCount >= MAX_SAME_FILE_UPDATE_FAILURES) {
+                            console.warn(`[SubAgentLoop:${this.subtask.id}] Skipping update_file for ${fp} — ${failCount} failures exceeded limit (${MAX_SAME_FILE_UPDATE_FAILURES})`);
+                            exhaustedSkips.push({ call, index: ci });
+                            continue;
+                        }
+                    }
+                    filteredCallsToExecute.push(call);
+                }
+
                 // 5. Execute tools (connect UI callbacks)
-                const results = callsToExecute.length > 0
+                const results = filteredCallsToExecute.length > 0
                     ? await this.toolExecutor.executeTools(
-                        callsToExecute,
+                        filteredCallsToExecute,
                         this.toolContext,
                         this.callbacks?.onToolComplete,
                         this.callbacks?.onToolStart,
                         this.abortSignal,
                     )
                     : [];
+
+                // Synthetic feedback for exhausted update_file retries
+                for (const { call } of exhaustedSkips) {
+                    uniqueCalls.push(call);
+                    results.push({
+                        success: false,
+                        message: `[Skipped] update_file for ${call.params.path} has been skipped — maximum retry limit (${MAX_SAME_FILE_UPDATE_FAILURES}) exceeded. Try a different approach: use read_file to get the current file content, then create a new update_file with the correct SEARCH block. Or use create_file to overwrite the entire file.`,
+                    });
+                }
 
                 // Synthetic feedback for rejected tools (included in LLM context)
                 for (const call of rejectedCalls) {

@@ -11,6 +11,8 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   AutoDreamService: () => (/* binding */ AutoDreamService)
 /* harmony export */ });
 /* harmony import */ var _MemoryManager__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(390);
+/* harmony import */ var _managers_state_UsageMetricsManager__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(77);
+/* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(23);
 /**
  * AutoDream — Automatic Memory Consolidation
  * Periodically consolidates/merges/cleans up memories in the background.
@@ -22,6 +24,8 @@ __webpack_require__.r(__webpack_exports__);
  * No /dream slash command — system auto-execution only.
  * Claude Code reference: src/services/autoDream/
  */
+
+
 
 const DEFAULT_CONFIG = {
     minHoursSinceLastDream: 24,
@@ -109,7 +113,12 @@ Rules:
 
 Current memories:
 ${currentMemories}`;
+            const _llmStart = Date.now();
             const response = await this.llmManager.sendMessageWithSystemPrompt('You are a JSON-only assistant. Output only valid JSON arrays. No thinking, no explanation.', [{ text: consolidationPrompt }], { maxTokens: this.config.maxConsolidationTokens, disableThinking: true, retry: { querySource: 'background' } });
+            try {
+                _managers_state_UsageMetricsManager__WEBPACK_IMPORTED_MODULE_1__.UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, (0,_utils__WEBPACK_IMPORTED_MODULE_2__.estimateTokens)(response), true);
+            }
+            catch { /* metrics should never break main flow */ }
             // Strip <think> tags and extract JSON array containing objects with "action" key
             const cleaned = response
                 .replace(/<think>[\s\S]*?<\/think>/gi, '')

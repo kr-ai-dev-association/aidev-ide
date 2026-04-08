@@ -12,6 +12,8 @@
 
 import { LLMManager } from '../managers/model/LLMManager';
 import { MemoryManager } from './MemoryManager';
+import { UsageMetricsManager } from '../managers/state/UsageMetricsManager';
+import { estimateTokens } from '../../utils';
 
 interface AutoDreamConfig {
     minHoursSinceLastDream: number;
@@ -115,11 +117,15 @@ Rules:
 Current memories:
 ${currentMemories}`;
 
+            const _llmStart = Date.now();
             const response = await this.llmManager.sendMessageWithSystemPrompt(
                 'You are a JSON-only assistant. Output only valid JSON arrays. No thinking, no explanation.',
                 [{ text: consolidationPrompt }],
                 { maxTokens: this.config.maxConsolidationTokens, disableThinking: true, retry: { querySource: 'background' } },
             );
+            try {
+                UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, estimateTokens(response), true);
+            } catch { /* metrics should never break main flow */ }
 
             // Strip <think> tags and extract JSON array containing objects with "action" key
             const cleaned = response

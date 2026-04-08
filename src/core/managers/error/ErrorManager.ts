@@ -4,6 +4,8 @@
  */
 
 import * as vscode from 'vscode';
+import { UsageMetricsManager } from '../state/UsageMetricsManager';
+import { estimateTokens } from '../../../utils';
 import {
     ParsedError,
     ErrorSource,
@@ -301,7 +303,11 @@ export class ErrorManager {
     ): Promise<string> {
         try {
             // LLMApiClient의 sendMessage 메서드 사용
+            const _llmStart = Date.now();
             const response = await llmApiClient.sendMessage(prompt, { signal: abortSignal });
+            try {
+                UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, estimateTokens(response), true);
+            } catch { /* metrics should never break main flow */ }
             console.log(`[ErrorManager] 오류 수정 응답: ${response}`);
             return response;
         } catch (error) {

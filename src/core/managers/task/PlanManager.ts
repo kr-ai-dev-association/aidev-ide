@@ -7,6 +7,8 @@
 import { SettingsManager } from '../state/SettingsManager';
 import { LLMApiClient } from '../model/LLMApiClient';
 import { AiModelType } from '../../../services';
+import { UsageMetricsManager } from '../state/UsageMetricsManager';
+import { estimateTokens } from '../../../utils';
 import {
     getSplitInstructionPrompt,
     getSplitInstructionSystemPrompt,
@@ -74,7 +76,11 @@ export class PlanManager {
 
             let response: string;
             try { await ollamaApi.loadSettingsFromStorage(); } catch { }
+            const _llmStart = Date.now();
             response = await ollamaApi.sendMessageWithSystemPrompt(systemPromptForSplit, parts, { signal: abortSignal });
+            try {
+                UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, estimateTokens(response), true);
+            } catch { /* metrics should never break main flow */ }
 
             // JSON 파싱 (think 블록 제거 후)
             const stripped = response.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
@@ -331,7 +337,11 @@ export class PlanManager {
 
             let response: string;
             try { await ollamaApi.loadSettingsFromStorage(); } catch { }
+            const _llmStart2 = Date.now();
             response = await ollamaApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal: abortSignal });
+            try {
+                UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart2, estimateTokens(response), true);
+            } catch { /* metrics should never break main flow */ }
 
             if (!response || !response.trim()) {
                 return null;

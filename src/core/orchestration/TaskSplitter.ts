@@ -9,6 +9,8 @@
 
 import { LLMManager } from '../managers/model/LLMManager';
 import { SubTask, TaskSplitResult, ToolPermission } from './types';
+import { UsageMetricsManager } from '../managers/state/UsageMetricsManager';
+import { estimateTokens } from '../../utils/tokenUtils';
 
 const SYSTEM_PROMPT = `You are a task splitting evaluator for a coding assistant.
 You analyze user requests and determine whether it would be efficient for multiple agents to process them in parallel.

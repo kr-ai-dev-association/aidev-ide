@@ -2,7 +2,32 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.63**
+> **현재 버전: v1.0.64**
+
+---
+
+## v1.0.64 (2026-04-08)
+
+### AGENT 모드 — 완전 자율화
+
+- **턴 제한 제거**: `MAX_AGENT_TURNS=25` 경고 프롬프트, `MAX_TURNS_WARNING_THRESHOLD` 제거 — 턴 무제한
+- **연속 실패 프롬프트 제거**: `MAX_CONSECUTIVE_TOOL_FAILURES=3` 제거 — LLM이 에러를 보고 자율 판단
+
+### 무한 루프 방지
+
+- **SubAgentLoop update_file 무한 재시도 방지**: 같은 파일 `update_file` 3회 실패 시 실행 자체를 스킵하고 "다른 방법 사용" 피드백 전달
+- **run_command 반복 실패 무한 루프 방지**: 같은 명령어 3회 연속 실패 시 스킵 + LLM에 피드백 전달 (`commandFailureCounts`)
+
+### 네이티브 도구 설정 수정
+
+- **SubAgentLoop 사용자 설정 존중**: SubAgentLoop에서 `isNativeToolCallingEnabled()` 사용자 설정을 무시하고 서버 설정(`nativeToolCallingSupported`)만 확인하던 문제 수정 — 이제 사용자 설정 OFF 시 SubAgentLoop에서도 네이티브 도구 비활성화
+
+### 토큰 사용량 추적 완전화
+
+- **전체 LLM 호출 경로 토큰 기록**: 기존 2곳(메인 루프)에서만 기록되던 `recordLLMCall`을 15개 파일 36+개 호출 경로에 추가
+  - SubAgentLoop, ConversationCompactor, OrchestrationRouter, IntentDetector, TaskSplitter, TestRunner, ResponseProcessor, SessionMemoryExtractor, AutoDreamService, RelevantFilesFinder, PromptSuggestionService, ProjectDetector, ProjectManager, PlanManager, ErrorManager
+  - ConversationManager 내 보조 호출 (greeting, plan item, analysis, ask, summary)
+- **누락 없는 사용량 집계**: 이전에는 SubAgentLoop(CODE 모드 주요 경로) 등에서 토큰이 미기록되어 어드민 대시보드에 실제보다 적게 표시되던 문제 해결
 
 ---
 

@@ -8,6 +8,8 @@ import { getSimpleSummaryPrompt } from '../../context/prompts/task';
 import { LLMManager } from '../../model/LLMManager';
 import { StringUtils } from '../../../utils/StringUtils';
 import { AgentConfig } from '../../../config/AgentConfig';
+import { UsageMetricsManager } from '../../state/UsageMetricsManager';
+import { estimateTokens } from '../../../../utils';
 
 export class ResponseProcessor {
     private llmManager: LLMManager;
@@ -97,11 +99,15 @@ export class ResponseProcessor {
 
             console.log(`[ResponseProcessor] Requesting LLM summary (attempt ${retryCount + 1}/${MAX_RETRIES + 1}, contextParts=${contextParts.length})`);
 
+            const _llmStart = Date.now();
             const verifiedSummary = await this.llmManager.sendMessageWithSystemPrompt(
                 summaryPrompt,
                 contextParts,
                 { signal: abortSignal }
             );
+            try {
+                UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, estimateTokens(verifiedSummary), true);
+            } catch { /* metrics should never break main flow */ }
 
             // ✅ LLM이 도구 태그로 응답한 경우
             const hasToolTags = /<(create_file|update_file|remove_file|read_file|run_command|list_files|ripgrep_search)>/i.test(verifiedSummary);
