@@ -29,6 +29,12 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 - **전체 LLM 호출 경로 토큰 기록**: 기존 2곳에서만 기록되던 `recordLLMCall`을 15개 파일 36+개 호출 경로에 추가
 - **누락 없는 사용량 집계**: SubAgentLoop 등 주요 경로에서 토큰이 미기록되던 문제 해결
 
+### PLAN 모드 수정
+
+- **PLAN 모드 무한 루프 수정**: LLM이 JSON plan 대신 텍스트로 응답 시 무한 반복되던 문제 수정 — 텍스트를 plan으로 수용하고 승인 팝업 표시
+- **JSON plan 채팅 노출 방지**: PLAN 모드 INVESTIGATION에서 스트리밍 UI 표시 OFF + JSON 포함 응답은 파싱 후 요약 형식으로 표시
+- **스트리밍 커서 미종료 수정**: PLAN 모드 종료 시 커서 종료 + 완료 상태 전송
+
 ---
 
 ## v1.0.63 (2026-04-07)

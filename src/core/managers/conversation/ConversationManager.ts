@@ -2310,7 +2310,9 @@ export class ConversationManager implements IConversationHandler {
       // 스코프 밖(removeLastMessage 가드 등)에서도 접근해야 하므로 블록 밖에 선언
       // AGENT 모드: 스트리밍 중 UI 표시 안 함 (도구 JSON과 텍스트 구분 불가)
       // 대신 스트리밍 완료 후 텍스트만 streamText로 표시
-      const shouldStreamToUI = ((currentPhase as AgentPhase) === AgentPhase.REVIEW || (currentPhase as AgentPhase) === AgentPhase.DONE) || pendingMCPResultInterpretation || isPlanMode;
+      // PLAN 모드: INVESTIGATION 단계에서는 스트리밍 표시 안 함 (JSON plan이 채팅에 노출되는 문제 방지)
+      const isPlanInvestigation = isPlanMode && (currentPhase as AgentPhase) === AgentPhase.INVESTIGATION;
+      const shouldStreamToUI = ((currentPhase as AgentPhase) === AgentPhase.REVIEW || (currentPhase as AgentPhase) === AgentPhase.DONE) || pendingMCPResultInterpretation || (isPlanMode && !isPlanInvestigation);
 
       // 스트리밍 즉시 파일 생성 설정 (onChunk 동기 핸들러에서 사용)
       const isAutoToolForStreaming = await SettingsManager.getInstance().isAutoToolExecutionEnabled();
@@ -3756,6 +3758,76 @@ export class ConversationManager implements IConversationHandler {
             console.log(
               "[ConversationManager] Text response sent (file-not-exist or analysis). Transitioning to DONE.",
             );
+            break;
+          }
+        }
+
+        // PLAN 모드: INVESTIGATION에서 텍스트만 와도 plan 텍스트로 수용 → 승인 팝업 표시
+        if (isPlanMode && totalResponseText && totalResponseText.trim()) {
+          const cleanPlanText = StringUtils.cleanText(totalResponseText, {
+            removeThinking: true, removeNaturalLanguage: false,
+            removeSystemMessages: false, removeToolTags: false,
+            removeJsonThinking: true, extractJson: false,
+          }).replace(/<investigation_done\s*\/>/gi, '').replace(/\{\s*["']investigation_done["']\s*:\s*true\s*\}/gi, '').trim();
+
+          if (cleanPlanText) {
+            console.log(
+              `[ConversationManager] PLAN mode: Text response in INVESTIGATION accepted as plan output.`,
+            );
+            // JSON plan 감지: JSON이 포함되어 있으면 채팅에 표시하지 않음
+            const hasJsonInPlan = /\{\s*"plan"\s*:|\{\s*"kind"\s*:/.test(cleanPlanText);
+            if (!hasJsonInPlan) {
+              await WebviewBridge.streamText(webviewToRespond, 'CODEPILOT', cleanPlanText);
+              collectedUIMessages.push({ sender: 'CODEPILOT', text: cleanPlanText, type: 'summary' });
+            } else {
+              const planItems = ToolParser.parsePlanItems(cleanPlanText);
+              if (planItems.length > 0) {
+                const planSummary = `📋 **구현 계획** (${planItems.length}단계)\n\n` +
+                  planItems.map((item, i) => `**${i + 1}. ${item.title}**\n${item.detail || ''}`).join('\n\n');
+                await WebviewBridge.streamText(webviewToRespond, 'CODEPILOT', planSummary);
+                collectedUIMessages.push({ sender: 'CODEPILOT', text: planSummary, type: 'summary' });
+              } else {
+                await WebviewBridge.streamText(webviewToRespond, 'CODEPILOT', '📋 구현 계획이 작성되었습니다.');
+                collectedUIMessages.push({ sender: 'CODEPILOT', text: '구현 계획 작성 완료', type: 'summary' });
+              }
+            }
+
+            planTextResponse = cleanPlanText;
+            const vscodeModule = require('vscode');
+            const approval = await vscodeModule.window.showInformationMessage(
+              '구현 계획이 작성되었습니다. 승인하시겠습니까?',
+              { modal: true },
+              '승인',
+              '거절',
+            );
+            if (approval === '승인') {
+              console.log('[ConversationManager] PLAN approved — auto-executing in CODE mode');
+              WebviewBridge.receiveMessage(webviewToRespond, 'System', '✓ 계획이 승인되었습니다.');
+              try {
+                const globalStoragePath = options.extensionContext?.globalStorageUri?.fsPath;
+                if (globalStoragePath && planTextResponse) {
+                  const plansDir = path.join(globalStoragePath, 'plans');
+                  if (!fsSync.existsSync(plansDir)) {
+                    fsSync.mkdirSync(plansDir, { recursive: true });
+                  }
+                  const sessionId = options.extensionContext ? (await import('../state/SessionManager')).SessionManager.getInstance(options.extensionContext).getCurrentSession()?.id : undefined;
+                  const planFileName = sessionId ? `plan_${sessionId}.md` : `plan_${Date.now()}.md`;
+                  fsSync.writeFileSync(path.join(plansDir, planFileName), planTextResponse, 'utf-8');
+                }
+              } catch (planSaveError) {
+                console.warn('[ConversationManager] Failed to save plan file:', planSaveError);
+              }
+              setTimeout(() => {
+                webviewToRespond.postMessage({
+                  command: 'autoPlanExecute',
+                  text: '위 계획대로 진행해줘',
+                });
+              }, 500);
+            } else {
+              WebviewBridge.receiveMessage(webviewToRespond, 'System', '✗ 계획이 거절되었습니다. 새로 질의하거나 수정 사항을 알려주세요.');
+            }
+            WebviewBridge.endStreamingMessage(webviewToRespond);
+            WebviewBridge.sendProcessingStep(webviewToRespond, 'done');
             break;
           }
         }
