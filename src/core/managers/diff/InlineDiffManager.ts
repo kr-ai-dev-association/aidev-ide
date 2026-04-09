@@ -268,7 +268,7 @@ export class InlineDiffManager {
      * - 앞뒤 공백 제거
      * - 빈 줄 제거
      *
-     * 🔥 Solution 2: 다른 코드 어시스턴트처럼 indentation 차이를 무시하고 의미적 동일성 판단
+     * Solution 2: 다른 코드 어시스턴트처럼 indentation 차이를 무시하고 의미적 동일성 판단
      */
     private normalizeTextForComparison(text: string): string {
         return text
@@ -284,10 +284,10 @@ export class InlineDiffManager {
      * 중복 change 확인 (더 강력한 로직)
      * 1. Offset 기반 비교
      * 2. 텍스트 내용 비교 (정확히 일치)
-     * 3. 🔥 의미적 텍스트 비교 (whitespace 무시) - Solution 2
+     * 3. 의미적 텍스트 비교 (whitespace 무시) - Solution 2
      * 4. Range 중복 확인 (90% 이상 겹침)
      *
-     * 🔥 Solution 2: 다른 코드 어시스턴트처럼 semantic duplicate 감지
+     * Solution 2: 다른 코드 어시스턴트처럼 semantic duplicate 감지
      * 예: "    </div>" vs "      </div>" → 같은 코드로 판단
      */
     private isDuplicateChange(
@@ -308,7 +308,7 @@ export class InlineDiffManager {
                 return true;
             }
 
-            // 🔥 3. 의미적 텍스트 비교 (whitespace 무시) - Solution 2
+            // 3. 의미적 텍스트 비교 (whitespace 무시) - Solution 2
             // 다른 코드 어시스턴트(Cursor, Copilot)처럼 indentation 차이 무시
             const normalizedNewOld = this.normalizeTextForComparison(newChange.oldText);
             const normalizedNewNew = this.normalizeTextForComparison(newChange.newText);
@@ -320,7 +320,7 @@ export class InlineDiffManager {
                 return true;
             }
 
-            // 🔥 3-1. newText만 의미적으로 같은 경우도 중복으로 간주 (같은 코드 추가 시도)
+            // 3-1. newText만 의미적으로 같은 경우도 중복으로 간주 (같은 코드 추가 시도)
             if (normalizedNewNew === normalizedExistingNew &&
                 normalizedNewNew.length > 10) {  // 너무 짧은 코드는 제외 (false positive 방지)
                 return true;
@@ -1544,7 +1544,7 @@ export class InlineDiffManager {
      * - pending: 초록색 배경
      * - dirty: 주황색 배경 (선택적)
      * 
-     * 🔥 핵심: 삭제된 코드는 decoration.before로 표시 (문서에 실제로 존재하지 않음)
+     * 핵심: 삭제된 코드는 decoration.before로 표시 (문서에 실제로 존재하지 않음)
      */
     private applyDecorationsToEditor(editor: vscode.TextEditor, changes: InlineChange[]): void {
         if (!editor || !editor.document) {
@@ -1789,7 +1789,7 @@ export class InlineDiffManager {
             return;
         }
 
-        // 🔥 Accept: 문서에는 이미 newContent가 있으므로, decoration만 제거하면 됨
+        // Accept: 문서에는 이미 newContent가 있으므로, decoration만 제거하면 됨
         // (삭제된 라인은 decoration.before로만 표시되었으므로 문서에서 제거할 필요 없음)
         // ⚠️ VS Code Undo 스택과 분리: 문서 수정 없음
         // ✅ Accept는 의미적 커밋이지만, 파일 저장은 showInlineDiff()에서 담당
@@ -2216,7 +2216,7 @@ export class InlineDiffManager {
 
     /**
      * 모든 변경사항 거부
-     * 🔥 체크포인트의 beforeContent로 정확히 복원
+     * 체크포인트의 beforeContent로 정확히 복원
      * ⚠️ VS Code Undo 스택과 분리: WorkspaceEdit 사용
      */
     public async rejectAllChanges(filePath: string): Promise<void> {

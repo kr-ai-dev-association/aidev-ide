@@ -1108,7 +1108,7 @@ export class OrchestrationRouter {
                         });
                     }
                 } else {
-                    console.log(`[OrchestrationRouter] RAG: 검색 결과 없음 (0건, raw type=${typeof ragRaw}, isArray=${Array.isArray(ragRaw)}, keys=${ragRaw && typeof ragRaw === 'object' ? Object.keys(ragRaw).join(',') : 'N/A'}, ragResults=${ragResults.length})`);
+                    console.log(`[OrchestrationRouter] RAG: 검색 결과 없음 (0건)`);
                 }
             } else {
                 console.log(`[OrchestrationRouter] RAG: 스킵 (isLoggedIn=${auth.isLoggedIn()}, hasQuery=${!!userQuery})`);

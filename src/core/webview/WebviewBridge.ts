@@ -244,7 +244,7 @@ export class WebviewBridge {
     }
 
     /**
-     * 🔥 텍스트를 스트리밍 효과로 전송 (타이핑 효과)
+     * 텍스트를 스트리밍 효과로 전송 (타이핑 효과)
      * receiveMessage 대신 사용하여 한 번에 보이지 않고 점진적으로 표시
      */
     public static async streamText(

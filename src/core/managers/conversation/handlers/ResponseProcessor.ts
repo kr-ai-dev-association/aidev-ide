@@ -72,14 +72,14 @@ export class ResponseProcessor {
     /**
      * LLM에게 요약 요청 (재시도 로직 포함)
      *
-     * 🔥 수정: 첫 시도부터 context 없이 요약 요청
+     * 수정: 첫 시도부터 context 없이 요약 요청
      * - 이전 에러 메시지나 도구 호출 컨텍스트가 요약 품질을 저하시킴
      * - LLM이 "다음 할 일"을 응답하는 문제 방지
      */
     private async requestLLMSummary(
         createdFiles: string[],
         modifiedFiles: string[],
-        __accumulatedParts: any[], // 🔥 더 이상 사용하지 않음 (API 호환성 유지)
+        __accumulatedParts: any[], // 더 이상 사용하지 않음 (API 호환성 유지)
         abortSignal?: AbortSignal,
         retryCount: number = 0
     ): Promise<string> {
@@ -87,7 +87,7 @@ export class ResponseProcessor {
         const summaryPrompt = getSimpleSummaryPrompt(createdFiles, modifiedFiles);
 
         try {
-            // 🔥 수정: 요약 요청에 필요한 최소한의 context만 제공
+            // 수정: 요약 요청에 필요한 최소한의 context만 제공
             // Gemini API는 빈 parts를 허용하지 않음 - "Request has empty input" 에러 발생
             // 파일 목록을 context로 제공하여 LLM이 요약할 대상을 명확히 알 수 있게 함
             const fileListText = [
@@ -131,7 +131,7 @@ export class ResponseProcessor {
                 return this.generateDefaultSummary(createdFiles, modifiedFiles);
             }
 
-            // 🔥 에러 응답이 반환된 경우 기본 요약 생성
+            // 에러 응답이 반환된 경우 기본 요약 생성
             // LLM API 에러가 문자열로 반환되는 경우 처리
             if (verifiedSummary.startsWith('Error:') || verifiedSummary.startsWith('OFFLINE:')) {
                 console.warn('[ResponseProcessor] LLM returned error response:', verifiedSummary.substring(0, 100));

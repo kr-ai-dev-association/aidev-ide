@@ -129,10 +129,10 @@ export class StreamingCodeApplier {
 
     /**
      * CODE 블록을 마크다운으로 변환하고 안전한 텍스트 추출
-     * 🔥 v8.9.9: 도구 호출이 포함된 응답에서는 전체 텍스트 출력 차단
+     * v8.9.9: 도구 호출이 포함된 응답에서는 전체 텍스트 출력 차단
      */
     private extractSafeText(text: string): { extracted: string; remaining: string } {
-        // 🔥 핵심: 도구 호출 패턴이 있으면 전체 텍스트 출력 차단
+        // 핵심: 도구 호출 패턴이 있으면 전체 텍스트 출력 차단
         // EXECUTION 단계에서 CODE 블록이 패널에 표시되는 문제 해결
         if (/\{\s*["']tool["']\s*:/.test(text)) {
             return { extracted: '', remaining: text };
