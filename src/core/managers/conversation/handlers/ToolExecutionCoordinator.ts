@@ -371,16 +371,6 @@ export class ToolExecutionCoordinator {
                     const content = res.fileContent || params.content || '';
                     const ext = path.split('.').pop() || '';
 
-                    // ✅ 디버깅: content 값 확인
-                    console.log(`[ToolExecutionCoordinator] ${toolName} content debug:`, {
-                        hasResFileContent: !!res.fileContent,
-                        resFileContentLength: res.fileContent?.length || 0,
-                        hasParamsContent: !!params.content,
-                        paramsContentLength: params.content?.length || 0,
-                        finalContentLength: content.length,
-                        resKeys: Object.keys(res)
-                    });
-
                     // ✅ 추가/삭제 라인 수 계산
                     let addedLines = 0;
                     let deletedLines = 0;
@@ -470,8 +460,6 @@ export class ToolExecutionCoordinator {
                                 parts.push(`+${addedLines} lines`);
                             }
                             langLabel = `${ext} ${parts.join(' ')}`;
-                            console.log(`[ToolExecutionCoordinator] Line count info: ${langLabel} (deleted: ${deletedLines}, added: ${addedLines})`);
-                            console.log(`[ToolExecutionCoordinator] RAW langLabel string: "${langLabel}"`);
                         }
                         // ✅ 파일 경로 정보를 langLabel에 포함 (파일 열기 아이콘용)
                         const langLabelWithPath = path ? `${langLabel} [file:${path}]` : langLabel;
