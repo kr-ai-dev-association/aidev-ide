@@ -31,6 +31,16 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
   - ConversationManager 내 보조 호출 (greeting, plan item, analysis, ask, summary)
 - **누락 없는 사용량 집계**: 이전에는 SubAgentLoop(CODE 모드 주요 경로) 등에서 토큰이 미기록되어 어드민 대시보드에 실제보다 적게 표시되던 문제 해결
 
+### PLAN 모드 수정
+
+- **PLAN 모드 무한 루프 수정**: LLM이 JSON plan 대신 텍스트로 응답 시 INVESTIGATION에서 무한 반복(11턴→강제 종료)되던 문제 수정 — 텍스트를 plan으로 수용하고 승인 팝업 표시
+- **JSON plan 채팅 노출 방지**: PLAN 모드 INVESTIGATION에서 스트리밍 UI 표시 OFF + JSON 포함 응답은 파싱 후 요약 형식으로 표시
+- **스트리밍 커서 미종료 수정**: PLAN 모드 종료 시 `endStreamingMessage` + `sendProcessingStep('done')` 호출 추가
+
+### 버그 수정
+
+- **로그아웃 시 프로젝트 선택 초기화**: 다른 계정으로 로그인 시 이전 계정의 프로젝트가 드롭다운에 남아있던 문제 수정 — `codepilot.projectId` 초기화
+
 ---
 
 ## v1.0.63 (2026-04-07)

@@ -235,6 +235,8 @@ export class AuthService {
     await this.context.secrets.delete(AuthService.ACCESS_TOKEN_KEY);
     await this.context.secrets.delete(AuthService.REFRESH_TOKEN_KEY);
     await this.context.globalState.update(AuthService.USER_INFO_KEY, undefined);
+    // 프로젝트 선택 초기화 (다른 계정 로그인 시 이전 프로젝트 잔류 방지)
+    await this.context.globalState.update('codepilot.projectId', undefined);
 
     this._onDidChangeAuth.fire(false);
     vscode.window.showInformationMessage("로그아웃되었습니다");
