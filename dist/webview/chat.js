@@ -26544,6 +26544,67 @@ window.addEventListener("message", event => {
         chatMessagesDiv.innerHTML = "";
       }
       break;
+    case "showInterruptedSession":
+      {
+        const query = message.query || "";
+        const truncatedQuery = query.length > 80 ? query.substring(0, 80) + "..." : query;
+        const interruptModal = document.createElement("div");
+        interruptModal.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        display: flex; justify-content: center; align-items: center;
+        z-index: 10000;
+      `;
+        const interruptContent = document.createElement("div");
+        interruptContent.style.cssText = `
+        background-color: var(--vscode-editor-background);
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 8px; padding: 20px;
+        max-width: 400px; width: 90%;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      `;
+        interruptContent.innerHTML = `
+        <div style="margin-bottom: 16px;">
+          <h3 style="margin: 0 0 12px 0; color: var(--vscode-foreground); font-size: 16px;">이전 작업이 중단되었습니다</h3>
+          <p style="margin: 0 0 8px 0; color: var(--vscode-descriptionForeground); font-size: 13px; line-height: 1.5;">
+            "${truncatedQuery}"
+          </p>
+          <p style="margin: 0; color: var(--vscode-foreground); line-height: 1.4;">
+            이어서 진행하시겠습니까?
+          </p>
+        </div>
+        <div style="display: flex; gap: 12px; justify-content: flex-end;">
+          <button id="dismiss-interrupted" style="
+            padding: 8px 16px;
+            border: 1px solid var(--vscode-panel-border);
+            background-color: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            border-radius: 4px; cursor: pointer; font-size: 14px;
+          ">무시</button>
+          <button id="resume-interrupted" style="
+            padding: 8px 16px; border: none;
+            background-color: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            border-radius: 4px; cursor: pointer; font-size: 14px;
+          ">이어서 진행</button>
+        </div>
+      `;
+        interruptModal.appendChild(interruptContent);
+        document.body.appendChild(interruptModal);
+        document.getElementById("dismiss-interrupted").addEventListener("click", () => {
+          document.body.removeChild(interruptModal);
+        });
+        document.getElementById("resume-interrupted").addEventListener("click", () => {
+          document.body.removeChild(interruptModal);
+          vscode.postMessage({
+            command: "sendMessage",
+            text: query,
+            mode: "CODE",
+            promptType: "code_generation"
+          });
+        });
+        break;
+      }
     case "scrollToBottom":
       if (chatMessages) {
         chatMessages.scrollTop = chatMessages.scrollHeight;

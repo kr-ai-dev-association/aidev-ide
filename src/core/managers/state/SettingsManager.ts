@@ -969,7 +969,7 @@ export class SettingsManager extends BaseManager {
         // Global 설정을 우선으로 읽기
         const config = vscode.workspace.getConfiguration('codepilot');
         const globalValue = config.inspect<boolean>('autoTestRetryEnabled')?.globalValue;
-        const value = globalValue ?? config.get<boolean>('autoTestRetryEnabled') ?? false;
+        const value = globalValue ?? config.get<boolean>('autoTestRetryEnabled') ?? true;
         return value;
     }
 

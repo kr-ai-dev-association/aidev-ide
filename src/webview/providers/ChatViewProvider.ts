@@ -1935,20 +1935,13 @@ ${JSON.stringify(errorContext, null, 2)}
 
                 console.log(`[ChatViewProvider] Restored context info: ${stats.messageCount} messages, ${stats.totalTokensUsed} tokens`);
 
-                // Check for interrupted session
+                // Check for interrupted session — webview 팝업으로 표시
                 const interrupted = sessionManager.wasLastSessionInterrupted();
                 if (interrupted.interrupted && interrupted.lastUserQuery) {
-                    const resumeAction = await vscode.window.showInformationMessage(
-                        `이전 작업이 중단되었습니다: "${interrupted.lastUserQuery.substring(0, 50)}..."`,
-                        '이어서 진행', '무시'
-                    );
-                    if (resumeAction === '이어서 진행') {
-                        // Re-send the interrupted query
-                        webview.postMessage({
-                            command: 'autoPlanExecute',
-                            text: interrupted.lastUserQuery,
-                        });
-                    }
+                    webview.postMessage({
+                        command: 'showInterruptedSession',
+                        query: interrupted.lastUserQuery,
+                    });
                 }
             } catch (error) {
                 console.error('[ChatViewProvider] Failed to restore session:', error);

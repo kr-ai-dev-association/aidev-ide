@@ -2,7 +2,30 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.64**
+> **현재 버전: v1.0.65**
+
+---
+
+## v1.0.65 (2026-04-08)
+
+### 크래시 복구 UI 개선
+
+- **webview 팝업으로 변경**: 이전 세션 중단 감지 시 VS Code toast(`showInformationMessage`) 대신 webview 모달 팝업으로 표시 — 사용자 놓침 방지
+- **복구 모드 전달 수정**: 중단된 세션 이어하기 시 `mode: "CODE"` 누락으로 undefined 전달되던 문제 수정
+
+### TestRunner 개선
+
+- **TypeScript 빌드 검증 강화**: `npx tsc --noEmit` → `npx tsc --noEmit && ${pm} run build` — build 스크립트가 있는 프로젝트에서 타입 체크 + 빌드까지 검증
+- **autoTestRetryEnabled 기본값 변경**: `false` → `true` — 테스트 실패 시 자동 재시도가 기본 동작
+- **TestRunner npm install 자동 실행 제거**: 빌드 전 자동 npm install은 LLM이 자율적으로 판단하도록 변경
+
+### 스트리밍 안정성
+
+- **streamingHandledPaths 전체 실패 추적**: 보안 차단만 추적하던 것을 모든 실패 케이스로 확장 — 스트리밍 pre-execution 실패 후 post-parse에서 중복 실행되던 문제 해결
+
+### 기타
+
+- **디버그 로그/이모지 정리**: 불필요한 디버그 출력 및 이모지 제거
 
 ---
 

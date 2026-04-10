@@ -17,7 +17,7 @@
             "console": "integratedTerminal",
             "internalConsoleOptions": "neverOpen",
             "env": {
-                "NODE_ENV": "development"
+                "NODE_ENV": "development",
             },
             "stopOnEntry": false,
             "skipFiles": [
@@ -41,7 +41,7 @@
             "console": "integratedTerminal",
             "internalConsoleOptions": "neverOpen",
             "env": {
-                "NODE_ENV": "development"
+                "NODE_ENV": "development",
             },
             "stopOnEntry": false,
             "skipFiles": [

@@ -644,15 +644,20 @@ export class ProjectDetector {
                     fs.existsSync(path.join(projectRoot, 'tsconfig.json'));
 
                 if (hasTypeScript) {
-                    // TypeScript 프로젝트: npx tsc --noEmit 사용 (로컬 설치 tsc 보장, 전역 버전 불일치 방지)
+                    // TypeScript 프로젝트: tsc 타입 검사 + build 스크립트가 있으면 빌드 검증도 실행
                     if (fs.existsSync(path.join(projectRoot, 'package.json'))) {
                         const pm = this.detectPackageManager(projectRoot);
 
-                        // TypeScript: tsc 타입 검사만 (lint는 LLM이 필요 시 직접 실행)
+                        // build 스크립트가 있으면 tsc + build 둘 다 (더 정확한 검증)
+                        if (this.hasScript(projectRoot, 'build')) {
+                            return { command: `npx tsc --noEmit && ${pm} run build`, description: 'TypeScript 타입 검사 + 빌드 검증' };
+                        }
+
+                        // build 스크립트 없으면 tsc만
                         return { command: `npx tsc --noEmit`, description: 'TypeScript 타입 검사' };
                     }
 
-                    // package.json이 없거나 스크립트가 없는 경우
+                    // package.json이 없는 경우
                     return { command: 'npx tsc --noEmit', description: 'TypeScript 컴파일 검사' };
                 }
 

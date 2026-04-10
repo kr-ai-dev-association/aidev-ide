@@ -717,12 +717,12 @@ export class ConversationManager implements IConversationHandler {
     let pendingRetryPrompt = false; // retry 프롬프트가 LLM에 전달 대기 중인지
     let pendingMCPResultInterpretation = false; // MCP 도구 결과가 LLM 해석 대기 중인지
     const retryCoordinator = new RetryCoordinator();
-    // 설정에서 최대 시도 횟수 가져오기 (기본값 3)
-    let maxTestFixAttempts = 3;
-    let isAutoTestRetryEnabled = false;
+    // 설정에서 최대 시도 횟수 가져오기 (기본값: retry ON, 5회)
+    let maxTestFixAttempts = 5;
+    let isAutoTestRetryEnabled = true;
     try {
-      maxTestFixAttempts = await SettingsManager.getInstance().getTestRetryCount() ?? 3;
-      isAutoTestRetryEnabled = await SettingsManager.getInstance().isAutoTestRetryEnabled() ?? false;
+      maxTestFixAttempts = await SettingsManager.getInstance().getTestRetryCount() ?? 5;
+      isAutoTestRetryEnabled = await SettingsManager.getInstance().isAutoTestRetryEnabled() ?? true;
     } catch (settingsError) {
       console.warn("[ConversationManager] Failed to load test retry settings, using defaults:", settingsError);
     }
@@ -2418,9 +2418,8 @@ export class ConversationManager implements IConversationHandler {
               const isSecurityBlock = streamResults[0].error?.code === 'BLOCKED_BY_VALIDATOR';
               const icon = isSecurityBlock ? '🚫 [차단]' : '❌ [Failed]';
               WebviewBridge.receiveMessage(webviewToRespond, 'System', `${icon} ${reason}`);
-              if (isSecurityBlock) {
-                streamingHandledPaths.add(`${capturedCall.name}:${path}`);
-              }
+              // 실패한 도구도 handled로 추가 — 스트리밍 중 같은 파일 반복 실행 방지
+              streamingHandledPaths.add(`${capturedCall.name}:${path}`);
             }
           });
         };
