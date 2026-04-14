@@ -19,7 +19,13 @@ import { estimateTokens } from "../../../../utils";
 import { StringUtils } from "../../../utils/StringUtils";
 import { SubProjectDetector } from "../../project/SubProjectDetector";
 import { getValidationCommandPrompt } from "../../context/prompts/test/validationCommand";
-import { RichDiagnostic, ClassificationResult, ErrorClassifier, ErrorCategory, ExecutionOutcome } from "./ErrorClassifier";
+import {
+  RichDiagnostic,
+  ClassificationResult,
+  ErrorClassifier,
+  ErrorCategory,
+  ExecutionOutcome,
+} from "./ErrorClassifier";
 
 import { extractErrorMessage } from "./HandlerUtils";
 
@@ -36,13 +42,22 @@ export class TestRunner {
    * 서브 프로젝트 감지 결과 캐시 (세션 내 재사용)
    * key: workspaceRoot, value: { root, info }
    */
-  private static subProjectCache: Map<string, { root: string; info: { type: ProjectType; confidence: number; buildTool: any } } | null> = new Map();
+  private static subProjectCache: Map<
+    string,
+    {
+      root: string;
+      info: { type: ProjectType; confidence: number; buildTool: any };
+    } | null
+  > = new Map();
 
   /**
    * LLM 프로젝트 타입 감지 결과 캐시 (세션 내 재사용)
    * key: workspaceRoot, value: detected project info or null
    */
-  private static llmProjectTypeCache: Map<string, { type: ProjectType; confidence: number; buildTool: any } | null> = new Map();
+  private static llmProjectTypeCache: Map<
+    string,
+    { type: ProjectType; confidence: number; buildTool: any } | null
+  > = new Map();
 
   /**
    * 서브 프로젝트 캐시 초기화 (새 세션/대화 시작 시 호출)
@@ -57,10 +72,14 @@ export class TestRunner {
    * 프로젝트 타입에 따른 빌드 검증 타임아웃 반환
    */
   public static getValidationTimeout(projectType?: string): number {
-    if (!projectType) { return AgentConfig.VALIDATION_COMMAND_TIMEOUT; }
+    if (!projectType) {
+      return AgentConfig.VALIDATION_COMMAND_TIMEOUT;
+    }
     const key = projectType.toLowerCase();
-    return AgentConfig.VALIDATION_TIMEOUT_BY_PROJECT[key]
-      ?? AgentConfig.VALIDATION_COMMAND_TIMEOUT;
+    return (
+      AgentConfig.VALIDATION_TIMEOUT_BY_PROJECT[key] ??
+      AgentConfig.VALIDATION_COMMAND_TIMEOUT
+    );
   }
 
   /**
@@ -74,23 +93,19 @@ export class TestRunner {
     validationTimeout: number = AgentConfig.VALIDATION_COMMAND_TIMEOUT,
     excludedValidationCommands: string[] = [],
     /** UI step name — 호출 컨텍스트에 따라 'executing' 또는 'review' */
-    uiStep: string = 'executing',
+    uiStep: string = "executing",
     abortSignal?: AbortSignal,
   ): Promise<TestResult> {
+    // abort 체크
+    if (abortSignal?.aborted) {
+      return { success: true, errorMessage: "Cancelled" };
+    }
+
     let workspaceRoot = _workspaceRoot;
     try {
-      // abort 체크
-      if (abortSignal?.aborted) {
-        return { success: true, errorMessage: 'Cancelled' };
-      }
-
       // 검증 시작
       WebviewBridge.sendProcessingStep(webview, uiStep);
-      WebviewBridge.sendProcessingStatus(
-        webview,
-        uiStep,
-        "코드 검증 시작...",
-      );
+      WebviewBridge.sendProcessingStatus(webview, uiStep, "코드 검증 시작...");
 
       // ProjectDetector를 사용하여 프로젝트 타입 감지
       WebviewBridge.sendProcessingStatus(
@@ -166,7 +181,8 @@ export class TestRunner {
             // 서브디렉토리에서도 못 찾음 → LLM 폴백 (캐시 확인 후)
             TestRunner.subProjectCache.set(workspaceRoot, null);
 
-            const cachedLLMType = TestRunner.llmProjectTypeCache.get(workspaceRoot);
+            const cachedLLMType =
+              TestRunner.llmProjectTypeCache.get(workspaceRoot);
             if (cachedLLMType !== undefined) {
               if (cachedLLMType && cachedLLMType.type !== ProjectType.UNKNOWN) {
                 console.log(
@@ -209,16 +225,26 @@ export class TestRunner {
                   const fullPath = path.join(workspaceRoot, f);
                   try {
                     const stat = await fs.stat(fullPath);
-                    if (stat.isDirectory() && !f.startsWith('.') && f !== 'node_modules') {
+                    if (
+                      stat.isDirectory() &&
+                      !f.startsWith(".") &&
+                      f !== "node_modules"
+                    ) {
                       const subFiles = await fs.readdir(fullPath);
-                      dirEntries.push(`${f}/: ${subFiles.slice(0, 10).join(', ')}`);
+                      dirEntries.push(
+                        `${f}/: ${subFiles.slice(0, 10).join(", ")}`,
+                      );
                     }
-                  } catch { /* ignore */ }
+                  } catch {
+                    /* ignore */
+                  }
                 }
                 if (dirEntries.length > 0) {
-                  subDirInfo = dirEntries.join('\n');
+                  subDirInfo = dirEntries.join("\n");
                 }
-              } catch { /* ignore */ }
+              } catch {
+                /* ignore */
+              }
 
               const llmResult = await detector.detectWithLLMFallback(
                 workspaceRoot,
@@ -228,9 +254,12 @@ export class TestRunner {
                 subDirInfo,
               );
 
-              TestRunner.llmProjectTypeCache.set(workspaceRoot, llmResult || null);
+              TestRunner.llmProjectTypeCache.set(
+                workspaceRoot,
+                llmResult || null,
+              );
               console.log(
-                `[TestRunner] LLM project type cache set for ${workspaceRoot}: ${llmResult?.type || 'null'}`,
+                `[TestRunner] LLM project type cache set for ${workspaceRoot}: ${llmResult?.type || "null"}`,
               );
 
               if (llmResult && llmResult.type !== ProjectType.UNKNOWN) {
@@ -244,7 +273,8 @@ export class TestRunner {
                 try {
                   const rootEntries = await fs.readdir(workspaceRoot);
                   for (const entry of rootEntries) {
-                    if (entry.startsWith('.') || entry === 'node_modules') continue;
+                    if (entry.startsWith(".") || entry === "node_modules")
+                      continue;
                     const subPath = path.join(workspaceRoot, entry);
                     try {
                       const stat = await fs.stat(subPath);
@@ -257,9 +287,13 @@ export class TestRunner {
                         workspaceRoot = subPath;
                         break;
                       }
-                    } catch { /* ignore */ }
+                    } catch {
+                      /* ignore */
+                    }
                   }
-                } catch { /* ignore */ }
+                } catch {
+                  /* ignore */
+                }
               } else {
                 console.log(
                   "[TestRunner] No project type found. Diagnostics only.",
@@ -373,10 +407,19 @@ export class TestRunner {
       if (diagnosticErrors.length > 0) {
         // 구조적 에러 분류 (source+code 그룹핑, 키워드 매칭 없음)
         const envHealth = ProjectDetector.checkEnvironmentHealth(workspaceRoot);
-        const configFiles = detector.getCriticalFiles(projectInfo.type, workspaceRoot);
-        const classification = ErrorClassifier.classify(diagnosticErrors, envHealth, configFiles);
+        const configFiles = detector.getCriticalFiles(
+          projectInfo.type,
+          workspaceRoot,
+        );
+        const classification = ErrorClassifier.classify(
+          diagnosticErrors,
+          envHealth,
+          configFiles,
+        );
 
-        console.log(`[TestRunner] Error classification: ${classification.dominantCategory}, groups: ${classification.groups.length}`);
+        console.log(
+          `[TestRunner] Error classification: ${classification.dominantCategory}, groups: ${classification.groups.length}`,
+        );
 
         // 분류 결과와 함께 에러 반환 → LLM이 판단하여 필요 시 의존성 설치 등 수행
         const errorSummary = TestRunner.formatClassifiedErrors(classification);
@@ -416,14 +459,16 @@ export class TestRunner {
               return path.relative(workspaceRoot, f);
             }
             // 상대 경로가 서브디렉토리 접두사로 시작하면 제거
-            if (f.startsWith(subDir + '/') || f.startsWith(subDir + path.sep)) {
+            if (f.startsWith(subDir + "/") || f.startsWith(subDir + path.sep)) {
               return f.slice(subDir.length + 1);
             }
             return f;
           };
           effectiveCreatedFiles = createdFiles.map(rebasePath);
           effectiveModifiedFiles = modifiedFiles.map(rebasePath);
-          console.log(`[TestRunner] Rebased file paths for sub-project (${subDir}/): ${effectiveCreatedFiles.length + effectiveModifiedFiles.length} files`);
+          console.log(
+            `[TestRunner] Rebased file paths for sub-project (${subDir}/): ${effectiveCreatedFiles.length + effectiveModifiedFiles.length} files`,
+          );
         }
 
         let validationCmd = await detector.getValidationCommand(
@@ -437,10 +482,12 @@ export class TestRunner {
         if (validationCmd && excludedValidationCommands.length > 0) {
           const cmdStr = validationCmd.command;
           const isExcluded = excludedValidationCommands.some(
-            excluded => cmdStr.trim() === excluded.trim()
+            (excluded) => cmdStr.trim() === excluded.trim(),
           );
           if (isExcluded) {
-            console.log(`[TestRunner] Validation command excluded (not found): ${cmdStr}. Trying next candidate.`);
+            console.log(
+              `[TestRunner] Validation command excluded (not found): ${cmdStr}. Trying next candidate.`,
+            );
             validationCmd = await detector.getNextValidationCandidate(
               projectInfo.type,
               workspaceRoot,
@@ -474,7 +521,10 @@ export class TestRunner {
           );
 
           // COMMAND_NOT_FOUND 즉시 재시도: 하드코딩 후보 먼저, 소진 시 LLM
-          if (lintResult.classification?.dominantCategory === ErrorCategory.COMMAND_NOT_FOUND) {
+          if (
+            lintResult.classification?.dominantCategory ===
+            ErrorCategory.COMMAND_NOT_FOUND
+          ) {
             console.log(
               `[TestRunner] Validation command not found: ${validationCmd.command}. Trying next hardcoded candidate first.`,
             );
@@ -482,9 +532,17 @@ export class TestRunner {
 
             // 설정된 명령어가 없는 경우 사용자에게 알림, 하드코딩 명령어는 조용히 처리
             if ((validationCmd as any).fromSettings) {
-              WebviewBridge.sendProcessingStatus(webview, uiStep, `설정하신 '${validationCmd.command}' 명령어를 찾을 수 없습니다. 자동 감지 명령어로 대체합니다.`);
+              WebviewBridge.sendProcessingStatus(
+                webview,
+                uiStep,
+                `설정하신 '${validationCmd.command}' 명령어를 찾을 수 없습니다. 자동 감지 명령어로 대체합니다.`,
+              );
             } else {
-              WebviewBridge.sendProcessingStatus(webview, uiStep, "검증 도구 미설치 — 다음 후보 탐색 중...");
+              WebviewBridge.sendProcessingStatus(
+                webview,
+                uiStep,
+                "검증 도구 미설치 — 다음 후보 탐색 중...",
+              );
             }
 
             // 1. 하드코딩 후보 먼저 시도
@@ -512,11 +570,17 @@ export class TestRunner {
             if (fallbackCmd) {
               // fallback 명령어가 이미 제외된 명령과 정확히 일치하면 스킵
               const isDuplicate = excludedValidationCommands.some(
-                ex => fallbackCmd!.command.trim() === ex.trim()
+                (ex) => fallbackCmd!.command.trim() === ex.trim(),
               );
               if (isDuplicate) {
-                console.log(`[TestRunner] Fallback is duplicate of excluded command. Skipping validation.`);
-                WebviewBridge.sendProcessingStatus(webview, uiStep, "검증 도구 미설치 — 검증 건너뜀");
+                console.log(
+                  `[TestRunner] Fallback is duplicate of excluded command. Skipping validation.`,
+                );
+                WebviewBridge.sendProcessingStatus(
+                  webview,
+                  uiStep,
+                  "검증 도구 미설치 — 검증 건너뜀",
+                );
               } else {
                 const fallbackResult = await TestRunner.runValidationCommand(
                   webview,
@@ -526,17 +590,32 @@ export class TestRunner {
                   uiStep,
                 );
                 // fallback도 COMMAND_NOT_FOUND면 더 이상 재시도하지 않음
-                if (fallbackResult.classification?.dominantCategory === ErrorCategory.COMMAND_NOT_FOUND) {
-                  console.log(`[TestRunner] Fallback also COMMAND_NOT_FOUND. Skipping validation.`);
-                  WebviewBridge.sendProcessingStatus(webview, uiStep, "검증 도구 미설치 — 검증 건너뜀");
+                if (
+                  fallbackResult.classification?.dominantCategory ===
+                  ErrorCategory.COMMAND_NOT_FOUND
+                ) {
+                  console.log(
+                    `[TestRunner] Fallback also COMMAND_NOT_FOUND. Skipping validation.`,
+                  );
+                  WebviewBridge.sendProcessingStatus(
+                    webview,
+                    uiStep,
+                    "검증 도구 미설치 — 검증 건너뜀",
+                  );
                 } else {
                   testResults.push(fallbackResult.message);
                   cliClassification = fallbackResult.classification;
                 }
               }
             } else {
-              console.log(`[TestRunner] No fallback validation command available. Skipping.`);
-              WebviewBridge.sendProcessingStatus(webview, uiStep, "대체 검증 명령어 없음 (건너뜀)");
+              console.log(
+                `[TestRunner] No fallback validation command available. Skipping.`,
+              );
+              WebviewBridge.sendProcessingStatus(
+                webview,
+                uiStep,
+                "대체 검증 명령어 없음 (건너뜀)",
+              );
             }
           } else {
             testResults.push(lintResult.message);
@@ -565,22 +644,20 @@ export class TestRunner {
           (r) => r.includes("실패") || r.includes("Failed"),
         );
         const errorMessage = failedTestMessages.join("\n");
-        WebviewBridge.sendProcessingStatus(
-          webview,
-          uiStep,
-          "테스트 검증 실패",
-        );
+        WebviewBridge.sendProcessingStatus(webview, uiStep, "테스트 검증 실패");
         UsageMetricsManager.getInstance().recordVerification(false);
-        const subRoot = workspaceRoot !== _workspaceRoot ? workspaceRoot : undefined;
-        return { success: false, errorMessage, classification: cliClassification, detectedSubProjectRoot: subRoot };
+        const subRoot =
+          workspaceRoot !== _workspaceRoot ? workspaceRoot : undefined;
+        return {
+          success: false,
+          errorMessage,
+          classification: cliClassification,
+          detectedSubProjectRoot: subRoot,
+        };
       }
 
       // 모든 테스트 통과
-      WebviewBridge.sendProcessingStatus(
-        webview,
-        uiStep,
-        "테스트 검증 통과",
-      );
+      WebviewBridge.sendProcessingStatus(webview, uiStep, "테스트 검증 통과");
       UsageMetricsManager.getInstance().recordVerification(true);
       return { success: true };
     } catch (error) {
@@ -600,7 +677,7 @@ export class TestRunner {
     createdFiles: string[],
     modifiedFiles: string[],
     excludedCommands: string[] = [],
-    uiStep: string = 'executing',
+    uiStep: string = "executing",
   ): Promise<{ command: string; description: string } | null> {
     console.log(
       "[TestRunner] getValidationCommand() returned null. Querying LLM for validation command...",
@@ -614,24 +691,32 @@ export class TestRunner {
     const llmManager = LLMManager.getInstance();
 
     try {
-      const excludedNote = excludedCommands.length > 0
-        ? `\n\n주의: 다음 명령어는 이미 실패했으므로 사용하지 마세요: ${excludedCommands.join(', ')}`
-        : '';
-      const prompt = getValidationCommandPrompt({
-        projectType: projectInfo.type.toString(),
-        workspaceRoot,
-        createdFiles,
-        modifiedFiles,
-      }) + excludedNote;
+      const excludedNote =
+        excludedCommands.length > 0
+          ? `\n\n주의: 다음 명령어는 이미 실패했으므로 사용하지 마세요: ${excludedCommands.join(", ")}`
+          : "";
+      const prompt =
+        getValidationCommandPrompt({
+          projectType: projectInfo.type.toString(),
+          workspaceRoot,
+          createdFiles,
+          modifiedFiles,
+        }) + excludedNote;
 
       const _llmStart = Date.now();
       const response = await llmManager.sendMessage(prompt);
       try {
-        UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, estimateTokens(response), true);
-      } catch { /* metrics should never break main flow */ }
+        UsageMetricsManager.getInstance().recordLLMCall(
+          Date.now() - _llmStart,
+          estimateTokens(response),
+          true,
+        );
+      } catch {
+        /* metrics should never break main flow */
+      }
 
       // JSON 파싱 (markdown code fence 제거)
-      const cleaned = response.replace(/```(?:json)?\s*/g, '').trim();
+      const cleaned = response.replace(/```(?:json)?\s*/g, "").trim();
       const jsonMatch = cleaned.match(/\{[\s\S]*?\}/);
       if (jsonMatch) {
         try {
@@ -680,7 +765,7 @@ export class TestRunner {
     validationCmd: { command: string; description: string },
     workspaceRoot: string,
     timeout: number = AgentConfig.VALIDATION_COMMAND_TIMEOUT,
-    uiStep: string = 'executing',
+    uiStep: string = "executing",
   ): Promise<{ message: string; classification?: ClassificationResult }> {
     WebviewBridge.sendProcessingStatus(
       webview,
@@ -695,10 +780,14 @@ export class TestRunner {
       );
 
       // Exit code 5 = pytest "no tests collected" — not an error, just no tests exist
-      const isNoTestsCollected = result.exitCode === 5 && /no tests/i.test(result.stderr || result.stdout || '');
+      const isNoTestsCollected =
+        result.exitCode === 5 &&
+        /no tests/i.test(result.stderr || result.stdout || "");
       if (result.exitCode === 0 || isNoTestsCollected) {
         if (isNoTestsCollected) {
-          console.log(`[TestRunner] pytest exit code 5 (no tests collected) — treating as pass`);
+          console.log(
+            `[TestRunner] pytest exit code 5 (no tests collected) — treating as pass`,
+          );
         }
         const message = `${validationCmd.description} 통과: 문법 오류가 없습니다.`;
         WebviewBridge.sendProcessingStatus(
@@ -712,18 +801,24 @@ export class TestRunner {
         const outcome: ExecutionOutcome = {
           command: validationCmd.command,
           exitCode: result.exitCode,
-          hasStderr: (result.stderr || '').length > 0,
-          hasStdout: (result.stdout || '').length > 0,
+          hasStderr: (result.stderr || "").length > 0,
+          hasStdout: (result.stdout || "").length > 0,
           duration: result.duration,
           errorCode: result.error?.code,
           killed: result.error?.killed ?? false,
           signal: result.error?.signal,
-          stderrSnippet: (result.stderr || result.stdout || '').substring(0, 200),
+          stderrSnippet: (result.stderr || result.stdout || "").substring(
+            0,
+            200,
+          ),
         };
 
         // 구조적 분류
         const envHealth = ProjectDetector.checkEnvironmentHealth(workspaceRoot);
-        const classification = ErrorClassifier.classifyFromExecution(outcome, envHealth);
+        const classification = ErrorClassifier.classifyFromExecution(
+          outcome,
+          envHealth,
+        );
 
         const errorOutput = result.stderr || result.stdout || "";
         const truncatedOutput = StringUtils.truncate(
@@ -792,7 +887,10 @@ export class TestRunner {
           const relatedFiles: string[] = [];
           if (diagnostic.relatedInformation) {
             for (const info of diagnostic.relatedInformation) {
-              const relPath = path.relative(workspaceRoot, info.location.uri.fsPath);
+              const relPath = path.relative(
+                workspaceRoot,
+                info.location.uri.fsPath,
+              );
               if (!relatedFiles.includes(relPath)) {
                 relatedFiles.push(relPath);
               }
@@ -806,8 +904,10 @@ export class TestRunner {
             code: diagnostic.code?.toString() || "unknown",
             source: diagnostic.source || "unknown",
             relatedFiles,
-            tags: diagnostic.tags ? diagnostic.tags.map(t => t as number) : [],
-            severity: 'error',
+            tags: diagnostic.tags
+              ? diagnostic.tags.map((t) => t as number)
+              : [],
+            severity: "error",
           });
         }
       } catch (error) {
@@ -824,17 +924,25 @@ export class TestRunner {
   /**
    * 분류된 에러를 LLM 프롬프트용 문자열로 포맷팅
    */
-  private static formatClassifiedErrors(classification: ClassificationResult): string {
+  private static formatClassifiedErrors(
+    classification: ClassificationResult,
+  ): string {
     const lines: string[] = [];
-    lines.push(`Diagnostics 검사 실패 (${classification.totalErrorCount}개 에러):`);
+    lines.push(
+      `Diagnostics 검사 실패 (${classification.totalErrorCount}개 에러):`,
+    );
     lines.push(`분류: ${classification.dominantCategory}`);
 
     if (classification.environmentCheck.needsInstall) {
-      lines.push(`환경: 의존성 디렉토리 누락 (${classification.environmentCheck.installCommand || '설치 필요'})`);
+      lines.push(
+        `환경: 의존성 디렉토리 누락 (${classification.environmentCheck.installCommand || "설치 필요"})`,
+      );
     }
 
     for (const group of classification.groups) {
-      lines.push(`\n[${group.source}:${group.representativeCode}] ${group.count}건 - ${group.affectedFiles.length}개 파일:`);
+      lines.push(
+        `\n[${group.source}:${group.representativeCode}] ${group.count}건 - ${group.affectedFiles.length}개 파일:`,
+      );
       for (const file of group.affectedFiles.slice(0, 5)) {
         lines.push(`  - ${file}`);
       }
@@ -846,7 +954,7 @@ export class TestRunner {
       }
     }
 
-    return lines.join('\n');
+    return lines.join("\n");
   }
 
   /**
@@ -911,7 +1019,10 @@ export class TestRunner {
     createdFiles: string[],
     modifiedFiles: string[],
     detector: ProjectDetector,
-  ): Promise<{ root: string; info: { type: ProjectType; confidence: number; buildTool: any } } | null> {
+  ): Promise<{
+    root: string;
+    info: { type: ProjectType; confidence: number; buildTool: any };
+  } | null> {
     const allFiles = [...createdFiles, ...modifiedFiles];
     if (allFiles.length === 0) return null;
 
@@ -959,32 +1070,39 @@ export class TestRunner {
   /**
    * 워크스페이스 루트에 해당 프로젝트 타입의 manifest 파일이 있는지 확인
    */
-  private static async hasManifestFile(workspaceRoot: string, projectType: ProjectType): Promise<boolean> {
+  private static async hasManifestFile(
+    workspaceRoot: string,
+    projectType: ProjectType,
+  ): Promise<boolean> {
     const manifestMap: Record<string, string[]> = {
-      [ProjectType.NODE]: ['package.json'],
-      [ProjectType.REACT]: ['package.json'],
-      [ProjectType.NEXTJS]: ['package.json'],
-      [ProjectType.NUXTJS]: ['package.json'],
-      [ProjectType.SVELTE]: ['package.json'],
-      [ProjectType.VUE]: ['package.json'],
-      [ProjectType.ANGULAR]: ['package.json'],
-      [ProjectType.PYTHON]: ['requirements.txt', 'pyproject.toml', 'Pipfile'],
-      [ProjectType.DJANGO]: ['requirements.txt', 'pyproject.toml', 'manage.py'],
-      [ProjectType.FLASK]: ['requirements.txt', 'pyproject.toml'],
-      [ProjectType.FASTAPI]: ['requirements.txt', 'pyproject.toml'],
-      [ProjectType.JAVA]: ['pom.xml', 'build.gradle', 'build.gradle.kts'],
-      [ProjectType.SPRING_BOOT]: ['pom.xml', 'build.gradle', 'build.gradle.kts'],
-      [ProjectType.ANDROID]: ['build.gradle', 'build.gradle.kts'],
-      [ProjectType.GO]: ['go.mod'],
-      [ProjectType.RUST]: ['Cargo.toml'],
-      [ProjectType.RUBY]: ['Gemfile'],
-      [ProjectType.PHP]: ['composer.json'],
-      [ProjectType.CSHARP]: ['*.csproj', '*.sln'],
-      [ProjectType.KOTLIN]: ['build.gradle', 'build.gradle.kts'],
-      [ProjectType.ELIXIR]: ['mix.exs'],
-      [ProjectType.SCALA]: ['build.sbt'],
-      [ProjectType.SWIFT]: ['Package.swift'],
-      [ProjectType.FLUTTER]: ['pubspec.yaml'],
+      [ProjectType.NODE]: ["package.json"],
+      [ProjectType.REACT]: ["package.json"],
+      [ProjectType.NEXTJS]: ["package.json"],
+      [ProjectType.NUXTJS]: ["package.json"],
+      [ProjectType.SVELTE]: ["package.json"],
+      [ProjectType.VUE]: ["package.json"],
+      [ProjectType.ANGULAR]: ["package.json"],
+      [ProjectType.PYTHON]: ["requirements.txt", "pyproject.toml", "Pipfile"],
+      [ProjectType.DJANGO]: ["requirements.txt", "pyproject.toml", "manage.py"],
+      [ProjectType.FLASK]: ["requirements.txt", "pyproject.toml"],
+      [ProjectType.FASTAPI]: ["requirements.txt", "pyproject.toml"],
+      [ProjectType.JAVA]: ["pom.xml", "build.gradle", "build.gradle.kts"],
+      [ProjectType.SPRING_BOOT]: [
+        "pom.xml",
+        "build.gradle",
+        "build.gradle.kts",
+      ],
+      [ProjectType.ANDROID]: ["build.gradle", "build.gradle.kts"],
+      [ProjectType.GO]: ["go.mod"],
+      [ProjectType.RUST]: ["Cargo.toml"],
+      [ProjectType.RUBY]: ["Gemfile"],
+      [ProjectType.PHP]: ["composer.json"],
+      [ProjectType.CSHARP]: ["*.csproj", "*.sln"],
+      [ProjectType.KOTLIN]: ["build.gradle", "build.gradle.kts"],
+      [ProjectType.ELIXIR]: ["mix.exs"],
+      [ProjectType.SCALA]: ["build.sbt"],
+      [ProjectType.SWIFT]: ["Package.swift"],
+      [ProjectType.FLUTTER]: ["pubspec.yaml"],
     };
 
     const manifests = manifestMap[projectType];
@@ -992,11 +1110,11 @@ export class TestRunner {
 
     for (const manifest of manifests) {
       try {
-        if (manifest.includes('*')) {
+        if (manifest.includes("*")) {
           // glob 패턴 (*.csproj 등)
           const entries = await fs.readdir(workspaceRoot);
-          const ext = manifest.replace('*', '');
-          if (entries.some(e => e.endsWith(ext))) return true;
+          const ext = manifest.replace("*", "");
+          if (entries.some((e) => e.endsWith(ext))) return true;
         } else {
           await fs.access(path.join(workspaceRoot, manifest));
           return true;

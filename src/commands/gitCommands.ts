@@ -72,7 +72,9 @@ export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
         const cwd = requireWorkspace();
         if (!cwd) return;
         const stdout = await execGit("git log --oneline -15", cwd);
-        postSystem(`Git 커밋 히스토리 (최근 15개)\n\n\`\`\`\n${stdout}\n\`\`\``);
+        postSystem(
+          `Git 커밋 히스토리 (최근 15개)\n\n\`\`\`\n${stdout}\n\`\`\``,
+        );
       } catch (error: any) {
         postSystem(`Git 히스토리 확인 실패: ${error.message || error}`);
       }
@@ -86,7 +88,7 @@ export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
         const localBranches = await execGit("git branch", cwd);
         const remoteBranches = await execGit("git branch -r", cwd);
         postSystem(
-          `### Git 브랜치 목록\n\n**로컬 브랜치:**\n\`\`\`\n${localBranches}\n\`\`\`\n\n**원격 브랜치:**\n\`\`\`\n${remoteBranches}\n\`\`\``
+          `### Git 브랜치 목록\n\n**로컬 브랜치:**\n\`\`\`\n${localBranches}\n\`\`\`\n\n**원격 브랜치:**\n\`\`\`\n${remoteBranches}\n\`\`\``,
         );
       } catch (error: any) {
         postSystem(`Git 브랜치 확인 실패: ${error.message || error}`);
@@ -98,16 +100,34 @@ export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
       try {
         const cwd = requireWorkspace();
         if (!cwd) return;
-        const branch = await execGit("git branch --show-current", cwd).catch(() => "");
-        const remote = await execGit("git remote get-url origin", cwd).catch(() => "");
-        if (!branch.trim()) {
-          postSystem("### ℹGit 리포지토리 정보\n\nGit 리포지토리가 감지되지 않았습니다.");
+        const branch = (
+          await execGit("git rev-parse --abbrev-ref HEAD", cwd)
+        ).trim();
+        const remoteUrl = (
+          await execGit("git remote get-url origin", cwd).catch(() => "")
+        ).trim();
+        const remoteName =
+          (await execGit("git remote", cwd).catch(() => ""))
+            .trim()
+            .split("\n")[0] || "(none)";
+        if (!remoteUrl) {
+          postSystem(
+            "### ℹGit 리포지토리 정보\n\nGit 리포지토리가 감지되지 않았습니다.",
+          );
           return;
         }
+        const match = remoteUrl.match(/[/:]([\w.-]+)\/([\w.-]+?)(?:\.git)?$/);
+        const owner = match?.[1] || "(unknown)";
+        const repo = match?.[2] || "(unknown)";
+        const isGitHub = remoteUrl.includes("github.com");
         postSystem(
           `### ℹGit 리포지토리 정보\n\n` +
-            `- **현재 브랜치**: ${branch.trim()}\n` +
-            (remote.trim() ? `- **원격 저장소**: ${remote.trim()}\n` : "")
+            `- **소유자**: ${owner}\n` +
+            `- **리포지토리**: ${repo}\n` +
+            `- **현재 브랜치**: ${branch}\n` +
+            `- **원격 저장소**: ${remoteName}\n` +
+            `- **URL**: ${remoteUrl}\n` +
+            `- **GitHub**: ${isGitHub ? "✅" : "❌"}`,
         );
       } catch (error: any) {
         postSystem(`Git 정보 확인 실패: ${error.message || error}`);
@@ -145,6 +165,5 @@ export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
         postSystem(`Stash 목록 확인 실패: ${error.message || error}`);
       }
     }),
-
   ];
 }
