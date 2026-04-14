@@ -18,7 +18,6 @@ export function bindToggleEvents(elements) {
     autoCorrectionToggle,
     autoExecuteToggle,
     autoToolToggle,
-    autoMcpToolToggle,
     orchestrationToggle,
     inlineCompletionToggle,
     vscode,
@@ -89,7 +88,10 @@ export function bindToggleEvents(elements) {
   if (thinkingLevelSelect) {
     thinkingLevelSelect.addEventListener("change", () => {
       if (vscode) {
-        vscode.postMessage({ command: "setThinkingLevel", level: thinkingLevelSelect.value });
+        vscode.postMessage({
+          command: "setThinkingLevel",
+          level: thinkingLevelSelect.value,
+        });
       }
     });
   }
@@ -114,16 +116,6 @@ export function bindToggleEvents(elements) {
     });
   }
 
-  // MCP 도구 자동 실행 토글
-  if (autoMcpToolToggle) {
-    autoMcpToolToggle.addEventListener("change", () => {
-      const enabled = autoMcpToolToggle.checked;
-      if (vscode) {
-        vscode.postMessage({ command: "setAutoMcpToolExecutionEnabled", enabled });
-      }
-    });
-  }
-
   // 오케스트레이션 토글
   if (orchestrationToggle) {
     orchestrationToggle.addEventListener("change", () => {
@@ -139,18 +131,26 @@ export function bindToggleEvents(elements) {
     autoExecuteToggle.addEventListener("change", () => {
       const enabled = autoExecuteToggle.checked;
       if (vscode) {
-        vscode.postMessage({ command: "setAutoExecuteCommandsEnabled", enabled });
+        vscode.postMessage({
+          command: "setAutoExecuteCommandsEnabled",
+          enabled,
+        });
       }
     });
   }
 
   // 프로젝트 외부 파일 차단 토글
-  const blockOutsideProjectToggle = document.getElementById("block-outside-project-toggle");
+  const blockOutsideProjectToggle = document.getElementById(
+    "block-outside-project-toggle",
+  );
   if (blockOutsideProjectToggle) {
     blockOutsideProjectToggle.addEventListener("change", () => {
       const enabled = blockOutsideProjectToggle.checked;
       if (vscode) {
-        vscode.postMessage({ command: "setBlockOutsideProjectEnabled", enabled });
+        vscode.postMessage({
+          command: "setBlockOutsideProjectEnabled",
+          enabled,
+        });
       }
     });
   }
@@ -161,17 +161,6 @@ export function bindToggleEvents(elements) {
       const enabled = inlineCompletionToggle.checked;
       if (vscode) {
         vscode.postMessage({ command: "setInlineCompletionEnabled", enabled });
-      }
-    });
-  }
-
-  // 다음 작업 제안 토글
-  const promptSuggestionToggle = document.getElementById("prompt-suggestion-toggle");
-  if (promptSuggestionToggle) {
-    promptSuggestionToggle.addEventListener("change", () => {
-      const enabled = promptSuggestionToggle.checked;
-      if (vscode) {
-        vscode.postMessage({ command: "setPromptSuggestionEnabled", enabled });
       }
     });
   }
@@ -186,14 +175,21 @@ export function bindToggleEvents(elements) {
  * @param {string} enabledKey - 활성화 텍스트 키
  * @param {string} disabledKey - 비활성화 텍스트 키
  */
-export function updateToggleState(toggleElement, statusElement, enabled, languageData, enabledKey, disabledKey) {
+export function updateToggleState(
+  toggleElement,
+  statusElement,
+  enabled,
+  languageData,
+  enabledKey,
+  disabledKey,
+) {
   if (toggleElement) {
     toggleElement.checked = enabled;
   }
   if (statusElement) {
     const text = enabled
-      ? (languageData[enabledKey] || "활성화됨")
-      : (languageData[disabledKey] || "비활성화됨");
+      ? languageData[enabledKey] || "활성화됨"
+      : languageData[disabledKey] || "비활성화됨";
     statusElement.textContent = text;
     statusElement.className = enabled ? "success-message" : "info-message";
   }
@@ -204,11 +200,7 @@ export function updateToggleState(toggleElement, statusElement, enabled, languag
  * @param {Object} elements - DOM 요소들
  */
 export function bindSpinnerEvents(elements) {
-  const {
-    testRetrySpinner,
-    errorRetrySpinner,
-    vscode,
-  } = elements;
+  const { testRetrySpinner, errorRetrySpinner, vscode } = elements;
 
   // 테스트 재시도 횟수 스피너
   if (testRetrySpinner) {

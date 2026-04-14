@@ -380,10 +380,8 @@
       body[data-theme="light"] .icon-img:hover {
         opacity: 1 !important;
       }
-      /* ASK/PLAN 모드 send 버튼 아이콘은 흰색 (배경색이 있을 때만) */
-      body[data-theme="light"] #send-button.ask-mode .icon-img,
-      body[data-theme="light"] #send-button.plan-mode .icon-img,
-      body[data-theme="light"] #send-button.agent-mode .icon-img {
+      /* ASK 모드 send 버튼 아이콘은 흰색 (배경색이 있을 때만) */
+      body[data-theme="light"] #send-button.ask-mode .icon-img {
         filter: brightness(0) invert(1) !important;
         opacity: 1 !important;
       }
@@ -516,6 +514,19 @@
       }
       body[data-theme="dark"] .thinking-cursor {
         background: #00ff00 !important; /* 형광 초록 */
+      }
+
+      /* Run 버튼 - 다크 테마: IDE primary 색 대신 실행은 블루로 고정 */
+      body[data-theme="dark"] .run-bash-button {
+        background-color: #2563eb !important;
+        color: #ffffff !important;
+        border: none !important;
+      }
+      body[data-theme="dark"] .run-bash-button:hover {
+        background-color: #1d4ed8 !important;
+      }
+      body[data-theme="dark"] .run-bash-button:active {
+        background-color: #1e40af !important;
       }
 
       /* Keep 버튼 - 다크 테마: 기본 #73c991 유지 (Keep All과 동일) */
@@ -710,39 +721,6 @@
       }
       .ask-question-submit:hover {
         background: var(--vscode-button-hoverBackground);
-      }
-
-      /* Prompt Suggestion */
-      .suggestion-container {
-        padding: 8px 0;
-        animation: fadeInUp 0.2s ease;
-      }
-      .suggestion-label {
-        font-size: 11px;
-        font-weight: 500;
-        margin-bottom: 6px;
-        color: var(--vscode-descriptionForeground);
-      }
-      .suggestion-options {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 4px;
-      }
-      .suggestion-btn {
-        padding: 4px 10px;
-        border-radius: 4px;
-        border: 1px solid var(--vscode-input-border, #555);
-        background: var(--vscode-input-background);
-        color: var(--vscode-input-foreground);
-        cursor: pointer;
-        font-size: 11px;
-        text-align: left;
-        transition: all 0.15s;
-        white-space: nowrap;
-      }
-      .suggestion-btn:hover {
-        border-color: var(--vscode-focusBorder);
-        background: var(--vscode-list-hoverBackground);
       }
 
       /* Approval Buttons */
@@ -1287,7 +1265,7 @@
         opacity: 0.5;
       }
 
-      .codepilot-message-container {
+      .agentgocoder-message-container {
         margin-bottom: 15px;
         display: flex;
         flex-direction: column;
@@ -1533,11 +1511,11 @@
       }
 
       /* 스트리밍 메시지 스타일 */
-      .codepilot-message.streaming {
+      .agentgocoder-message.streaming {
         opacity: 1;
       }
 
-      .codepilot-message.streaming .message-content {
+      .agentgocoder-message.streaming .message-content {
         min-height: 20px;
       }
 
@@ -2660,14 +2638,16 @@
         background: transparent;
       }
 
+      /* 완료: 초록 고정 (테마 primary와 구분) */
       .status-circle.done {
-        background: var(--vscode-testing-iconPassed);
+        background: #16a34a;
       }
 
+      /* 진행 중: 파랑 고정 — vscode-button-background는 Cursor 등에서 초록일 수 있음 */
       .status-circle.working {
-        background: var(--vscode-button-background);
+        background: #2563eb;
         animation: pulse-circle 1.5s infinite;
-        box-shadow: 0 0 5px var(--vscode-button-background);
+        box-shadow: 0 0 5px rgba(37, 99, 235, 0.65);
       }
 
       .status-circle.failed {
@@ -2829,8 +2809,8 @@
       }
 
       .task-item.working {
-        background: rgba(0, 122, 204, 0.1);
-        border-left: 2px solid var(--vscode-button-background);
+        background: rgba(37, 99, 235, 0.12);
+        border-left: 2px solid #2563eb;
       }
 
       .task-item.failed {
@@ -3213,18 +3193,6 @@
             </div>
             <div
               class="dropdown-option"
-              data-mode="AGENT"
-              style="
-                padding: 4px 8px;
-                cursor: pointer;
-                font-size: 10px;
-                border-radius: 4px;
-              "
-            >
-              AGENT
-            </div>
-            <div
-              class="dropdown-option"
               data-mode="ASK"
               style="
                 padding: 4px 8px;
@@ -3234,18 +3202,6 @@
               "
             >
               ASK
-            </div>
-            <div
-              class="dropdown-option"
-              data-mode="PLAN"
-              style="
-                padding: 4px 8px;
-                cursor: pointer;
-                font-size: 10px;
-                border-radius: 4px;
-              "
-            >
-              PLAN
             </div>
           </div>
           <div
@@ -3491,7 +3447,7 @@
     <script src="{{scriptUri}}"></script>
     <script src="{{codeCopyScriptUri}}"></script>
 
-    <!-- Mode dropdown (CODE / ASK) -->
+    <!-- Mode dropdown (CODE / ASK; AGENT·PLAN UI 제거, 기본 CODE) -->
     <script>
       (function () {
         const modeBtn = document.getElementById("mode-selector");
@@ -3503,7 +3459,7 @@
         window.chatMode = window.chatMode || "CODE";
 
         const applyMode = (mode) => {
-          const normalized = mode === "ASK" ? "ASK" : mode === "PLAN" ? "PLAN" : mode === "AGENT" ? "AGENT" : "CODE";
+          const normalized = mode === "ASK" ? "ASK" : "CODE";
           window.chatMode = normalized;
           modeLabel.textContent = normalized;
           // 모드에 따라 버튼의 data-mode 속성 설정 (색상 포인트용)
@@ -4495,9 +4451,7 @@
         useEffect(() => {
           const handleMessage = (event) => {
             const data = event.data;
-            if (data.command === "clearHistory") {
-              setMessages([]);
-            } else if (data.command === "showCalloutExecuting") {
+            if (data.command === "showCalloutExecuting") {
               // 모든 callout 박스에 executing 상태 표시
               showAllCalloutExecuting();
             } else if (data.command === "hideCalloutExecuting") {

@@ -34,7 +34,7 @@ export interface CollectedAction {
  * UI 메시지 수집
  */
 export interface CollectedUIMessage {
-  sender: 'USER' | 'CODEPILOT' | 'System';
+  sender: 'USER' | 'AgentGoCoder' | 'System';
   text: string;
   type?: 'action' | 'code' | 'summary' | 'message';
 }

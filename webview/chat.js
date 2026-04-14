@@ -122,14 +122,13 @@ if (
 }
 const vscode = window.vscode || null;
 
-
 // ===== 처리 단계 및 스크롤 관련 함수들 (모듈 래퍼) =====
 // 실제 구현은 ./chat/processing-steps.js 모듈에 있음
 
 function setProcessingStep(stepName) {
   setProcessingStepModule(stepName);
   // done 단계에서 thinking content 정리
-  if (stepName === 'done') {
+  if (stepName === "done") {
     clearThinkingContentModule();
   }
 }
@@ -174,14 +173,16 @@ function endStreamingMessage() {
 }
 
 /**
- * 마지막 CODEPILOT 메시지에 토큰 뱃지를 추가합니다.
+ * 마지막 AgentGoCoder 메시지에 토큰 뱃지를 추가합니다.
  */
 function appendTokenBadgeToLastMessage(tokenInfo) {
   const chatMessages = document.getElementById("chat-messages");
   if (!chatMessages) return;
 
-  // 마지막 codepilot 메시지 컨테이너 찾기
-  const containers = chatMessages.querySelectorAll(".codepilot-message-container");
+  // 마지막 AgentGoCoder 메시지 컨테이너 찾기
+  const containers = chatMessages.querySelectorAll(
+    ".agentgocoder-message-container",
+  );
   if (containers.length === 0) return;
   const lastContainer = containers[containers.length - 1];
 
@@ -195,7 +196,8 @@ function appendTokenBadgeToLastMessage(tokenInfo) {
 
   const tokens = tokenInfo.tokens || 0;
   const model = tokenInfo.model || "";
-  const formattedTokens = tokens >= 1000 ? (tokens / 1000).toFixed(1) + "K" : tokens.toString();
+  const formattedTokens =
+    tokens >= 1000 ? (tokens / 1000).toFixed(1) + "K" : tokens.toString();
 
   badge.textContent = `${formattedTokens} tokens`;
   if (model) {
@@ -210,7 +212,13 @@ function appendTokenBadgeToLastMessage(tokenInfo) {
  */
 function appendReferencePanelToLastMessage(referenceInfo) {
   const chatMessages = document.getElementById("chat-messages");
-  if (!chatMessages || !referenceInfo || !referenceInfo.items || referenceInfo.items.length === 0) return;
+  if (
+    !chatMessages ||
+    !referenceInfo ||
+    !referenceInfo.items ||
+    referenceInfo.items.length === 0
+  )
+    return;
 
   // 기존 참조 패널이 있으면 업데이트, 없으면 chat-messages 레벨에 삽입 (turn-actions 앞)
   let panel = chatMessages.querySelector(".reference-panel");
@@ -234,12 +242,17 @@ function appendReferencePanelToLastMessage(referenceInfo) {
     server_skill: "Skill",
   };
 
-  const listItems = referenceInfo.items.map((item, idx) => {
-    const typeLabel = typeLabels[item.type] || item.type;
-    const chunkLabel = item.type === 'rag' ? ` #${idx + 1}` : "";
-    const similarity = item.similarity != null ? ` (${(item.similarity * 100).toFixed(0)}%)` : "";
-    return `<div class="ref-item"><span class="ref-type ${item.type}">${typeLabel}${chunkLabel}</span><span>${item.name}${similarity}</span></div>`;
-  }).join("");
+  const listItems = referenceInfo.items
+    .map((item, idx) => {
+      const typeLabel = typeLabels[item.type] || item.type;
+      const chunkLabel = item.type === "rag" ? ` #${idx + 1}` : "";
+      const similarity =
+        item.similarity != null
+          ? ` (${(item.similarity * 100).toFixed(0)}%)`
+          : "";
+      return `<div class="ref-item"><span class="ref-type ${item.type}">${typeLabel}${chunkLabel}</span><span>${item.name}${similarity}</span></div>`;
+    })
+    .join("");
 
   panel.innerHTML = `<div class="reference-panel-toggle" onclick="var icon=this.querySelector('.toggle-icon');if(icon)icon.classList.toggle('expanded');var next=this.nextElementSibling;if(next)next.classList.toggle('show')"><span class="toggle-icon">&#9654;</span> ${referenceInfo.items.length}개 참조</div><div class="reference-panel-list">${listItems}</div>`;
 }
@@ -275,7 +288,12 @@ const modelDropdown = document.getElementById("model-dropdown");
 // const selectedFilesContainer = document.getElementById("selected-files-container");
 // const clearFilesButton = document.getElementById("clear-files-button");
 const filePickerButton = document.getElementById("file-picker-button");
-let currentMode = window.chatMode || "CODE";
+
+function normalizeChatMode(mode) {
+  return mode === "ASK" ? "ASK" : "CODE";
+}
+
+let currentMode = normalizeChatMode(window.chatMode || "CODE");
 
 // 채팅 컨테이너 참조 추가
 const chatContainer = document.getElementById("chat-container");
@@ -791,7 +809,8 @@ function updatePendingQueueUI() {
   // 카운트 업데이트
   const countEl = document.getElementById("queue-header-count");
   if (countEl) {
-    countEl.textContent = pendingQuestions.length > 0 ? `(${pendingQuestions.length})` : "";
+    countEl.textContent =
+      pendingQuestions.length > 0 ? `(${pendingQuestions.length})` : "";
   }
 
   // 아이템 목록 렌더링
@@ -850,7 +869,7 @@ function doSendUserMessage(payload) {
   const imgMime = payload.imageMimeType || null;
   const files = payload.selectedFiles || [];
   const selectedCode = payload.selectedCode || null;
-  const mode = payload.mode || currentMode || "CODE";
+  const mode = normalizeChatMode(payload.mode || currentMode || "CODE");
   const terminalCtx = payload.terminalContext || null;
   const diagnosticsCtx = payload.diagnosticsContext || null;
   const alreadyDisplayed = payload.alreadyDisplayed || false;
@@ -861,12 +880,16 @@ function doSendUserMessage(payload) {
   // 큐에서 온 메시지가 아닌 경우에만 표시 (큐 메시지는 이미 표시됨)
   if (!alreadyDisplayed) {
     // payload.displayText 우선, 없으면 입력창 내용 사용 (큐 메시지는 payload에 저장됨)
-    const displayText = (payload.displayText || getChatInputDisplayContent()).trimEnd();
-    const codeInfo = payload.selectedCode ? {
-      fileName: payload.selectedCodeFileName || "",
-      lineStart: payload.selectedCodeLineStart || 0,
-      lineEnd: payload.selectedCodeLineEnd || 0,
-    } : null;
+    const displayText = (
+      payload.displayText || getChatInputDisplayContent()
+    ).trimEnd();
+    const codeInfo = payload.selectedCode
+      ? {
+          fileName: payload.selectedCodeFileName || "",
+          lineStart: payload.selectedCodeLineStart || 0,
+          lineEnd: payload.selectedCodeLineEnd || 0,
+        }
+      : null;
     window.displayUserMessage(displayText, img, codeInfo);
   }
   window.showLoading();
@@ -907,11 +930,23 @@ function createSlashMenu() {
 }
 
 function renderSlashMenu(filter = "") {
-  renderSlashMenuModule(filter, chatInput, setCursorToEnd, vscode, autoResizeTextarea);
+  renderSlashMenuModule(
+    filter,
+    chatInput,
+    setCursorToEnd,
+    vscode,
+    autoResizeTextarea,
+  );
 }
 
 function selectSlashCategory(categoryId) {
-  selectSlashCategoryModule(categoryId, chatInput, setCursorToEnd, vscode, autoResizeTextarea);
+  selectSlashCategoryModule(
+    categoryId,
+    chatInput,
+    setCursorToEnd,
+    vscode,
+    autoResizeTextarea,
+  );
 }
 
 function hideSlashMenu() {
@@ -1390,7 +1425,9 @@ if (sendButton && chatInput) {
         } else if (e.key === "Enter") {
           e.preventDefault();
           if (filteredCategories[slashState.selectedIndex]) {
-            selectSlashCategory(filteredCategories[slashState.selectedIndex].id);
+            selectSlashCategory(
+              filteredCategories[slashState.selectedIndex].id,
+            );
           }
           return;
         } else if (e.key === "Escape") {
@@ -1400,7 +1437,8 @@ if (sendButton && chatInput) {
         }
       } else {
         // 명령어 모드
-        const commands = slashCommandsByCategory[slashState.selectedCategory] || [];
+        const commands =
+          slashCommandsByCategory[slashState.selectedCategory] || [];
         // 입력값에서 카테고리 부분 제거하여 필터 생성 (예: "/git commit" -> "commit")
         const inputValue = getChatInputValue();
         const categoryPrefix = `/${slashState.selectedCategory} `;
@@ -1526,10 +1564,11 @@ if (sendButton && chatInput) {
     // 입력 내용에 따라 버튼 전환
     if (loadingDepth > 0 || isPendingSend) {
       // 처리 중: Stop ↔ 다시 보내기
-      const hasContent = getChatInputText().trim() !== ""
-        || !!selectedImageBase64
-        || selectedFiles.length > 0;
-      updateSendCancelButtons(hasContent ? 'queue' : true);
+      const hasContent =
+        getChatInputText().trim() !== "" ||
+        !!selectedImageBase64 ||
+        selectedFiles.length > 0;
+      updateSendCancelButtons(hasContent ? "queue" : true);
     } else {
       // 대기 중: Send ↔ Stop(비활성)
       updateSendCancelButtons(false);
@@ -1552,7 +1591,8 @@ if (sendButton && chatInput) {
 
     // '@' 입력 감지 (가장 마지막 '@' 이후에 스페이스가 없을 때만)
     // '@' 앞이 공백이거나 줄 시작일 때만 멘션으로 인식 (git@github.com 등 방지)
-    const isValidMention = lastAtIndex === 0 || /\s/.test(value[lastAtIndex - 1]);
+    const isValidMention =
+      lastAtIndex === 0 || /\s/.test(value[lastAtIndex - 1]);
     if (
       lastAtIndex !== -1 &&
       isValidMention &&
@@ -1579,7 +1619,10 @@ if (sendButton && chatInput) {
           // 카테고리에 따라 모드 설정
           const targetMode = category.id === "terminal" ? "terminal" : "files";
           const currentAtState = getAtMenuState();
-          if (currentAtState.mode !== targetMode || currentAtState.selectedCategory !== category.id) {
+          if (
+            currentAtState.mode !== targetMode ||
+            currentAtState.selectedCategory !== category.id
+          ) {
             setAtMenuMode(targetMode);
             setSelectedAtCategory(category.id);
             setAtMenuSelectedIndex(0);
@@ -1786,9 +1829,10 @@ function handleSendMessage() {
     // 에디터 선택이 있으면 text(userQuery)에 라벨 접두어 추가 → 히스토리에 보존
     let finalText = text;
     if (selectedEditorCode) {
-      const li = selectedEditorCode.lineStart === selectedEditorCode.lineEnd
-        ? `L${selectedEditorCode.lineStart}`
-        : `L${selectedEditorCode.lineStart}-${selectedEditorCode.lineEnd}`;
+      const li =
+        selectedEditorCode.lineStart === selectedEditorCode.lineEnd
+          ? `L${selectedEditorCode.lineStart}`
+          : `L${selectedEditorCode.lineStart}-${selectedEditorCode.lineEnd}`;
       finalText = `${selectedEditorCode.fileName} ${li} ${text}`;
     }
     const payload = {
@@ -1799,9 +1843,15 @@ function handleSendMessage() {
       imageMimeType: selectedImageMimeType,
       selectedFiles: selectedFiles.map((file) => file.path),
       selectedCode: selectedEditorCode ? selectedEditorCode.text : null,
-      selectedCodeFileName: selectedEditorCode ? selectedEditorCode.fileName : null,
-      selectedCodeLineStart: selectedEditorCode ? selectedEditorCode.lineStart : null,
-      selectedCodeLineEnd: selectedEditorCode ? selectedEditorCode.lineEnd : null,
+      selectedCodeFileName: selectedEditorCode
+        ? selectedEditorCode.fileName
+        : null,
+      selectedCodeLineStart: selectedEditorCode
+        ? selectedEditorCode.lineStart
+        : null,
+      selectedCodeLineEnd: selectedEditorCode
+        ? selectedEditorCode.lineEnd
+        : null,
       terminalContext: selectedTerminalContext
         ? selectedTerminalContext.contextString
         : null,
@@ -1891,17 +1941,17 @@ function autoResizeTextarea() {
   updateChatContainerPadding();
 }
 
-
 // 모드 변경 이벤트 수신
 window.addEventListener("chat-mode-changed", () => {
-  currentMode = window.chatMode || "CODE";
+  currentMode = normalizeChatMode(window.chatMode || "CODE");
   // 모드 변경 시 보내기 버튼 스타일 업데이트
   updateSendButtonStyle();
 });
 
-
-
 document.addEventListener("DOMContentLoaded", () => {
+  currentMode = normalizeChatMode(window.chatMode || "CODE");
+  updateSendButtonStyle();
+
   // 모듈 초기화
   initStreaming({
     chatMessages,
@@ -1962,7 +2012,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 에디터 선택 chip dismiss 버튼
   const editorSelectionChip = document.getElementById("editor-selection-chip");
-  const editorSelectionDismiss = document.getElementById("editor-selection-chip-dismiss");
+  const editorSelectionDismiss = document.getElementById(
+    "editor-selection-chip-dismiss",
+  );
   if (editorSelectionDismiss) {
     editorSelectionDismiss.addEventListener("click", () => {
       selectedEditorCode = null;
@@ -1976,6 +2028,29 @@ document.addEventListener("DOMContentLoaded", () => {
     vscode.postMessage({ command: "webviewLoaded" });
   }
 });
+
+/**
+ * 확장이 clearHistory 처리 후 웹뷰로 에코할 때 DOM을 동기화합니다.
+ * (chat.html 인라인 React에는 messages 상태가 없으므로 여기서만 처리)
+ */
+function applyChatHistoryClearedUi() {
+  if (chatMessages) {
+    while (chatMessages.firstChild) {
+      chatMessages.removeChild(chatMessages.firstChild);
+    }
+    thinkingBubbleElement = null;
+    setProcessingThinkingBubble(null);
+    setStreamingThinkingBubble(null);
+    window._latestTurnStats = [];
+    console.log("Chat history cleared.");
+  }
+  if (clearHistoryButton) {
+    clearHistoryButton.disabled = false;
+  }
+  if (cancelButton) {
+    cancelButton.disabled = true;
+  }
+}
 
 window.addEventListener("message", (event) => {
   const message = event.data;
@@ -2000,9 +2075,10 @@ window.addEventListener("message", (event) => {
       const chip = document.getElementById("editor-selection-chip");
       const chipLabel = document.getElementById("editor-selection-chip-label");
       if (chip && chipLabel) {
-        const lineInfo = message.lineStart === message.lineEnd
-          ? `L${message.lineStart}`
-          : `L${message.lineStart}-${message.lineEnd}`;
+        const lineInfo =
+          message.lineStart === message.lineEnd
+            ? `L${message.lineStart}`
+            : `L${message.lineStart}-${message.lineEnd}`;
         chipLabel.textContent = `${message.fileName} ${lineInfo}`;
         chip.classList.add("visible");
         updateChatContainerPadding();
@@ -2112,7 +2188,12 @@ window.addEventListener("message", (event) => {
       }
       break;
     case "ollamaModels":
-      populateModelDropdown(message.models || [], message.current || "", message.adminModels || [], message.supportedModels || []);
+      populateModelDropdown(
+        message.models || [],
+        message.current || "",
+        message.adminModels || [],
+        message.supportedModels || [],
+      );
       break;
     case "ollamaModelChanged":
       console.log("[chat] ollamaModelChanged received:", message.model);
@@ -2143,7 +2224,9 @@ window.addEventListener("message", (event) => {
 
         // 드롭다운에 매칭 아이템이 없으면 전체 모델 리스트 재요청 (드롭다운 미초기화 상태)
         if (!matchFound) {
-          console.log("[chat] No matching dropdown item, requesting full model list refresh");
+          console.log(
+            "[chat] No matching dropdown item, requesting full model list refresh",
+          );
           requestOllamaModels();
         } else {
           console.log("[chat] Setting model label:", display, modelType);
@@ -2169,9 +2252,14 @@ window.addEventListener("message", (event) => {
       }
       break;
 
+    case "clearHistory":
+      applyChatHistoryClearedUi();
+      break;
+
     case "showInterruptedSession": {
       const query = message.query || "";
-      const truncatedQuery = query.length > 80 ? query.substring(0, 80) + "..." : query;
+      const truncatedQuery =
+        query.length > 80 ? query.substring(0, 80) + "..." : query;
 
       const interruptModal = document.createElement("div");
       interruptModal.style.cssText = `
@@ -2220,14 +2308,23 @@ window.addEventListener("message", (event) => {
       interruptModal.appendChild(interruptContent);
       document.body.appendChild(interruptModal);
 
-      document.getElementById("dismiss-interrupted").addEventListener("click", () => {
-        document.body.removeChild(interruptModal);
-      });
+      document
+        .getElementById("dismiss-interrupted")
+        .addEventListener("click", () => {
+          document.body.removeChild(interruptModal);
+        });
 
-      document.getElementById("resume-interrupted").addEventListener("click", () => {
-        document.body.removeChild(interruptModal);
-        vscode.postMessage({ command: "sendMessage", text: query, mode: "CODE", promptType: "code_generation" });
-      });
+      document
+        .getElementById("resume-interrupted")
+        .addEventListener("click", () => {
+          document.body.removeChild(interruptModal);
+          vscode.postMessage({
+            command: "sendMessage",
+            text: query,
+            mode: "CODE",
+            promptType: "code_generation",
+          });
+        });
       break;
     }
 
@@ -2241,7 +2338,9 @@ window.addEventListener("message", (event) => {
     case "historyMeta":
       _historyHasMore = message.hasMore;
       _historyLoading = false;
-      console.log(`[chat.js] historyMeta: hasMore=${message.hasMore}, loaded=${message.loadedCount}/${message.totalCount}`);
+      console.log(
+        `[chat.js] historyMeta: hasMore=${message.hasMore}, loaded=${message.loadedCount}/${message.totalCount}`,
+      );
       break;
 
     case "prependHistoryStart":
@@ -2268,10 +2367,10 @@ window.addEventListener("message", (event) => {
     case "prependMessage": {
       if (!_prependBuffer || !chatMessages) break;
       const msgDiv = document.createElement("div");
-      if (message.sender === "CODEPILOT") {
-        msgDiv.className = "codepilot-message-container";
-        // renderCodePilotContent로 라이브 메시지와 동일하게 렌더링
-        const rendered = renderCodePilotContent(message.text);
+      if (message.sender === "AgentGoCoder") {
+        msgDiv.className = "agentgocoder-message-container";
+        // renderAgentGoCoderContent로 라이브 메시지와 동일하게 렌더링
+        const rendered = renderAgentGoCoderContent(message.text);
         if (rendered) {
           msgDiv.appendChild(rendered);
         } else {
@@ -2294,9 +2393,13 @@ window.addEventListener("message", (event) => {
         chatMessages.insertBefore(_prependBuffer, chatMessages.firstChild);
         // 스크롤 위치 보존: 새로 추가된 높이만큼 스크롤 이동
         const newScrollHeight = chatMessages.scrollHeight;
-        const addedHeight = newScrollHeight - (chatMessages._prevScrollHeight || 0);
-        chatMessages.scrollTop = (chatMessages._prevScrollTop || 0) + addedHeight;
-        console.log(`[chat.js] Prepended history, added height: ${addedHeight}px`);
+        const addedHeight =
+          newScrollHeight - (chatMessages._prevScrollHeight || 0);
+        chatMessages.scrollTop =
+          (chatMessages._prevScrollTop || 0) + addedHeight;
+        console.log(
+          `[chat.js] Prepended history, added height: ${addedHeight}px`,
+        );
       }
       _prependBuffer = null;
       _historyLoading = false;
@@ -2313,9 +2416,9 @@ window.addEventListener("message", (event) => {
       });
 
       // ✅ RAW CODE BLOCK TEXT 확인 (디버깅용)
-      if (message.sender === "CODEPILOT" && message.text) {
+      if (message.sender === "AgentGoCoder" && message.text) {
         console.log(
-          "[RAW CODEPILOT MESSAGE] length:",
+          "[RAW AgentGoCoder MESSAGE] length:",
           message.text.length,
           "preview:",
           message.text.substring(0, 200),
@@ -2330,12 +2433,12 @@ window.addEventListener("message", (event) => {
 
       // hideLoading 이벤트에서 처리하므로 여기서는 처리하지 않음
 
-      if (message.sender === "CODEPILOT" && message.text !== undefined) {
+      if (message.sender === "AgentGoCoder" && message.text !== undefined) {
         console.log(
-          "Calling displayCodePilotMessage with text length:",
+          "Calling displayAgentGoCoderMessage with text length:",
           message.text.length,
         );
-        window.displayCodePilotMessage(message.text); // CODEPILOT 메시지 표시
+        window.displayAgentGoCoderMessage(message.text); // AgentGoCoder 메시지 표시
       } else if (message.sender === "System" && message.text !== undefined) {
         window.displaySystemMessage(message.text); // 시스템 메시지 (툴 실행 결과 등) 표시
       }
@@ -2354,7 +2457,11 @@ window.addEventListener("message", (event) => {
         fileList = message.files;
         // '@' 메뉴가 열려있고 파일 모드면 다시 렌더링
         const atStateFileList = getAtMenuState();
-        if (atStateFileList.visible && atStateFileList.mode === "files" && chatInput) {
+        if (
+          atStateFileList.visible &&
+          atStateFileList.mode === "files" &&
+          chatInput
+        ) {
           const currentValue = getChatInputValue();
           const atIndex = currentValue.lastIndexOf("@");
           if (atIndex !== -1) {
@@ -2431,7 +2538,7 @@ window.addEventListener("message", (event) => {
     case "languageDataReceived":
       if (message.language && message.data) {
         setLanguageData(message.data, message.language);
-        sessionStorage.setItem("codepilotLang", message.language);
+        sessionStorage.setItem("agentgocoderLang", message.language);
 
         applyLanguage();
       }
@@ -2498,70 +2605,28 @@ window.addEventListener("message", (event) => {
       console.log("[Streaming] Removing last message (natural language retry)");
       removeLastMessage();
       break;
-
-    case "showSuggestions":
-      renderSuggestions(message.suggestions);
-      break;
   }
 });
-
-// --- Prompt Suggestion 렌더링 ---
-function renderSuggestions(suggestions) {
-  // Remove existing suggestions
-  const existing = document.querySelector('.suggestion-container');
-  if (existing) existing.remove();
-
-  if (!suggestions || suggestions.length === 0) return;
-
-  const container = document.createElement('div');
-  container.className = 'suggestion-container';
-
-  const label = document.createElement('div');
-  label.className = 'suggestion-label';
-  label.textContent = '다음 작업 제안';
-  container.appendChild(label);
-
-  const optionsDiv = document.createElement('div');
-  optionsDiv.className = 'suggestion-options';
-
-  suggestions.forEach(s => {
-    const btn = document.createElement('button');
-    btn.className = 'suggestion-btn';
-    btn.textContent = s.text;
-    btn.title = s.prompt;
-    btn.addEventListener('click', () => {
-      container.remove();
-      if (chatInput) {
-        chatInput.textContent = s.prompt;
-        handleSendMessage();
-      }
-    });
-    optionsDiv.appendChild(btn);
-  });
-
-  container.appendChild(optionsDiv);
-
-  // Insert at end of chat messages
-  const chatMessages = document.getElementById('chat-messages');
-  if (chatMessages) {
-    chatMessages.appendChild(container);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-  }
-}
 
 // --- UI 업데이트 및 마크다운 렌더링 관련 함수 정의 ---
 // 메시지 표시 함수들 - 모듈 래퍼
 
 // 사용자 메시지 표시
 function displayUserMessage(text, imageData = null, selectedCodeInfo = null) {
-  const container = displayUserMessageModule(text, imageData, chatMessages, scrollToUserMessage);
+  const container = displayUserMessageModule(
+    text,
+    imageData,
+    chatMessages,
+    scrollToUserMessage,
+  );
   // 에디터 선택 코드가 있으면 메시지 버블 아래에 badge 추가
   if (container && selectedCodeInfo) {
     const badge = document.createElement("span");
     badge.className = "editor-selection-badge";
-    const lineInfo = selectedCodeInfo.lineStart === selectedCodeInfo.lineEnd
-      ? `L${selectedCodeInfo.lineStart}`
-      : `L${selectedCodeInfo.lineStart}-${selectedCodeInfo.lineEnd}`;
+    const lineInfo =
+      selectedCodeInfo.lineStart === selectedCodeInfo.lineEnd
+        ? `L${selectedCodeInfo.lineStart}`
+        : `L${selectedCodeInfo.lineStart}-${selectedCodeInfo.lineEnd}`;
     badge.textContent = `⌥ ${selectedCodeInfo.fileName} ${lineInfo}`;
     const msgEl = container.querySelector(".user-plain-message");
     if (msgEl) msgEl.prepend(badge);
@@ -2572,7 +2637,13 @@ function displayUserMessage(text, imageData = null, selectedCodeInfo = null) {
 // 시스템 메시지 표시
 function displaySystemMessage(text) {
   const isLightTheme = document.body.getAttribute("data-theme") === "light";
-  return displaySystemMessageModule(text, chatMessages, isLightTheme, sanitizeHtml, sanitizeOptions);
+  return displaySystemMessageModule(
+    text,
+    chatMessages,
+    isLightTheme,
+    sanitizeHtml,
+    sanitizeOptions,
+  );
 }
 
 // 사용자 메시지로 스크롤
@@ -2675,7 +2746,7 @@ function updateSendCancelButtons(isSending) {
   if (!sendButton || !cancelButton) {
     return;
   }
-  if (isSending === 'queue') {
+  if (isSending === "queue") {
     // 처리 중 + 입력 있음: 다시 보내기 버튼
     sendButton.classList.add("hidden");
     sendButton.style.display = "none";
@@ -2687,18 +2758,10 @@ function updateSendCancelButtons(isSending) {
       queueSendButton.style.display = "inline-flex";
       queueSendButton.style.order = "99";
       // 모드별 배경색 동기화
-      const mode = window.chatMode || "CODE";
+      const mode = normalizeChatMode(window.chatMode || "CODE");
       const queueIcon = queueSendButton.querySelector(".icon-img");
       if (mode === "ASK") {
         queueSendButton.style.backgroundColor = "#10B981";
-        queueSendButton.style.borderRadius = "50%";
-        if (queueIcon) queueIcon.style.filter = "brightness(0) invert(1)";
-      } else if (mode === "PLAN") {
-        queueSendButton.style.backgroundColor = "#2563EB";
-        queueSendButton.style.borderRadius = "50%";
-        if (queueIcon) queueIcon.style.filter = "brightness(0) invert(1)";
-      } else if (mode === "AGENT") {
-        queueSendButton.style.backgroundColor = "#000000";
         queueSendButton.style.borderRadius = "50%";
         if (queueIcon) queueIcon.style.filter = "brightness(0) invert(1)";
       } else {
@@ -2721,9 +2784,12 @@ function updateSendCancelButtons(isSending) {
     }
   } else {
     // 대기 중: 입력 내용 있으면 Send, 없으면 Stop(비활성)
-    const hasContent = typeof chatInput !== "undefined" && chatInput
-      ? (getChatInputText().trim() !== "" || !!selectedImageBase64 || selectedFiles.length > 0)
-      : false;
+    const hasContent =
+      typeof chatInput !== "undefined" && chatInput
+        ? getChatInputText().trim() !== "" ||
+          !!selectedImageBase64 ||
+          selectedFiles.length > 0
+        : false;
     if (queueSendButton) {
       queueSendButton.classList.add("hidden");
       queueSendButton.style.display = "none";
@@ -2814,33 +2880,13 @@ function handleClearHistory() {
   confirmBtn.addEventListener("click", () => {
     document.body.removeChild(warningModal);
 
-    // UI 클리어
-    if (chatMessages) {
-      while (chatMessages.firstChild) {
-        chatMessages.removeChild(chatMessages.firstChild);
-      }
-      thinkingBubbleElement = null; // 로딩 애니메이션 참조도 초기화
-      // 모듈에도 알림
-      setProcessingThinkingBubble(null);
-      setStreamingThinkingBubble(null);
-      // 턴 액션(undo/keep) 상태 초기화
-      window._latestTurnStats = [];
-      console.log("Chat history cleared.");
-    }
+    applyChatHistoryClearedUi();
 
     // 확장 프로그램에 대화기록 삭제 요청 전송
     vscode.postMessage({
       command: "clearHistory",
       promptType: "CODE_GENERATION", // Code 탭
     });
-
-    // 버튼 상태 초기화
-    if (clearHistoryButton) {
-      clearHistoryButton.disabled = false;
-    }
-    if (cancelButton) {
-      cancelButton.disabled = true;
-    }
   });
 
   // 배경 클릭 시 닫기
@@ -2855,11 +2901,11 @@ function handleClearHistory() {
 
 /**
  * 마크다운 텍스트를 코드 블록 파싱 + 파일 카드 렌더링하여 DOM 요소로 반환
- * displayCodePilotMessage와 prependMessage 양쪽에서 재사용
+ * displayAgentGoCoderMessage와 prependMessage 양쪽에서 재사용
  * @param {string} markdownText - 마크다운 텍스트
  * @returns {HTMLElement|null} - 렌더링된 message-bubble 요소, 또는 빈 텍스트면 null
  */
-function renderCodePilotContent(markdownText) {
+function renderAgentGoCoderContent(markdownText) {
   // 1차: 최후 방어선 적용 (tool 태그 완전 차단)
   let sanitizedText = sanitizeLastResort(markdownText);
   if (!sanitizedText || sanitizedText.trim().length === 0) {
@@ -3007,7 +3053,7 @@ function renderCodePilotContent(markdownText) {
     // 왼쪽 그룹 (토글 버튼 + 언어 라벨) - a 태그로 클릭 이벤트 위임
     const headerLeft = document.createElement("a");
     headerLeft.classList.add("code-header-left");
-    headerLeft.href = "codepilot://toggle"; // 이벤트 위임용 (ID는 나중에 설정)
+    headerLeft.href = "agentgocoder://toggle"; // 이벤트 위임용 (ID는 나중에 설정)
     headerLeft.title = "접기/펼치기";
     headerLeft.appendChild(toggleButton);
     headerLeft.appendChild(languageLabel);
@@ -3040,7 +3086,7 @@ function renderCodePilotContent(markdownText) {
         diffIcon.title = `Diff 보기: ${filePath}`;
 
         const encodedPath = encodeURIComponent(filePath);
-        diffIcon.href = `codepilot://diff?path=${encodedPath}`;
+        diffIcon.href = `agentgocoder://diff?path=${encodedPath}`;
 
         diffIcon.style.cssText = `
                     cursor: pointer;
@@ -3083,9 +3129,9 @@ function renderCodePilotContent(markdownText) {
         openFileIcon.innerHTML = "↗"; // 파일 열기 아이콘
         openFileIcon.title = `파일 열기: ${filePath}`;
 
-        // ✅ codepilot://open 스킴 사용 (chatMessages click 핸들러에서 처리)
+        // ✅ agentgocoder://open 스킴 사용 (chatMessages click 핸들러에서 처리)
         const encodedPath = encodeURIComponent(filePath);
-        openFileIcon.href = `codepilot://open?path=${encodedPath}`;
+        openFileIcon.href = `agentgocoder://open?path=${encodedPath}`;
 
         openFileIcon.style.cssText = `
                     cursor: pointer;
@@ -3148,7 +3194,7 @@ function renderCodePilotContent(markdownText) {
       diffIcon.title = `Diff 보기: ${filePath}`;
 
       const encodedPathDiff = encodeURIComponent(filePath);
-      diffIcon.href = `codepilot://diff?path=${encodedPathDiff}`;
+      diffIcon.href = `agentgocoder://diff?path=${encodedPathDiff}`;
 
       diffIcon.style.cssText = `
                 cursor: pointer;
@@ -3185,9 +3231,9 @@ function renderCodePilotContent(markdownText) {
       openFileIcon.innerHTML = "↗";
       openFileIcon.title = `파일 열기: ${filePath}`;
 
-      // ✅ codepilot://open 스킴 사용 (chatMessages click 핸들러에서 처리)
+      // ✅ agentgocoder://open 스킴 사용 (chatMessages click 핸들러에서 처리)
       const encodedPath = encodeURIComponent(filePath);
-      openFileIcon.href = `codepilot://open?path=${encodedPath}`;
+      openFileIcon.href = `agentgocoder://open?path=${encodedPath}`;
 
       openFileIcon.style.cssText = `
                 cursor: pointer;
@@ -3239,8 +3285,8 @@ function renderCodePilotContent(markdownText) {
     codeContainer.setAttribute("data-container-for", blockId);
 
     // 토글 버튼과 헤더에 블록 ID 추가
-    toggleButton.href = `codepilot://toggle?id=${blockId}`;
-    headerLeft.href = `codepilot://toggle?id=${blockId}`;
+    toggleButton.href = `agentgocoder://toggle?id=${blockId}`;
+    headerLeft.href = `agentgocoder://toggle?id=${blockId}`;
 
     // 커서 스타일
     codeHeader.style.cursor = "pointer";
@@ -3272,10 +3318,10 @@ function renderCodePilotContent(markdownText) {
   return bubbleElement;
 }
 
-// CODEPILOT 메시지를 코드 블록 제외하고 Markdown 포맷 적용하여 표시
-function displayCodePilotMessage(markdownText) {
+// AgentGoCoder 메시지를 코드 블록 제외하고 Markdown 포맷 적용하여 표시
+function displayAgentGoCoderMessage(markdownText) {
   console.log(
-    "displayCodePilotMessage called with text length:",
+    "displayAgentGoCoderMessage called with text length:",
     markdownText.length,
   );
   if (!chatMessages) {
@@ -3284,16 +3330,16 @@ function displayCodePilotMessage(markdownText) {
   }
   console.log("chatMessages element found, creating message container...");
 
-  const bubbleElement = renderCodePilotContent(markdownText);
+  const bubbleElement = renderAgentGoCoderContent(markdownText);
   if (!bubbleElement) {
     console.log(
-      "[displayCodePilotMessage] Empty text after sanitization, skipping",
+      "[displayAgentGoCoderMessage] Empty text after sanitization, skipping",
     );
     return;
   }
 
   const messageContainer = document.createElement("div");
-  messageContainer.classList.add("codepilot-message-container");
+  messageContainer.classList.add("agentgocoder-message-container");
   messageContainer.appendChild(bubbleElement);
 
   appendBeforeThinkingBubble(chatMessages, messageContainer);
@@ -3324,7 +3370,7 @@ window.displayUserMessage = displayUserMessage;
 window.displaySystemMessage = displaySystemMessage;
 window.showLoading = showLoading;
 window.hideLoading = hideLoading;
-window.displayCodePilotMessage = displayCodePilotMessage;
+window.displayAgentGoCoderMessage = displayAgentGoCoderMessage;
 
 // 파일 선택기 열기
 function openFilePicker() {
@@ -3429,7 +3475,7 @@ if (chatMessages) {
       return;
     }
 
-    // ✅ codepilot://open 링크 찾기
+    // ✅ agentgocoder://open 링크 찾기
     const anchor = target.closest ? target.closest("a") : null;
     if (!anchor) {
       return;
@@ -3441,8 +3487,8 @@ if (chatMessages) {
 
     // Support both custom scheme and https placeholder
     if (
-      href.startsWith("codepilot://open") ||
-      href.startsWith("https://codepilot.invalid/open")
+      href.startsWith("agentgocoder://open") ||
+      href.startsWith("https://agentgocoder.invalid/open")
     ) {
       event.preventDefault();
 
@@ -3470,11 +3516,11 @@ if (chatMessages) {
           }
         }
       } catch (e) {
-        console.warn("Failed to parse codepilot link:", href, e);
+        console.warn("Failed to parse agentgocoder link:", href, e);
       }
     } else if (
-      href.startsWith("codepilot://diff") ||
-      href.startsWith("https://codepilot.invalid/diff")
+      href.startsWith("agentgocoder://diff") ||
+      href.startsWith("https://agentgocoder.invalid/diff")
     ) {
       event.preventDefault();
 
@@ -3502,11 +3548,11 @@ if (chatMessages) {
           }
         }
       } catch (e) {
-        console.warn("Failed to parse codepilot diff link:", href, e);
+        console.warn("Failed to parse agentgocoder diff link:", href, e);
       }
     } else if (
-      href.startsWith("codepilot://acceptAll") ||
-      href.startsWith("https://codepilot.invalid/acceptAll")
+      href.startsWith("agentgocoder://acceptAll") ||
+      href.startsWith("https://agentgocoder.invalid/acceptAll")
     ) {
       event.preventDefault();
       console.log("[chat.js] Accept All button clicked");
@@ -3548,8 +3594,8 @@ if (chatMessages) {
         console.error("[chat.js] Failed to parse acceptAll link:", href, e);
       }
     } else if (
-      href.startsWith("codepilot://rejectAll") ||
-      href.startsWith("https://codepilot.invalid/rejectAll")
+      href.startsWith("agentgocoder://rejectAll") ||
+      href.startsWith("https://agentgocoder.invalid/rejectAll")
     ) {
       event.preventDefault();
       console.log("[chat.js] Reject All button clicked");
@@ -3590,7 +3636,7 @@ if (chatMessages) {
       } catch (e) {
         console.error("[chat.js] Failed to parse rejectAll link:", href, e);
       }
-    } else if (href.startsWith("codepilot://toggle")) {
+    } else if (href.startsWith("agentgocoder://toggle")) {
       // ✅ 코드 블록 접기/펼치기 토글
       event.preventDefault();
       event.stopPropagation();
@@ -3718,9 +3764,9 @@ function showGitRepositoryInfo(content) {
             </div>
             <div class="git-info-body">
                 ${content
-      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-      .replace(/`(.*?)`/g, "<code>$1</code>")
-      .replace(/\n/g, "<br>")}
+                  .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+                  .replace(/`(.*?)`/g, "<code>$1</code>")
+                  .replace(/\n/g, "<br>")}
             </div>
         </div>
     `;
@@ -3846,7 +3892,9 @@ function renderAskQuestionUI(title, questions, requestId) {
   if (existing) existing.remove();
 
   const selectedAnswers = {};
-  questions.forEach(q => { selectedAnswers[q.id] = []; });
+  questions.forEach((q) => {
+    selectedAnswers[q.id] = [];
+  });
 
   const overlay = document.createElement("div");
   overlay.className = "ask-question-overlay";
@@ -3859,7 +3907,7 @@ function renderAskQuestionUI(title, questions, requestId) {
   titleEl.textContent = title;
   popup.appendChild(titleEl);
 
-  questions.forEach(q => {
+  questions.forEach((q) => {
     const item = document.createElement("div");
     item.className = "ask-question-item";
 
@@ -3871,7 +3919,7 @@ function renderAskQuestionUI(title, questions, requestId) {
     const optionsDiv = document.createElement("div");
     optionsDiv.className = "ask-question-options";
 
-    q.options.forEach(opt => {
+    q.options.forEach((opt) => {
       const btn = document.createElement("button");
       btn.className = "ask-question-option";
       btn.dataset.questionId = q.id;
@@ -3893,10 +3941,14 @@ function renderAskQuestionUI(title, questions, requestId) {
           if (btn.classList.contains("selected")) {
             selectedAnswers[q.id].push(opt.id);
           } else {
-            selectedAnswers[q.id] = selectedAnswers[q.id].filter(id => id !== opt.id);
+            selectedAnswers[q.id] = selectedAnswers[q.id].filter(
+              (id) => id !== opt.id,
+            );
           }
         } else {
-          optionsDiv.querySelectorAll(".ask-question-option").forEach(b => b.classList.remove("selected"));
+          optionsDiv
+            .querySelectorAll(".ask-question-option")
+            .forEach((b) => b.classList.remove("selected"));
           btn.classList.add("selected");
           selectedAnswers[q.id] = [opt.id];
         }
@@ -3922,8 +3974,10 @@ function renderAskQuestionUI(title, questions, requestId) {
   submitBtn.textContent = "선택 완료";
   submitBtn.addEventListener("click", () => {
     const finalAnswers = {};
-    questions.forEach(q => {
-      const otherInput = popup.querySelector(`input[data-question-id="${q.id}"]`);
+    questions.forEach((q) => {
+      const otherInput = popup.querySelector(
+        `input[data-question-id="${q.id}"]`,
+      );
       const otherText = otherInput ? otherInput.value.trim() : "";
       if (otherText) {
         finalAnswers[q.id] = [...selectedAnswers[q.id], otherText];
@@ -3933,7 +3987,11 @@ function renderAskQuestionUI(title, questions, requestId) {
         finalAnswers[q.id] = ["(no selection)"];
       }
     });
-    vscode.postMessage({ command: "askQuestionResponse", requestId: requestId, answers: finalAnswers });
+    vscode.postMessage({
+      command: "askQuestionResponse",
+      requestId: requestId,
+      answers: finalAnswers,
+    });
     overlay.style.opacity = "0";
     overlay.style.transition = "opacity 0.2s";
     setTimeout(() => overlay.remove(), 200);
@@ -3974,9 +4032,6 @@ function renderPlanApprovalUI(planText) {
   approveBtn.className = "ask-question-submit";
   approveBtn.textContent = "승인 — 실행 시작";
   approveBtn.addEventListener("click", () => {
-    const modeSelect = document.getElementById("mode-select");
-    if (modeSelect) modeSelect.value = "CODE";
-
     vscode.postMessage({
       command: "sendMessage",
       text: "위 계획대로 진행해줘",
@@ -3993,7 +4048,8 @@ function renderPlanApprovalUI(planText) {
 
   const rejectBtn = document.createElement("button");
   rejectBtn.className = "ask-question-submit";
-  rejectBtn.style.background = "var(--vscode-button-secondary-background, #555)";
+  rejectBtn.style.background =
+    "var(--vscode-button-secondary-background, #555)";
   rejectBtn.style.color = "var(--vscode-button-secondary-foreground, #fff)";
   rejectBtn.textContent = "거절";
   rejectBtn.addEventListener("click", () => {

@@ -1,8 +1,8 @@
 {
-  "name": "codepilot-standalone",
-  "displayName": "Codepilot-Standalone",
+  "name": "agentgocoder",
+  "displayName": "AgentGoCoder",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "1.0.65",
+  "version": "1.1.0",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -21,13 +21,13 @@
   "enabledApiProposals": [],
   "activationEvents": [
     "onStartupFinished",
-    "onView:codepilot-standalone.chatView",
-    "onCommand:codepilot-standalone.openChatView",
-    "onCommand:codepilot-standalone.openSettingsPanel"
+    "onView:agentgocoder.chatView",
+    "onCommand:agentgocoder.openChatView",
+    "onCommand:agentgocoder.openSettingsPanel"
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/DAIOSFoundation/codepilot"
+    "url": "https://github.com/DAIOSFoundation/agentgocoder"
   },
   "categories": [
     "LLM",
@@ -41,16 +41,16 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "codepilot-standalone",
-          "title": "Codepilot-Standalone",
-          "icon": "./media/codepilot.svg"
+          "id": "agentgocoder",
+          "title": "AgentGoCoder",
+          "icon": "./media/agentgocoder.svg"
         }
       ]
     },
     "views": {
-      "codepilot-standalone": [
+      "agentgocoder": [
         {
-          "id": "codepilot-standalone.chatView",
+          "id": "agentgocoder.chatView",
           "name": " ",
           "type": "webview",
           "icon": "$(comment-discussion)"
@@ -59,95 +59,95 @@
     },
     "commands": [
       {
-        "command": "codepilot-standalone.login",
-        "title": "Codepilot-Standalone: 로그인"
+        "command": "agentgocoder.login",
+        "title": "AgentGoCoder: 로그인"
       },
       {
-        "command": "codepilot-standalone.logout",
-        "title": "Codepilot-Standalone: 로그아웃"
+        "command": "agentgocoder.logout",
+        "title": "AgentGoCoder: 로그아웃"
       },
       {
-        "command": "codepilot-standalone.openSettingsPanel",
+        "command": "agentgocoder.openSettingsPanel",
         "title": "Setting"
       },
       {
-        "command": "codepilot-standalone.openChatView",
-        "title": "Open Codepilot-Standalone Chat"
+        "command": "agentgocoder.openChatView",
+        "title": "Open AgentGoCoder Chat"
       },
       {
-        "command": "codepilot-standalone.startOllamaBlocker",
+        "command": "agentgocoder.startOllamaBlocker",
         "title": "Start Ollama Blocker"
       },
       {
-        "command": "codepilot-standalone.stopOllamaBlocker",
+        "command": "agentgocoder.stopOllamaBlocker",
         "title": "Stop Ollama Blocker"
       },
       {
-        "command": "codepilot-standalone.ollamaBlockerStatus",
+        "command": "agentgocoder.ollamaBlockerStatus",
         "title": "Ollama Blocker Status"
       },
       {
-        "command": "codepilot-standalone.killOllamaProcesses",
+        "command": "agentgocoder.killOllamaProcesses",
         "title": "Kill Ollama Processes"
       },
       {
-        "command": "codepilot-standalone.testOllamaBlocker",
+        "command": "agentgocoder.testOllamaBlocker",
         "title": "Test Ollama Blocker (Debug)"
       },
       {
-        "command": "codepilot-standalone.testTerminalMonitoring",
+        "command": "agentgocoder.testTerminalMonitoring",
         "title": "Test Terminal Monitoring (Debug)"
       },
       {
-        "command": "codepilot-standalone.showDiff",
+        "command": "agentgocoder.showDiff",
         "title": "Show All File Changes (Diff)"
       },
       {
-        "command": "codepilot-standalone.showDiffForFile",
+        "command": "agentgocoder.showDiffForFile",
         "title": "Show File Diff"
       },
       {
-        "command": "codepilot-standalone.acceptChange",
+        "command": "agentgocoder.acceptChange",
         "title": "Accept Change"
       },
       {
-        "command": "codepilot-standalone.rejectChange",
+        "command": "agentgocoder.rejectChange",
         "title": "Reject Change"
       },
       {
-        "command": "codepilot-standalone.acceptAllChanges",
+        "command": "agentgocoder.acceptAllChanges",
         "title": "Accept All Changes"
       },
       {
-        "command": "codepilot-standalone.rejectAllChanges",
+        "command": "agentgocoder.rejectAllChanges",
         "title": "Reject All Changes"
       },
       {
-        "command": "codepilot-standalone.viewCacheStats",
-        "title": "Codepilot-Standalone: View Cache Statistics"
+        "command": "agentgocoder.viewCacheStats",
+        "title": "AgentGoCoder: View Cache Statistics"
       },
       {
-        "command": "codepilot-standalone.clearCache",
-        "title": "Codepilot-Standalone: Clear Context Cache"
+        "command": "agentgocoder.clearCache",
+        "title": "AgentGoCoder: Clear Context Cache"
       },
       {
-        "command": "codepilot-standalone.listSavedSessions",
-        "title": "Codepilot-Standalone: List Saved Sessions"
+        "command": "agentgocoder.listSavedSessions",
+        "title": "AgentGoCoder: List Saved Sessions"
       },
       {
-        "command": "codepilot-standalone.restoreSavedSession",
-        "title": "Codepilot-Standalone: Restore Saved Session"
+        "command": "agentgocoder.restoreSavedSession",
+        "title": "AgentGoCoder: Restore Saved Session"
       }
     ],
     "keybindings": [
       {
-        "command": "codepilot-standalone.acceptAllChanges",
+        "command": "agentgocoder.acceptAllChanges",
         "key": "cmd+enter",
         "mac": "cmd+enter",
         "when": "editorTextFocus"
       },
       {
-        "command": "codepilot-standalone.rejectAllChanges",
+        "command": "agentgocoder.rejectAllChanges",
         "key": "cmd+backspace",
         "mac": "cmd+backspace",
         "when": "editorTextFocus"
@@ -156,8 +156,8 @@
     "menus": {
       "view/title": [
         {
-          "command": "codepilot-standalone.openSettingsPanel",
-          "when": "view == codepilot-standalone.chatView",
+          "command": "agentgocoder.openSettingsPanel",
+          "when": "view == agentgocoder.chatView",
           "group": "navigation",
           "order": 1,
           "icon": "$(settings-gear)",
@@ -166,17 +166,17 @@
       ]
     },
     "configuration": {
-      "title": "Codepilot-Standalone Configuration",
+      "title": "AgentGoCoder Configuration",
       "properties": {
-        "codepilot-standalone.sourcePaths": {
+        "agentgocoder.sourcePaths": {
           "type": "array",
           "default": [],
-          "description": "codepilot가 AI 응답을 생성할 때 참조할 소스 코드 파일 및 디렉토리 경로 목록을 지정합니다. 여기에 지정된 모든 파일과 폴더의 내용이 AI에게 컨텍스트 정보로 제공될 수 있습니다.",
+          "description": "AgentGoCoder가 AI 응답을 생성할 때 참조할 소스 코드 파일 및 디렉토리 경로 목록을 지정합니다. 여기에 지정된 모든 파일과 폴더의 내용이 AI에게 컨텍스트 정보로 제공될 수 있습니다.",
           "items": {
             "type": "string"
           }
         },
-        "codepilot-standalone.aiModel": {
+        "agentgocoder.aiModel": {
           "type": "string",
           "default": "ollama",
           "enum": [
@@ -186,50 +186,50 @@
           "description": "사용할 AI 모델 엔진을 선택합니다.",
           "scope": "resource"
         },
-        "codepilot-standalone.streamingEnabled": {
+        "agentgocoder.streamingEnabled": {
           "type": "boolean",
           "default": true,
           "description": "LLM 응답을 스트리밍 방식으로 받을지 여부를 설정합니다. 활성화하면 응답이 실시간으로 표시됩니다.",
           "scope": "resource"
         },
-        "codepilot-standalone.nativeToolCallingEnabled": {
+        "agentgocoder.nativeToolCallingEnabled": {
           "type": "boolean",
           "default": true,
           "description": "네이티브 툴 콜링 활성화. ON이면 모델이 지원하는 경우 native tool_calls 사용, OFF이면 텍스트 기반 파싱만 사용합니다.",
           "scope": "resource"
         },
-        "codepilot-standalone.thinkingEnabled": {
+        "agentgocoder.thinkingEnabled": {
           "type": "boolean",
           "default": true,
           "description": "Thinking(추론) 활성화. ON이면 모델이 지원하는 경우 thinking을 사용합니다. OFF이면 항상 비활성화합니다.",
           "scope": "resource"
         },
-        "codepilot-standalone.thinkingLevel": {
+        "agentgocoder.thinkingLevel": {
           "type": "string",
           "default": "medium",
           "enum": ["low", "medium", "high"],
           "description": "Thinking 레벨. low(빠름/저비용), medium(균형), high(깊은 추론/고비용).",
           "scope": "resource"
         },
-        "codepilot-standalone.autoUpdateFiles": {
+        "agentgocoder.autoUpdateFiles": {
           "type": "boolean",
           "default": true,
           "description": "Enable or disable automatic updating of files based on LLM's code block suggestions. If disabled, you will be prompted before updating.",
           "scope": "resource"
         },
-        "codepilot-standalone.autoDeleteFiles": {
+        "agentgocoder.autoDeleteFiles": {
           "type": "boolean",
           "default": true,
           "description": "Enable or disable automatic deletion of files. If disabled, you will be prompted before deleting any file.",
           "scope": "resource"
         },
-        "codepilot-standalone.projectRoot": {
+        "agentgocoder.projectRoot": {
           "type": "string",
           "default": "",
-          "description": "codepilot가 프로젝트의 최상위 경로로 인식할 디렉토리를 설정합니다. 이 경로는 파일 경로를 참조할 때 기준점으로 사용될 수 있습니다.",
+          "description": "AgentGoCoder가 프로젝트의 최상위 경로로 인식할 디렉토리를 설정합니다. 이 경로는 파일 경로를 참조할 때 기준점으로 사용될 수 있습니다.",
           "scope": "resource"
         },
-        "codepilot-standalone.language": {
+        "agentgocoder.language": {
           "type": "string",
           "default": "ko",
           "enum": [
@@ -241,16 +241,16 @@
             "fr",
             "ja"
           ],
-          "description": "codepilot UI 언어를 설정합니다. 지원 언어: 한국어(ko), 영어(en), 중국어(zh), 스페인어(es), 독일어(de), 프랑스어(fr), 일본어(ja)",
+          "description": "AgentGoCoder UI 언어를 설정합니다. 지원 언어: 한국어(ko), 영어(en), 중국어(zh), 스페인어(es), 독일어(de), 프랑스어(fr), 일본어(ja)",
           "scope": "resource"
         },
-        "codepilot-standalone.terminalDaemonEnabled": {
+        "agentgocoder.terminalDaemonEnabled": {
           "type": "boolean",
           "default": false,
           "description": "Enable terminal-daemon to run commands via external PTY daemon and stream logs/errors.",
           "scope": "resource"
         },
-        "codepilot-standalone.errorRetryCount": {
+        "agentgocoder.errorRetryCount": {
           "type": "number",
           "default": 5,
           "minimum": 1,
@@ -258,19 +258,19 @@
           "description": "Set the maximum number of automatic correction attempts when errors occur in the terminal. (1-10 times, default: 5 times)",
           "scope": "resource"
         },
-        "codepilot-standalone.autoCorrectionEnabled": {
+        "agentgocoder.autoCorrectionEnabled": {
           "type": "boolean",
           "default": false,
           "description": "Enable or disable automatic terminal error correction.",
           "scope": "resource"
         },
-        "codepilot-standalone.autoTestRetryEnabled": {
+        "agentgocoder.autoTestRetryEnabled": {
           "type": "boolean",
           "default": true,
           "description": "Enable or disable automatic retry when automated tests (Smoke Test, Lint Check) fail. When enabled, the system will automatically retry failed tests up to the configured number of times.",
           "scope": "resource"
         },
-        "codepilot-standalone.testRetryCount": {
+        "agentgocoder.testRetryCount": {
           "type": "number",
           "default": 5,
           "minimum": 1,
@@ -278,61 +278,61 @@
           "description": "Set the maximum number of automatic test retry attempts when automated tests fail. (1-10 times, default: 5 times)",
           "scope": "resource"
         },
-        "codepilot-standalone.validationCommand": {
+        "agentgocoder.validationCommand": {
           "type": "string",
           "default": "",
           "description": "Custom validation command to run after code generation (e.g., 'tsc --noEmit'). If empty, auto-detection is used.",
           "scope": "resource"
         },
-        "codepilot-standalone.formatterCommand": {
+        "agentgocoder.formatterCommand": {
           "type": "string",
           "default": "",
           "description": "Custom formatter command to run after code generation (e.g., 'prettier --write .'). If empty, auto-detection is used.",
           "scope": "resource"
         },
-        "codepilot-standalone.autoExecuteCommands": {
+        "agentgocoder.autoExecuteCommands": {
           "type": "boolean",
           "default": true,
           "description": "Enable or disable automatic execution of bash/powershell/cmd commands from LLM responses.",
           "scope": "resource"
         },
-        "codepilot-standalone.blockOutsideProject": {
+        "agentgocoder.blockOutsideProject": {
           "type": "boolean",
           "default": true,
           "description": "프로젝트 디렉토리 외부의 파일 생성/수정/삭제를 차단합니다. 활성화하면 워크스페이스 밖의 파일 조작이 차단됩니다.",
           "scope": "resource"
         },
-        "codepilot-standalone.autoToolExecution": {
+        "agentgocoder.autoToolExecution": {
           "type": "boolean",
           "default": true,
           "description": "Enable or disable automatic execution of all tools (read, search, etc). When disabled, you will be prompted before executing any tool.",
           "scope": "resource"
         },
-        "codepilot-standalone.autoMcpToolExecution": {
+        "agentgocoder.autoMcpToolExecution": {
           "type": "boolean",
           "default": true,
           "description": "MCP 도구를 승인 없이 자동 실행할지 여부. 비활성화 시 첫 실행마다 확인 메시지가 표시됩니다.",
           "scope": "resource"
         },
-        "codepilot-standalone.orchestration": {
+        "agentgocoder.orchestration": {
           "type": "boolean",
           "default": true,
           "description": "멀티 에이전트 모드를 활성화합니다. 복잡한 작업을 여러 에이전트가 병렬로 분담하여 처리합니다. 토큰 소모량이 단일 에이전트 대비 많아질 수 있습니다. 비활성화 시 기존 단일 에이전트 방식으로 동작합니다.",
           "scope": "resource"
         },
-        "codepilot-standalone.inlineCompletion": {
+        "agentgocoder.inlineCompletion": {
           "type": "boolean",
           "default": false,
           "description": "소스코드 인라인 자동완성(Ghost Text)을 활성화합니다. 입력 중 AI가 코드를 자동 완성합니다. Tab 키로 수락합니다.",
           "scope": "resource"
         },
-        "codepilot-standalone.promptSuggestion": {
+        "agentgocoder.promptSuggestion": {
           "type": "boolean",
           "default": false,
           "description": "다음 작업 제안을 활성화합니다. 작업 완료 후 후속 작업을 버튼으로 제안합니다. 활성화 시 LLM 호출이 1회 추가됩니다.",
           "scope": "resource"
         },
-        "codepilot-standalone.chatTheme": {
+        "agentgocoder.chatTheme": {
           "type": "string",
           "default": "dark",
           "enum": [

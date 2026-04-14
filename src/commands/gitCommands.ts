@@ -39,7 +39,7 @@ export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
 
   return [
     // Git 상태 보기
-    vscode.commands.registerCommand("codepilot-standalone.gitStatus", async () => {
+    vscode.commands.registerCommand("agentgocoder.gitStatus", async () => {
       try {
         const cwd = requireWorkspace();
         if (!cwd) return;
@@ -51,7 +51,7 @@ export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
     }),
 
     // Git 변경사항 보기
-    vscode.commands.registerCommand("codepilot-standalone.gitDiff", async () => {
+    vscode.commands.registerCommand("agentgocoder.gitDiff", async () => {
       try {
         const cwd = requireWorkspace();
         if (!cwd) return;
@@ -67,26 +67,28 @@ export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
     }),
 
     // Git 히스토리 보기
-    vscode.commands.registerCommand("codepilot-standalone.gitLog", async () => {
+    vscode.commands.registerCommand("agentgocoder.gitLog", async () => {
       try {
         const cwd = requireWorkspace();
         if (!cwd) return;
         const stdout = await execGit("git log --oneline -15", cwd);
-        postSystem(`Git 커밋 히스토리 (최근 15개)\n\n\`\`\`\n${stdout}\n\`\`\``);
+        postSystem(
+          `Git 커밋 히스토리 (최근 15개)\n\n\`\`\`\n${stdout}\n\`\`\``,
+        );
       } catch (error: any) {
         postSystem(`Git 히스토리 확인 실패: ${error.message || error}`);
       }
     }),
 
     // Git 브랜치 목록
-    vscode.commands.registerCommand("codepilot-standalone.gitBranch", async () => {
+    vscode.commands.registerCommand("agentgocoder.gitBranch", async () => {
       try {
         const cwd = requireWorkspace();
         if (!cwd) return;
         const localBranches = await execGit("git branch", cwd);
         const remoteBranches = await execGit("git branch -r", cwd);
         postSystem(
-          `### Git 브랜치 목록\n\n**로컬 브랜치:**\n\`\`\`\n${localBranches}\n\`\`\`\n\n**원격 브랜치:**\n\`\`\`\n${remoteBranches}\n\`\`\``
+          `### Git 브랜치 목록\n\n**로컬 브랜치:**\n\`\`\`\n${localBranches}\n\`\`\`\n\n**원격 브랜치:**\n\`\`\`\n${remoteBranches}\n\`\`\``,
         );
       } catch (error: any) {
         postSystem(`Git 브랜치 확인 실패: ${error.message || error}`);
@@ -94,15 +96,24 @@ export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
     }),
 
     // Git 리포지토리 정보
-    vscode.commands.registerCommand("codepilot-standalone.gitInfo", async () => {
+    vscode.commands.registerCommand("agentgocoder.gitInfo", async () => {
       try {
         const cwd = requireWorkspace();
         if (!cwd) return;
-        const branch = (await execGit("git rev-parse --abbrev-ref HEAD", cwd)).trim();
-        const remoteUrl = (await execGit("git remote get-url origin", cwd).catch(() => "")).trim();
-        const remoteName = (await execGit("git remote", cwd).catch(() => "")).trim().split("\n")[0] || "(none)";
+        const branch = (
+          await execGit("git rev-parse --abbrev-ref HEAD", cwd)
+        ).trim();
+        const remoteUrl = (
+          await execGit("git remote get-url origin", cwd).catch(() => "")
+        ).trim();
+        const remoteName =
+          (await execGit("git remote", cwd).catch(() => ""))
+            .trim()
+            .split("\n")[0] || "(none)";
         if (!remoteUrl) {
-          postSystem("### ℹGit 리포지토리 정보\n\nGit 리포지토리가 감지되지 않았습니다.");
+          postSystem(
+            "### ℹGit 리포지토리 정보\n\nGit 리포지토리가 감지되지 않았습니다.",
+          );
           return;
         }
         const match = remoteUrl.match(/[/:]([\w.-]+)\/([\w.-]+?)(?:\.git)?$/);
@@ -116,7 +127,7 @@ export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
             `- **현재 브랜치**: ${branch}\n` +
             `- **원격 저장소**: ${remoteName}\n` +
             `- **URL**: ${remoteUrl}\n` +
-            `- **GitHub**: ${isGitHub ? "✅" : "❌"}`
+            `- **GitHub**: ${isGitHub ? "✅" : "❌"}`,
         );
       } catch (error: any) {
         postSystem(`Git 정보 확인 실패: ${error.message || error}`);
@@ -124,7 +135,7 @@ export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
     }),
 
     // Git 스테이징된 변경사항 보기
-    vscode.commands.registerCommand("codepilot-standalone.gitStaged", async () => {
+    vscode.commands.registerCommand("agentgocoder.gitStaged", async () => {
       try {
         const cwd = requireWorkspace();
         if (!cwd) return;
@@ -140,7 +151,7 @@ export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
     }),
 
     // Git Stash 목록 보기
-    vscode.commands.registerCommand("codepilot-standalone.gitStash", async () => {
+    vscode.commands.registerCommand("agentgocoder.gitStash", async () => {
       try {
         const cwd = requireWorkspace();
         if (!cwd) return;
@@ -154,6 +165,5 @@ export function registerGitCommands(deps: CommandContext): vscode.Disposable[] {
         postSystem(`Stash 목록 확인 실패: ${error.message || error}`);
       }
     }),
-
   ];
 }

@@ -40,15 +40,25 @@ export function getChatInputDisplayContent(chatInput) {
       }
 
       if (node.classList && node.classList.contains("file-mention")) {
-        const fileName = node.getAttribute("data-file-name") || node.textContent || "";
+        const fileName =
+          node.getAttribute("data-file-name") || node.textContent || "";
         result.push("@" + fileName);
-      } else if (node.classList && node.classList.contains("terminal-mention")) {
-        const terminalName = node.getAttribute("data-terminal-name") || node.textContent || "";
+      } else if (
+        node.classList &&
+        node.classList.contains("terminal-mention")
+      ) {
+        const terminalName =
+          node.getAttribute("data-terminal-name") || node.textContent || "";
         result.push("Terminal: " + terminalName);
-      } else if (node.classList && node.classList.contains("diagnostics-mention")) {
+      } else if (
+        node.classList &&
+        node.classList.contains("diagnostics-mention")
+      ) {
         const errorCount = node.getAttribute("data-error-count") || "0";
         const warningCount = node.getAttribute("data-warning-count") || "0";
-        result.push(`Diagnostics: ${errorCount} errors, ${warningCount} warnings`);
+        result.push(
+          `Diagnostics: ${errorCount} errors, ${warningCount} warnings`,
+        );
       } else {
         if (tagName === "div" && result.length > 0) {
           result.push(" ");
@@ -87,7 +97,10 @@ export function autoResizeTextarea(chatInput, updatePaddingFn) {
   const computedStyle = getComputedStyle(chatInput);
   const minHeight = parseInt(computedStyle.minHeight, 10);
   const maxHeight = parseInt(computedStyle.maxHeight, 10);
-  const adjustedHeight = Math.max(minHeight, Math.min(chatInput.scrollHeight, maxHeight));
+  const adjustedHeight = Math.max(
+    minHeight,
+    Math.min(chatInput.scrollHeight, maxHeight),
+  );
   chatInput.style.height = adjustedHeight + "px";
 
   if (updatePaddingFn) {
@@ -117,8 +130,14 @@ export function setCursorToEnd(element) {
  * @param {Function} onImagePasteFn - 이미지 붙여넣기 콜백
  * @param {Function} autoResizeTextareaFn - textarea 크기 조절 함수
  */
-export function handlePaste(event, chatInput, onImagePasteFn, autoResizeTextareaFn) {
-  const clipboardData = event.clipboardData || event.originalEvent.clipboardData;
+export function handlePaste(
+  event,
+  chatInput,
+  onImagePasteFn,
+  autoResizeTextareaFn,
+) {
+  const clipboardData =
+    event.clipboardData || event.originalEvent.clipboardData;
   const items = clipboardData.items;
   let imageFound = false;
 
@@ -130,7 +149,11 @@ export function handlePaste(event, chatInput, onImagePasteFn, autoResizeTextarea
         const reader = new FileReader();
         reader.onload = (e) => {
           if (onImagePasteFn) {
-            onImagePasteFn(e.target.result.split(",")[1], file.type, e.target.result);
+            onImagePasteFn(
+              e.target.result.split(",")[1],
+              file.type,
+              e.target.result,
+            );
           }
         };
         reader.readAsDataURL(file);
@@ -205,30 +228,20 @@ export function removeAtSymbolFromInput(chatInput) {
 /**
  * 메시지 전송 버튼 스타일 업데이트
  * @param {HTMLElement} sendBtn - 전송 버튼 요소
- * @param {string} currentMode - 현재 모드 ('ASK', 'PLAN', 'CODE')
+ * @param {string} currentMode - 현재 모드 ('ASK' 또는 그 외는 CODE로 취급)
  * @param {boolean} isLightTheme - 라이트 테마 여부 (미사용, 하위 호환성 유지)
  */
 export function updateSendButtonStyle(sendBtn, currentMode, isLightTheme) {
   if (!sendBtn) return;
 
   const iconImg = sendBtn.querySelector(".icon-img");
-  const isAskMode = currentMode === "ASK";
-  const isPlanMode = currentMode === "PLAN";
-
-  const isAgentMode = currentMode === "AGENT";
+  const effectiveMode = currentMode === "ASK" ? "ASK" : "CODE";
+  const isAskMode = effectiveMode === "ASK";
 
   if (isAskMode) {
     sendBtn.classList.add("ask-mode");
     sendBtn.classList.remove("plan-mode", "agent-mode");
     sendBtn.style.backgroundColor = "#10B981";
-  } else if (isPlanMode) {
-    sendBtn.classList.remove("ask-mode", "agent-mode");
-    sendBtn.classList.add("plan-mode");
-    sendBtn.style.backgroundColor = "#2563EB";
-  } else if (isAgentMode) {
-    sendBtn.classList.remove("ask-mode", "plan-mode");
-    sendBtn.classList.add("agent-mode");
-    sendBtn.style.backgroundColor = "#000000";
   } else {
     sendBtn.classList.remove("ask-mode", "plan-mode", "agent-mode");
     sendBtn.style.backgroundColor = "transparent";

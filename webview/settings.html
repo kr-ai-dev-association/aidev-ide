@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!-- CSP를 위한 meta 태그는 extension.ts에서 getHtmlContentWithUris 함수를 통해 동적으로 삽입됩니다. -->
   <!-- <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; img-src {{cspSource}} https: data:; script-src 'nonce-{{nonce}}'; font-src {{cspSource}};"> -->
-  <title>CODEPILOT Settings</title>
+  <title>AgentGoCoder Settings</title>
   <!-- commonStylesUri와 settingsStylesUri는 extension.ts에서 치환됩니다. -->
   <link rel="stylesheet" type="text/css" href="{{commonStylesUri}}" />
   <link rel="stylesheet" type="text/css" href="{{settingsStylesUri}}" />
@@ -34,7 +34,6 @@
     /* 버튼 스타일 - 라이트 테마 (주요 액션 버튼만 강조) */
     body[data-theme="light"] .save-button,
     body[data-theme="light"] #add-directory-button,
-    body[data-theme="light"] #save-mcp-server-button,
     body[data-theme="light"] .model-download-button,
     body[data-theme="light"] .download-link button {
       background-color: #0e639c !important;
@@ -43,20 +42,19 @@
 
     body[data-theme="light"] .save-button:hover,
     body[data-theme="light"] #add-directory-button:hover,
-    body[data-theme="light"] #save-mcp-server-button:hover,
     body[data-theme="light"] .model-download-button:hover,
     body[data-theme="light"] .download-link button:hover {
       background-color: #1177bb !important;
     }
 
     /* 일반 버튼 - 배경과 동화 */
-    body[data-theme="light"] button:not(.settings-nav-item):not(.save-button):not(#add-directory-button):not(#save-mcp-server-button):not(.model-download-button):not(.sync-icon-btn):not(.mcp-toggle-input) {
+    body[data-theme="light"] button:not(.settings-nav-item):not(.save-button):not(#add-directory-button):not(.model-download-button):not(.sync-icon-btn) {
       background-color: transparent !important;
       color: #374151 !important;
       border: 1px solid #d1d5db !important;
     }
 
-    body[data-theme="light"] button:not(.settings-nav-item):not(.save-button):not(#add-directory-button):not(#save-mcp-server-button):not(.model-download-button):not(.sync-icon-btn):not(.mcp-toggle-input):hover {
+    body[data-theme="light"] button:not(.settings-nav-item):not(.save-button):not(#add-directory-button):not(.model-download-button):not(.sync-icon-btn):hover {
       background-color: rgba(0, 0, 0, 0.04) !important;
     }
 
@@ -691,63 +689,6 @@
       }
     }
 
-    /* MCP 서버 토글 스위치 */
-    .mcp-toggle {
-      position: relative;
-      display: inline-block;
-      width: 36px;
-      height: 20px;
-      flex-shrink: 0;
-      cursor: pointer;
-    }
-
-    .mcp-toggle-input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
-
-    .mcp-toggle-slider {
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-color: var(--vscode-input-background, #3c3c3c);
-      border: 1px solid var(--vscode-panel-border, #555);
-      border-radius: 10px;
-      transition: background-color 0.2s;
-    }
-
-    .mcp-toggle-slider::before {
-      content: "";
-      position: absolute;
-      height: 14px;
-      width: 14px;
-      left: 2px;
-      bottom: 2px;
-      background-color: var(--vscode-descriptionForeground, #999);
-      border-radius: 50%;
-      transition:
-        transform 0.2s,
-        background-color 0.2s;
-    }
-
-    .mcp-toggle-input:checked+.mcp-toggle-slider {
-      background-color: var(--vscode-button-background, #0e639c);
-      border-color: var(--vscode-button-background, #0e639c);
-    }
-
-    .mcp-toggle-input:checked+.mcp-toggle-slider::before {
-      transform: translateX(16px);
-      background-color: var(--vscode-button-foreground, #fff);
-    }
-
-    .mcp-server-card button:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-    }
-
     /* HotLoad 재시도 횟수 입력 스타일 */
     #hotload-max-retries:focus {
       outline: none;
@@ -1167,15 +1108,6 @@
             </svg>
             <span>AI 모델</span>
           </button>
-          <button class="settings-nav-item" data-tab="mcp">
-            <svg viewBox="0 0 24 24">
-              <rect width="20" height="8" x="2" y="2" rx="2" ry="2" />
-              <rect width="20" height="8" x="2" y="14" rx="2" ry="2" />
-              <line x1="6" x2="6.01" y1="6" y2="6" />
-              <line x1="6" x2="6.01" y1="18" y2="18" />
-            </svg>
-            <span>MCP 서버</span>
-          </button>
           <button class="settings-nav-item" data-tab="build-test">
             <svg viewBox="0 0 24 24">
               <path d="m15 12-9.373 9.373a1 1 0 0 1-3.001-3L12 9" />
@@ -1315,19 +1247,6 @@
             </div>
 
             <div class="section-container">
-              <h2>MCP 도구 자동 실행</h2>
-              <div class="toggle-switch-container" style="margin-bottom: 8px">
-                <input type="checkbox" id="auto-mcp-tool-toggle" />
-                <label for="auto-mcp-tool-toggle">Toggle</label>
-              </div>
-              <p id="auto-mcp-tool-status" class="info-message"></p>
-              <p class="info-message">
-                MCP 도구를 승인 없이 자동 실행할지 여부를 설정합니다.
-                비활성화하면 MCP 도구 실행 전에 확인 메시지가 표시됩니다.
-              </p>
-            </div>
-
-            <div class="section-container">
               <h2 id="auto-execute-section" data-i18n="autoExecuteSection">
                 명령어 자동 실행
               </h2>
@@ -1410,19 +1329,6 @@
               <p class="info-message">
                 입력 중 AI가 코드를 자동 완성합니다 (Ghost Text).
                 Tab 키로 완성을 수락합니다. 빠른 응답을 위해 AI 모델 탭의 라우팅 모델에서 전용 모델을 설정하는 것을 권장합니다.
-              </p>
-            </div>
-
-            <div class="section-container">
-              <h2>다음 작업 제안</h2>
-              <div class="toggle-switch-container" style="margin-bottom: 8px">
-                <input type="checkbox" id="prompt-suggestion-toggle" />
-                <label for="prompt-suggestion-toggle">Toggle</label>
-              </div>
-              <p id="prompt-suggestion-status" class="info-message"></p>
-              <p class="info-message">
-                작업 완료 후 후속 작업을 버튼으로 제안합니다.
-                활성화 시 매 작업 완료마다 LLM 호출이 1회 추가됩니다.
               </p>
             </div>
 
@@ -1551,7 +1457,7 @@
             <div class="section-container" style="border-top:none; margin-top:0; padding-top:0;">
               <h2 id="api-key-section-title">AI 모델 설정</h2>
               <p class="info-message" data-i18n="aiModelSettingsDescription">
-                CODEPILOT의 AI 기능을 사용하기 위한 모델 설정입니다. 사용할 AI 모델을
+                AgentGoCoder의 AI 기능을 사용하기 위한 모델 설정입니다. 사용할 AI 모델을
                 선택하고 해당 설정을 구성하세요.
               </p>
 
@@ -1907,95 +1813,6 @@
             </div>
 
           </div><!-- /tab-ai-model -->
-
-          <!-- ═══════════ 탭: MCP 서버 ═══════════ -->
-          <div class="tab-panel" id="tab-mcp">
-
-            <!-- MCP 서버 설정 섹션 -->
-            <div class="section-container" id="mcp-settings-section"
-              style="border-top:none; margin-top:0; padding-top:0;">
-              <h2 id="mcp-section-title">MCP 서버 설정</h2>
-              <p class="info-message">
-                MCP 서버를 연결하여 LLM이 외부 도구들을 사용할
-                수 있도록 합니다.
-              </p>
-
-              <!-- MCP 서버 목록 -->
-              <div id="mcp-server-list">
-                <!-- 동적으로 서버 카드가 추가됨 -->
-              </div>
-
-              <!-- 서버 추가 버튼 -->
-              <button id="add-mcp-server-button" type="button" style="margin-top: 10px">
-                + MCP 서버 추가
-              </button>
-
-              <!-- 서버 추가/편집 폼 -->
-              <div id="mcp-server-form" class="api-key-section" style="display: none; margin-top: 15px">
-                <h3 id="mcp-form-title">MCP 서버 추가</h3>
-                <input type="hidden" id="mcp-server-id" />
-
-                <div class="api-key-input-group" style="margin-bottom: 10px">
-                  <label for="mcp-server-name" style="display: block; margin-bottom: 5px">서버 이름</label>
-                  <input type="text" id="mcp-server-name" placeholder="예: Weather Server" style="width: 100%" />
-                </div>
-
-                <div class="api-key-input-group" style="margin-bottom: 10px">
-                  <label for="mcp-server-type" style="display: block; margin-bottom: 5px">연결 타입</label>
-                  <select id="mcp-server-type" style="width: 100%">
-                    <option value="stdio">로컬 - 로컬 명령어</option>
-                    <option value="http">원격 - 외부 MCP 서버 URL</option>
-                  </select>
-                </div>
-
-                <!-- stdio 설정 -->
-                <div id="mcp-stdio-settings">
-                  <div class="api-key-input-group" style="margin-bottom: 10px">
-                    <label for="mcp-command" style="display: block; margin-bottom: 5px">명령어</label>
-                    <input type="text" id="mcp-command" placeholder="예: npx" style="width: 100%" />
-                  </div>
-                  <div class="api-key-input-group" style="margin-bottom: 10px">
-                    <label for="mcp-args" style="display: block; margin-bottom: 5px">인자</label>
-                    <input type="text" id="mcp-args" placeholder="예: -y, @anthropic/mcp-server-weather"
-                      style="width: 100%" />
-                  </div>
-                </div>
-
-                <!-- http 설정 -->
-                <div id="mcp-http-settings" style="display: none">
-                  <div class="api-key-input-group" style="margin-bottom: 10px">
-                    <label for="mcp-url" style="display: block; margin-bottom: 5px">서버 URL</label>
-                    <input type="text" id="mcp-url" placeholder="예: http://localhost:3000/mcp" style="width: 100%" />
-                  </div>
-                  <div class="api-key-input-group" style="margin-bottom: 10px">
-                    <label for="mcp-api-key" style="display: block; margin-bottom: 5px">API 키</label>
-                    <input type="password" id="mcp-api-key" placeholder="인증이 필요한 경우 API 키 입력" style="width: 100%" />
-                  </div>
-                </div>
-
-                <!-- 커스텀 프롬프트 (공통: stdio/http 무관) -->
-                <div class="api-key-input-group" style="margin-bottom: 10px">
-                  <label for="mcp-custom-prompt" style="display: block; margin-bottom: 5px">프롬프트</label>
-                  <textarea id="mcp-custom-prompt" rows="3" placeholder="예: 날씨 관련 질문에는 반드시 이 MCP 도구를 사용하세요"
-                    style="width: 100%; resize: vertical"></textarea>
-                  <p class="info-message" style="font-size: 0.8em; margin-top: 4px">
-                    이 MCP 서버의 도구 사용 방법을 LLM에게 안내하는 프롬프트입니다.
-                  </p>
-                </div>
-
-                <div style="display: flex; gap: 10px; margin-top: 15px">
-                  <button id="save-mcp-server-button" type="button">저장</button>
-                  <button id="cancel-mcp-server-button" type="button" style="background-color: #6b7280">
-                    취소
-                  </button>
-                </div>
-                <p id="mcp-form-status" class="info-message"></p>
-              </div>
-
-              <!-- MCP 도구 목록은 각 서버 카드 내부에 인라인 표시 -->
-            </div>
-
-          </div><!-- /tab-mcp -->
 
 
           <!-- ═══════════ 탭: Hot Load ═══════════ -->
@@ -2604,7 +2421,7 @@
 
           <!-- 버전 정보 -->
           <div class="version-footer">
-            <p id="version-info">CODEPILOT v<span id="version-number">...</span></p>
+            <p id="version-info">AgentGoCoder v<span id="version-number">...</span></p>
           </div>
 
         </div><!-- /.settings-main-content -->

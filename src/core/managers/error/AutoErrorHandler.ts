@@ -108,7 +108,7 @@ export class AutoErrorHandler {
             // LLMManager는 singleton이지만 초기화가 필요할 수 있으므로, formatErrorForChat을 static으로 사용하거나
             // ErrorManager에서 직접 포맷팅하도록 변경
             const pretty = LLMManager.formatErrorForChat(evt);
-            safePostMessage(target, { command: 'receiveMessage', sender: 'CODEPILOT', text: pretty });
+            safePostMessage(target, { command: 'receiveMessage', sender: 'AgentGoCoder', text: pretty });
 
             // 자동 오류 수정 시도
             const shortPrompt = `터미널 에러 해결: ${evt.message}`;

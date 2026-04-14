@@ -65,7 +65,10 @@ export interface ModifiedFileContext {
  * @param errorMessage Error message
  * @param modifiedFilesContext Latest contents of files modified in this turn (optional)
  */
-export function getErrorRetryPrompt(errorMessage: string, modifiedFilesContext?: ModifiedFileContext[]): string {
+export function getErrorRetryPrompt(
+  errorMessage: string,
+  modifiedFilesContext?: ModifiedFileContext[],
+): string {
   let prompt = `\n[System] **Automated test failed.**\n\n**Error details:**\n\`\`\`\n${errorMessage}\n\`\`\`\n\n`;
 
   // Include latest contents of modified files (to prevent code duplication)
@@ -74,11 +77,11 @@ export function getErrorRetryPrompt(errorMessage: string, modifiedFilesContext?:
     prompt += `**When writing SEARCH blocks, you MUST base them on the contents below.**\n\n`;
 
     for (const file of modifiedFilesContext) {
-      const lines = file.content.split('\n');
-      const preview = lines.slice(0, 150).join('\n'); // Max 150 lines
+      const lines = file.content.split("\n");
+      const preview = lines.slice(0, 150).join("\n"); // Max 150 lines
       const isTruncated = lines.length > 150;
 
-      prompt += `**[${file.path}] Current contents:**\n\`\`\`\n${preview}${isTruncated ? '\n... (truncated)' : ''}\n\`\`\`\n\n`;
+      prompt += `**[${file.path}] Current contents:**\n\`\`\`\n${preview}${isTruncated ? "\n... (truncated)" : ""}\n\`\`\`\n\n`;
     }
   }
 
@@ -126,13 +129,13 @@ export function getSimpleErrorRetryPrompt(errorMessage: string): string {
 export function getTestRetryExceededMessage(
   maxTestFixAttempts: number,
   errorMessage: string,
-  giveUpReason?: 'exceeded' | 'non_retryable' | 'same_pattern' | 'disabled',
+  giveUpReason?: "exceeded" | "non_retryable" | "same_pattern" | "disabled",
 ): string {
   const error = errorMessage || "Unknown error";
-  if (giveUpReason === 'non_retryable') {
+  if (giveUpReason === "non_retryable") {
     return `Auto-fix not possible -- tool not installed or timeout. Final error:\n${error}`;
   }
-  if (giveUpReason === 'same_pattern') {
+  if (giveUpReason === "same_pattern") {
     return `Auto-fix stopped due to repeated identical errors. Final error:\n${error}`;
   }
   return `Test fix attempt limit exceeded (${maxTestFixAttempts} attempts). Final error:\n${error}`;
@@ -196,7 +199,9 @@ export function getExecutionNudgePrompt(): string {
  * Force prompt when only a plan is resubmitted without tool calls during the EXECUTION phase
  * Prevents completion without file creation/modification
  */
-export function getExecutionNoToolCallWarningPrompt(planItemTitle: string): string {
+export function getExecutionNoToolCallWarningPrompt(
+  planItemTitle: string,
+): string {
   return (
     `\n[System] **Execution tool call required - plan resubmission prohibited**\n\n` +
     `You are currently in the EXECUTION phase.\n` +
@@ -426,7 +431,7 @@ export function getExecutionPhaseContextPrompt(
     ? `\n\n## Reference Documents (RAG) -- Must be prioritized\n` +
       `Below are contents retrieved from internal organization documents. Prioritize the contents below when creating/modifying files.\n\n` +
       `${ragContext}\n`
-    : '';
+    : "";
 
   return (
     `\n\n[EXECUTION PHASE - ABSOLUTE RULES (NO EXCEPTIONS)]\n` +
@@ -543,90 +548,104 @@ Then provide your summary in the 9 sections below. The <analysis> block will be 
  * @param modifiedFilesContext Latest contents of modified files
  * @param escalation Whether the same pattern has repeated 3+ times
  * @param samePatternCount Number of times the same pattern has repeated
+ * @param rawBuildOutput Optional full CLI / tsc stderr (passed to repair agent verbatim)
  */
 export function buildClassifiedRetryPrompt(
-    classification: ClassificationResult,
-    modifiedFilesContext: ModifiedFileContext[],
-    escalation: boolean,
-    samePatternCount: number,
-    detectedSubProjectRoot?: string,
+  classification: ClassificationResult,
+  modifiedFilesContext: ModifiedFileContext[],
+  escalation: boolean,
+  samePatternCount: number,
+  detectedSubProjectRoot?: string,
+  rawBuildOutput?: string,
 ): string {
-    let prompt = `\n[System] **Automated test failed.**\n\n`;
+  let prompt = `\n[System] **Automated test failed.**\n\n`;
 
-    // Section 1: Error classification results (structural analysis)
-    prompt += `**Error classification results:**\n`;
-    prompt += `- Total error count: ${classification.totalErrorCount}\n`;
-    prompt += `- Dominant cause type: ${classification.dominantCategory}\n`;
+  // Section 1: Error classification results (structural analysis)
+  prompt += `**Error classification results:**\n`;
+  prompt += `- Total error count: ${classification.totalErrorCount}\n`;
+  prompt += `- Dominant cause type: ${classification.dominantCategory}\n`;
 
-    if (classification.environmentCheck.needsInstall) {
-        prompt += `- Environment issue: dependency directory missing (automatic installation attempted)\n`;
+  if (classification.environmentCheck.needsInstall) {
+    prompt += `- Environment issue: dependency directory missing (automatic installation attempted)\n`;
+  }
+
+  prompt += `\n**Error groups:**\n`;
+  for (const group of classification.groups.slice(0, 5)) {
+    prompt += `\n### [${group.source}] Code ${group.representativeCode} (${group.count} occurrences, ${group.affectedFiles.length} files)\n`;
+    prompt += `- Affected files: ${group.affectedFiles.slice(0, 5).join(", ")}${group.affectedFiles.length > 5 ? ` and ${group.affectedFiles.length - 5} more` : ""}\n`;
+    if (group.rootCauseHypothesis) {
+      prompt += `- Analysis: ${group.rootCauseHypothesis}\n`;
     }
-
-    prompt += `\n**Error groups:**\n`;
-    for (const group of classification.groups.slice(0, 5)) {
-        prompt += `\n### [${group.source}] Code ${group.representativeCode} (${group.count} occurrences, ${group.affectedFiles.length} files)\n`;
-        prompt += `- Affected files: ${group.affectedFiles.slice(0, 5).join(', ')}${group.affectedFiles.length > 5 ? ` and ${group.affectedFiles.length - 5} more` : ''}\n`;
-        if (group.rootCauseHypothesis) {
-            prompt += `- Analysis: ${group.rootCauseHypothesis}\n`;
-        }
-        prompt += `- Samples:\n`;
-        for (const msg of group.sampleMessages) {
-            prompt += `  - ${msg}\n`;
-        }
+    prompt += `- Samples:\n`;
+    for (const msg of group.sampleMessages) {
+      prompt += `  - ${msg}\n`;
     }
+  }
 
-    // Section 2: Escalation warning (same pattern repeated)
-    if (escalation) {
-        prompt += `\n**Warning: The same error pattern has repeated ${samePatternCount} times.**\n`;
-        prompt += `Try a **different approach** from before:\n`;
-        prompt += `- Do not repeat the same fix\n`;
-        prompt += `- Re-analyze the root cause of the error\n`;
-        prompt += `- If it is a dependency issue, try installing packages with run_command\n`;
-        prompt += `- If type/module errors persist, check import paths or configuration files\n`;
+  const raw = (rawBuildOutput || "").trim();
+  if (raw) {
+    const max = 8000;
+    const clipped =
+      raw.length > max ? `${raw.slice(0, max)}\n... (truncated)` : raw;
+    prompt += `\n**Raw build / test output (primary evidence):**\n\`\`\`text\n${clipped}\n\`\`\`\n`;
+  }
+
+  // Section 2: Escalation warning (same pattern repeated)
+  if (escalation) {
+    prompt += `\n**Warning: The same error pattern has repeated ${samePatternCount} times.**\n`;
+    prompt += `Try a **different approach** from before:\n`;
+    prompt += `- Do not repeat the same fix\n`;
+    prompt += `- Re-analyze the root cause of the error\n`;
+    prompt += `- If it is a dependency issue, try installing packages with run_command\n`;
+    prompt += `- If type/module errors persist, check import paths or configuration files\n`;
+  }
+
+  // Section 3: Latest contents of modified files (always included)
+  if (modifiedFilesContext && modifiedFilesContext.length > 0) {
+    prompt += `\n**Important: Below are the latest contents of modified files.**\n`;
+    prompt += `**When writing SEARCH blocks, you MUST base them on the contents below.**\n\n`;
+
+    for (const file of modifiedFilesContext) {
+      const lines = file.content.split("\n");
+      const preview = lines.slice(0, 150).join("\n");
+      const isTruncated = lines.length > 150;
+      prompt += `**[${file.path}] Current contents:**\n\`\`\`\n${preview}${isTruncated ? "\n... (truncated)" : ""}\n\`\`\`\n\n`;
     }
+  }
 
-    // Section 3: Latest contents of modified files (always included)
-    if (modifiedFilesContext && modifiedFilesContext.length > 0) {
-        prompt += `\n**Important: Below are the latest contents of modified files.**\n`;
-        prompt += `**When writing SEARCH blocks, you MUST base them on the contents below.**\n\n`;
+  // Section 4: Sub-project scope restriction
+  if (detectedSubProjectRoot) {
+    const subDir =
+      detectedSubProjectRoot.split("/").pop() || detectedSubProjectRoot;
+    prompt += `\n**Sub-project scope restriction: \`${subDir}/\`**\n`;
+    prompt += `- The root of this project is \`${subDir}/\`. All file modifications must be performed only under \`${subDir}/\`.\n`;
+    prompt += `- Prohibited: Creating/modifying files in parent directories (project root) (e.g., \`./package.json\`, \`./src/**\`, \`./eslint.config.*\`)\n`;
+    prompt += `- Allowed: Only files under \`${subDir}/\` (e.g., \`${subDir}/package.json\`, \`${subDir}/src/**\`, \`${subDir}/tsconfig.json\`)\n`;
+    prompt += `- Unless the user explicitly requests it, never touch files outside the sub-project.\n\n`;
+  }
 
-        for (const file of modifiedFilesContext) {
-            const lines = file.content.split('\n');
-            const preview = lines.slice(0, 150).join('\n');
-            const isTruncated = lines.length > 150;
-            prompt += `**[${file.path}] Current contents:**\n\`\`\`\n${preview}${isTruncated ? '\n... (truncated)' : ''}\n\`\`\`\n\n`;
-        }
-    }
+  // Section 5: Tool call format instructions
+  prompt +=
+    `**Important: Respond only in { "tool": "..." } format**\n\n` +
+    `**Available tools:**\n` +
+    `- File modification: { "tool": "update_file", "path": "..." }\n` +
+    `- Command execution: { "tool": "run_command", "command": "..." }\n` +
+    `- create_file prohibited: Recreating existing files will result in content loss. Use only update_file.\n\n` +
+    `**Project-local dependency install (allowed when errors require it):**\n` +
+    `- Examples: \`npm install\`, \`npm ci\`, \`npm i -D @types/react @types/react-dom\`, \`pnpm add -D ...\`, \`pip install -r requirements.txt\` in the project workspace.\n` +
+    `- Use this when the raw output indicates missing packages, TS7016 (@types), "Cannot find module", etc.\n\n` +
+    `**Global toolchain install (prohibited — user must install these):**\n` +
+    `- When the CLI binary itself is missing: "tsc: not found", "gradle: command not found", etc.\n` +
+    `- Do not run: \`npm install -g typescript\`, \`brew install gradle\`, \`apt install ...\` for system-wide tools.\n` +
+    `- In that case only suggest the user installs the tool; do not try to install globally via run_command.\n\n` +
+    `**File copy/move/structure changes strictly prohibited:**\n` +
+    `- Do not use file copy/move commands such as cp, cp -r, mv, rsync\n` +
+    `- Do not change the project structure. Only modify code contents.\n` +
+    `- If existing files (package.json, eslint config, etc.) exist, only modify/supplement them; do not replace/delete them.\n\n` +
+    `**Strictly prohibited:**\n` +
+    `- Natural language responses (explanations, analysis, "We need to..." etc.)\n` +
+    `- XML tag format\n\n` +
+    `**Output tool calls immediately. Natural language text will be ignored.**\n`;
 
-    // Section 4: Sub-project scope restriction
-    if (detectedSubProjectRoot) {
-        const subDir = detectedSubProjectRoot.split('/').pop() || detectedSubProjectRoot;
-        prompt += `\n**Sub-project scope restriction: \`${subDir}/\`**\n`;
-        prompt += `- The root of this project is \`${subDir}/\`. All file modifications must be performed only under \`${subDir}/\`.\n`;
-        prompt += `- Prohibited: Creating/modifying files in parent directories (project root) (e.g., \`./package.json\`, \`./src/**\`, \`./eslint.config.*\`)\n`;
-        prompt += `- Allowed: Only files under \`${subDir}/\` (e.g., \`${subDir}/package.json\`, \`${subDir}/src/**\`, \`${subDir}/tsconfig.json\`)\n`;
-        prompt += `- Unless the user explicitly requests it, never touch files outside the sub-project.\n\n`;
-    }
-
-    // Section 5: Tool call format instructions
-    prompt +=
-        `**Important: Respond only in { "tool": "..." } format**\n\n` +
-        `**Available tools:**\n` +
-        `- File modification: { "tool": "update_file", "path": "..." }\n` +
-        `- Command execution: { "tool": "run_command", "command": "..." }\n` +
-        `- create_file prohibited: Recreating existing files will result in content loss. Use only update_file.\n\n` +
-        `**Build/test tool installation strictly prohibited:**\n` +
-        `- When build tools are missing such as "tsc not found", "gradle not found", etc.\n` +
-        `- Never run tool installation commands like npm install -g typescript, brew install gradle, etc.\n` +
-        `- Instead, only output a message suggesting the user install it\n\n` +
-        `**File copy/move/structure changes strictly prohibited:**\n` +
-        `- Do not use file copy/move commands such as cp, cp -r, mv, rsync\n` +
-        `- Do not change the project structure. Only modify code contents.\n` +
-        `- If existing files (package.json, eslint config, etc.) exist, only modify/supplement them; do not replace/delete them.\n\n` +
-        `**Strictly prohibited:**\n` +
-        `- Natural language responses (explanations, analysis, "We need to..." etc.)\n` +
-        `- XML tag format\n\n` +
-        `**Output tool calls immediately. Natural language text will be ignored.**\n`;
-
-    return prompt;
+  return prompt;
 }

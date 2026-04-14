@@ -4,7 +4,7 @@
  */
 
 /**
- * sanitize-html 옵션 설정 (codepilot:// 스킴 허용)
+ * sanitize-html 옵션 설정 (agentgocoder:// 스킴 허용)
  */
 export const sanitizeOptions = {
   allowedTags: [
@@ -35,9 +35,9 @@ export const sanitizeOptions = {
     a: ["href", "title"],
     "*": ["class", "id", "style"],
   },
-  allowedSchemes: ["http", "https", "mailto", "codepilot"],
+  allowedSchemes: ["http", "https", "mailto", "agentgocoder"],
   allowedSchemesByTag: {
-    a: ["http", "https", "mailto", "codepilot"],
+    a: ["http", "https", "mailto", "agentgocoder"],
   },
 };
 
@@ -208,8 +208,10 @@ export function sanitizeLastResort(text) {
   // 예: "We need to run read_file for src/App.tsx.{ \"tool\": \"read_file\", ... }"
   // 전체 응답을 비우는 대신 tool JSON이 있는 줄만 제거 (나머지 텍스트 보존)
   if (/\{\s*["']tool["']\s*:/.test(result)) {
-    const filteredLines = result.split('\n').filter(line => !/"tool"\s*:/.test(line));
-    result = filteredLines.join('\n').trim();
+    const filteredLines = result
+      .split("\n")
+      .filter((line) => !/"tool"\s*:/.test(line));
+    result = filteredLines.join("\n").trim();
     // 필터 후에도 전체가 tool JSON이었다면 (단일 줄인 경우) 빈 문자열이 됨
   }
 

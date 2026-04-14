@@ -206,7 +206,7 @@ export class WebviewBridge {
     }
 
     /**
-     * 마지막 CODEPILOT 메시지에 토큰 사용량 정보를 업데이트합니다.
+     * 마지막 AgentGoCoder 메시지에 토큰 사용량 정보를 업데이트합니다.
      */
     public static updateMessageTokenInfo(webview: vscode.Webview | undefined, tokenInfo: MessageTokenInfo): void {
         if (webview) {

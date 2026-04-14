@@ -118,7 +118,7 @@ export function createAndSetupWebviewPanel(
     onDidReceiveMessage?: (data: any, panel: vscode.WebviewPanel) => void | Promise<void>
 ): vscode.WebviewPanel {
     const panel = vscode.window.createWebviewPanel(
-        `codepilot.${panelTypeSuffix.toLowerCase()}`, panelTitle, viewColumn,
+        `agentgocoder.${panelTypeSuffix.toLowerCase()}`, panelTitle, viewColumn,
         {
             enableScripts: true, retainContextWhenHidden: true,
             localResourceRoots: [

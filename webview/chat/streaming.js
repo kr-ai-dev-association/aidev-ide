@@ -61,9 +61,9 @@ export function startStreamingMessage(sender, meta) {
     endStreamingMessage();
   }
 
-  // 새 메시지 요소 생성 (displayCodePilotMessage와 동일한 구조)
+  // 새 메시지 요소 생성 (displayAgentGoCoderMessage와 동일한 구조)
   const messageContainer = document.createElement("div");
-  messageContainer.classList.add("codepilot-message-container", "streaming");
+  messageContainer.classList.add("agentgocoder-message-container", "streaming");
 
   // 턴 ID 스탬프 (턴 레벨 Accept/Reject용)
   if (meta && meta.conversationTurnId) {
@@ -140,7 +140,7 @@ function renderStreamingContent() {
             </div>`;
     }
 
-    // 실제 응답 텍스트 렌더링 (displayCodePilotMessage와 동일한 처리)
+    // 실제 응답 텍스트 렌더링 (displayAgentGoCoderMessage와 동일한 처리)
     if (cleanText) {
       // 1. sanitizeLastResort 적용
       let processedText = cleanText;
@@ -215,7 +215,7 @@ export function endStreamingMessage() {
       thinkBubble.remove();
     }
 
-    // 최종 마크다운 렌더링 (displayCodePilotMessage와 동일한 처리 적용)
+    // 최종 마크다운 렌더링 (displayAgentGoCoderMessage와 동일한 처리 적용)
     try {
       // 1. think 태그 제거
       let cleanText = removeThinkTags(streamingTextContent);
@@ -290,7 +290,7 @@ export function getStreamingMessageElement() {
  */
 export function removeLastMessage() {
   if (!chatMessages) return;
-  const lastMessage = chatMessages.querySelector('.codepilot-message-container:last-child');
+  const lastMessage = chatMessages.querySelector('.agentgocoder-message-container:last-child');
   if (lastMessage) {
     lastMessage.remove();
   }

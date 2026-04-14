@@ -1,10 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 
-import {
-  NotificationService,
-  OllamaApi,
-} from "./services";
+import { NotificationService, OllamaApi } from "./services";
 import { AiModelType } from "./services/types";
 import { ChatViewProvider } from "./webview/providers";
 import { openSettingsPanel } from "./core/webview/SettingsPanelProvider";
@@ -54,29 +51,77 @@ import { RunCommandToolHandler } from "./core/tools/terminal";
 import { ReadActiveFileToolHandler, LspToolHandler } from "./core/tools/ide";
 import { FetchUrlToolHandler } from "./core/tools/web";
 import { ListCodeDefinitionsToolHandler } from "./core/tools/file";
-import { MCPToolHandler } from "./core/tools/mcp/MCPToolHandler";
-import { MCPManager } from "./core/mcp/MCPManager";
 import { HotLoadManager } from "./core/managers/hotload";
 import { MemoryManager } from "./core/memory/MemoryManager";
 import { MemorySaveToolHandler } from "./core/tools/memory/MemorySaveToolHandler";
 import { MemoryDeleteToolHandler } from "./core/tools/memory/MemoryDeleteToolHandler";
 import { LoadSkillToolHandler } from "./core/tools/skill/LoadSkillToolHandler";
 import { AskQuestionToolHandler } from "./core/tools/interaction/AskQuestionToolHandler";
-import { SpawnAgentToolHandler } from "./core/tools/agent/SpawnAgentToolHandler";
-import { StopAgentToolHandler } from "./core/tools/agent/StopAgentToolHandler";
-import { WorkPlanToolHandler } from "./core/tools/agent/WorkPlanToolHandler";
-import { DEFAULT_OLLAMA_URL } from './core/config/ApiDefaults';
+import { DEFAULT_OLLAMA_URL } from "./core/config/ApiDefaults";
 import {
   registerGitCommands,
-  registerMcpCommands,
   registerSessionCommands,
   registerDiagnosticCommands,
 } from "./commands";
-import { runCleanupFunctions, registerCleanup } from './utils/cleanupRegistry';
+import { runCleanupFunctions, registerCleanup } from "./utils/cleanupRegistry";
 
 // 전역 변수
 let ollamaApi: OllamaApi;
 let notificationService: NotificationService;
+
+/** codepilot.* globalState 키를 agentgocoder.* 로 일회 마이그레이션 */
+async function migrateLegacyGlobalStateKeys(
+  context: vscode.ExtensionContext,
+): Promise<void> {
+  try {
+    for (const key of context.globalState.keys()) {
+      if (key.startsWith("codepilot.apiKey.")) {
+        const suffix = key.slice("codepilot.apiKey.".length);
+        const newKey = `agentgocoder.apiKey.${suffix}`;
+        const val = context.globalState.get<string>(key);
+        if (typeof val === "string" && val.length > 0) {
+          const existing = context.globalState.get<string>(newKey);
+          if (!existing) {
+            await context.globalState.update(newKey, val);
+          }
+        }
+        await context.globalState.update(key, undefined);
+      }
+    }
+    const legacySessions = context.globalState.get<{ sessions: unknown[] }>(
+      "codepilot.sessions",
+    );
+    if (legacySessions?.sessions?.length) {
+      const next = context.globalState.get<{ sessions: unknown[] }>(
+        "agentgocoder.sessions",
+      );
+      if (!next?.sessions?.length) {
+        await context.globalState.update(
+          "agentgocoder.sessions",
+          legacySessions,
+        );
+      }
+      await context.globalState.update("codepilot.sessions", undefined);
+    }
+    const legacyGlobal = context.globalState.get<Record<string, unknown>>(
+      "codepilot.globalState",
+    );
+    if (legacyGlobal && Object.keys(legacyGlobal).length > 0) {
+      const next = context.globalState.get<Record<string, unknown>>(
+        "agentgocoder.globalState",
+      );
+      if (!next || Object.keys(next).length === 0) {
+        await context.globalState.update(
+          "agentgocoder.globalState",
+          legacyGlobal,
+        );
+      }
+      await context.globalState.update("codepilot.globalState", undefined);
+    }
+  } catch (e) {
+    console.warn("[Extension] migrateLegacyGlobalStateKeys:", e);
+  }
+}
 
 export async function activate(context: vscode.ExtensionContext) {
   // punycode deprecation 경고 억제 (간접 의존성에서 발생, 기능에는 영향 없음)
@@ -88,6 +133,8 @@ export async function activate(context: vscode.ExtensionContext) {
     return originalEmitWarning.call(process, warning, ...args);
   };
 
+  await migrateLegacyGlobalStateKeys(context);
+
   // 서비스 초기화 (순서 중요: 의존성 주입)
   notificationService = new NotificationService();
 
@@ -96,13 +143,13 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Skills 파일을 storageUri (프로젝트 폴더 외부)에 저장
   if (context.storageUri) {
-    const skillsDir = path.join(context.storageUri.fsPath, 'rules');
+    const skillsDir = path.join(context.storageUri.fsPath, "rules");
     PromptComposer.setSkillsDir(skillsDir);
     await vscode.workspace.fs.createDirectory(vscode.Uri.file(skillsDir));
   }
 
   // 글로벌 규칙 디렉토리 설정 (globalStorageUri — 모든 프로젝트 공통)
-  const globalRulesDir = path.join(context.globalStorageUri.fsPath, 'rules');
+  const globalRulesDir = path.join(context.globalStorageUri.fsPath, "rules");
   PromptComposer.setGlobalRulesDir(globalRulesDir);
   await vscode.workspace.fs.createDirectory(vscode.Uri.file(globalRulesDir));
 
@@ -133,10 +180,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Ollama API 초기화
   const initialOllamaUrl = await stateManager.getOllamaApiUrl();
   const initialOllamaModel = await stateManager.getOllamaModel();
-  ollamaApi = new OllamaApi(
-    initialOllamaUrl || DEFAULT_OLLAMA_URL,
-    context,
-  );
+  ollamaApi = new OllamaApi(initialOllamaUrl || DEFAULT_OLLAMA_URL, context);
   ollamaApi.setModel(initialOllamaModel);
   try {
     await ollamaApi.loadSettingsFromStorage();
@@ -145,15 +189,20 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   // Ollama 모델의 실제 context length 조회 및 토큰 제한 업데이트 (현재 모델이 Ollama일 때만)
-  if (initialOllamaModel && currentAiModel === 'ollama') {
-    ModelConnectionService.getOllamaModelContextLength(initialOllamaModel, initialOllamaUrl || DEFAULT_OLLAMA_URL)
+  if (initialOllamaModel && currentAiModel === "ollama") {
+    ModelConnectionService.getOllamaModelContextLength(
+      initialOllamaModel,
+      initialOllamaUrl || DEFAULT_OLLAMA_URL,
+    )
       .then((ctxLen: number | null) => {
         if (ctxLen) {
           const { updateOllamaTokenLimits } = require("./utils/tokenUtils");
           updateOllamaTokenLimits(ctxLen);
         }
       })
-      .catch(() => { /* non-critical */ });
+      .catch(() => {
+        /* non-critical */
+      });
   }
 
   // 사용자 OS 정보를 PromptBuilder에 설정
@@ -273,7 +322,8 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   // 커스텀 제외 패턴 캐시 로드
-  const { loadCustomExclusionPatterns } = await import('./core/utils/FileExclusionConstants');
+  const { loadCustomExclusionPatterns } =
+    await import("./core/utils/FileExclusionConstants");
   loadCustomExclusionPatterns(context);
 
   // Project Manager는 이미 위에서 초기화됨
@@ -345,7 +395,11 @@ export async function activate(context: vscode.ExtensionContext) {
     let mappedUiModel: string = uiAiModel;
     if (uiAiModel.startsWith("ollama")) {
       mappedUiModel = "ollama";
-    } else if (uiAiModel.startsWith("admin:") || uiAiModel.startsWith("group:") || uiAiModel.startsWith("supported:")) {
+    } else if (
+      uiAiModel.startsWith("admin:") ||
+      uiAiModel.startsWith("group:") ||
+      uiAiModel.startsWith("supported:")
+    ) {
       mappedUiModel = "admin";
     }
     currentAiModel = mappedUiModel as any;
@@ -358,28 +412,26 @@ export async function activate(context: vscode.ExtensionContext) {
     userOS,
     ollamaApi,
   );
-  const llmApiClient = new LLMApiClient(
-    ollamaApi,
-    currentAiModel as any,
-  );
-  const llmManager = LLMManager.getInstance(
-    ollamaApi,
-    currentAiModel as any,
-  );
+  const llmApiClient = new LLMApiClient(ollamaApi, currentAiModel as any);
+  const llmManager = LLMManager.getInstance(ollamaApi, currentAiModel as any);
   // 관리자 모델 설정 로드 (admin 타입인 경우)
-  if (currentAiModel === 'admin') {
+  if (currentAiModel === "admin") {
     try {
       const adminConfigJson = await stateManager.getAdminModelConfig();
       if (adminConfigJson) {
         const adminConfig = JSON.parse(adminConfigJson);
         // 프로바이더별 API 키 조회 (group 기반)
         if (!adminConfig.apiKey && adminConfig.key) {
-          const aiModelSettings = settingsManager.getServerSettings('ai_model');
-          const presetEntry = aiModelSettings.find((s: any) => s.key === adminConfig.key);
-          const providerGroup = (presetEntry as any)?.group || '';
+          const aiModelSettings = settingsManager.getServerSettings("ai_model");
+          const presetEntry = aiModelSettings.find(
+            (s: any) => s.key === adminConfig.key,
+          );
+          const providerGroup = (presetEntry as any)?.group || "";
           const perProviderKey = providerGroup
-            ? context.globalState.get<string>(`codepilot.apiKey.${providerGroup}`)
-            : context.globalState.get<string>("codepilot-standalone.adminApiKey");
+            ? context.globalState.get<string>(
+                `agentgocoder.apiKey.${providerGroup}`,
+              )
+            : context.globalState.get<string>("agentgocoder.adminApiKey");
           if (perProviderKey) {
             adminConfig.apiKey = perProviderKey;
           }
@@ -387,8 +439,11 @@ export async function activate(context: vscode.ExtensionContext) {
         // preset에서 authType, endpoint, nativeToolCallingSupported 등 보완
         if (adminConfig.key) {
           try {
-            const aiModelSettings = settingsManager.getServerSettings('ai_model');
-            const serverEntry = aiModelSettings.find((s: any) => s.key === adminConfig.key);
+            const aiModelSettings =
+              settingsManager.getServerSettings("ai_model");
+            const serverEntry = aiModelSettings.find(
+              (s: any) => s.key === adminConfig.key,
+            );
             if (serverEntry?.value) {
               const v = serverEntry.value;
               // preset에서 provider, endpoint, authType 항상 동기화 (프리셋 변경 시 반영)
@@ -396,7 +451,8 @@ export async function activate(context: vscode.ExtensionContext) {
               if (presetProvider) {
                 adminConfig.provider = presetProvider;
               }
-              const presetEndpoint = v.baseUrl || v.base_url || v.endpoint || v.apiEndpoint;
+              const presetEndpoint =
+                v.baseUrl || v.base_url || v.endpoint || v.apiEndpoint;
               if (presetEndpoint) {
                 adminConfig.endpoint = presetEndpoint;
               }
@@ -405,22 +461,38 @@ export async function activate(context: vscode.ExtensionContext) {
                 adminConfig.authType = presetAuthType;
               }
               if (adminConfig.nativeToolCallingSupported === undefined) {
-                const rawNative = v.nativeToolCallingSupported ?? v.native_tool_calling_supported;
-                adminConfig.nativeToolCallingSupported = rawNative === true || String(rawNative) === 'true';
-                adminConfig.streamingSupported = adminConfig.streamingSupported ?? v.streamingSupported ?? v.streaming_supported ?? true;
+                const rawNative =
+                  v.nativeToolCallingSupported ??
+                  v.native_tool_calling_supported;
+                adminConfig.nativeToolCallingSupported =
+                  rawNative === true || String(rawNative) === "true";
+                adminConfig.streamingSupported =
+                  adminConfig.streamingSupported ??
+                  v.streamingSupported ??
+                  v.streaming_supported ??
+                  true;
               }
             }
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
         llmManager.setAdminModelConfig(adminConfig);
         llmApiClient.setAdminModelConfig(adminConfig);
         // 토큰 제한 동적 업데이트
         const { updateAdminTokenLimits } = await import("./utils/tokenUtils");
-        updateAdminTokenLimits(adminConfig.contextWindow, adminConfig.maxOutputTokens || adminConfig.maxTokens);
-        console.log('[Extension] Admin model config loaded:', adminConfig.model, `nativeToolCalling=${adminConfig.nativeToolCallingSupported}`);
+        updateAdminTokenLimits(
+          adminConfig.contextWindow,
+          adminConfig.maxOutputTokens || adminConfig.maxTokens,
+        );
+        console.log(
+          "[Extension] Admin model config loaded:",
+          adminConfig.model,
+          `nativeToolCalling=${adminConfig.nativeToolCallingSupported}`,
+        );
       }
     } catch (e) {
-      console.warn('[Extension] Failed to load admin model config:', e);
+      console.warn("[Extension] Failed to load admin model config:", e);
     }
   }
 
@@ -455,18 +527,21 @@ export async function activate(context: vscode.ExtensionContext) {
     ),
   );
   // 소스코드 자동완성 Provider 등록 (Ghost Text / Tab Completion)
-  const inlineCompletionProvider = new InlineCompletionProvider(llmManager, stateManager);
+  const inlineCompletionProvider = new InlineCompletionProvider(
+    llmManager,
+    stateManager,
+  );
   context.subscriptions.push(
     vscode.languages.registerInlineCompletionItemProvider(
-      { scheme: 'file' },
-      inlineCompletionProvider
-    )
+      { scheme: "file" },
+      inlineCompletionProvider,
+    ),
   );
 
   // 커서 IDE 방식: 인라인 Diff 명령어 등록
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "codepilot-standalone.acceptChange",
+      "agentgocoder.acceptChange",
       async (filePath: string, changeId: string) => {
         const inlineDiffManager = InlineDiffManager.getInstance();
         await inlineDiffManager.acceptChange(filePath, changeId);
@@ -477,7 +552,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "codepilot-standalone.rejectChange",
+      "agentgocoder.rejectChange",
       async (filePath: string, changeId: string) => {
         const inlineDiffManager = InlineDiffManager.getInstance();
         await inlineDiffManager.rejectChange(filePath, changeId);
@@ -488,32 +563,38 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // 커서 IDE 방식: 키보드 단축키 (Cmd+Enter: 모든 변경사항 수락, Cmd+Backspace: 모든 변경사항 거부)
   context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot-standalone.acceptAllChanges", async () => {
-      const inlineDiffManager = InlineDiffManager.getInstance();
-      const pendingFiles = inlineDiffManager.getAllPendingFiles();
+    vscode.commands.registerCommand(
+      "agentgocoder.acceptAllChanges",
+      async () => {
+        const inlineDiffManager = InlineDiffManager.getInstance();
+        const pendingFiles = inlineDiffManager.getAllPendingFiles();
 
-      for (const filePath of pendingFiles) {
-        await inlineDiffManager.acceptAllChanges(filePath);
-      }
-      diffCodeLensProvider.refresh();
-    }),
+        for (const filePath of pendingFiles) {
+          await inlineDiffManager.acceptAllChanges(filePath);
+        }
+        diffCodeLensProvider.refresh();
+      },
+    ),
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot-standalone.rejectAllChanges", async () => {
-      const inlineDiffManager = InlineDiffManager.getInstance();
-      const pendingFiles = inlineDiffManager.getAllPendingFiles();
+    vscode.commands.registerCommand(
+      "agentgocoder.rejectAllChanges",
+      async () => {
+        const inlineDiffManager = InlineDiffManager.getInstance();
+        const pendingFiles = inlineDiffManager.getAllPendingFiles();
 
-      for (const filePath of pendingFiles) {
-        await inlineDiffManager.rejectAllChanges(filePath);
-      }
-      diffCodeLensProvider.refresh();
-    }),
+        for (const filePath of pendingFiles) {
+          await inlineDiffManager.rejectAllChanges(filePath);
+        }
+        diffCodeLensProvider.refresh();
+      },
+    ),
   );
 
   // Diff 명령어 등록
   context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot-standalone.showDiff", async () => {
+    vscode.commands.registerCommand("agentgocoder.showDiff", async () => {
       const diffManager = DiffManager.getInstance();
       await diffManager.showWorkingDirectoryChanges();
     }),
@@ -521,7 +602,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "codepilot-standalone.showDiffForFile",
+      "agentgocoder.showDiffForFile",
       async (filePath?: string) => {
         const diffManager = DiffManager.getInstance();
         if (!filePath) {
@@ -567,50 +648,11 @@ export async function activate(context: vscode.ExtensionContext) {
   toolRegistry.register(new LoadSkillToolHandler());
   // 사용자 질문 도구
   toolRegistry.register(new AskQuestionToolHandler());
-  // AGENT 모드: 작업 계획 + worker 에이전트 도구들
-  toolRegistry.register(new WorkPlanToolHandler());
-  toolRegistry.register(new SpawnAgentToolHandler());
-  toolRegistry.register(new StopAgentToolHandler());
-  // MCP Manager 초기화 및 도구 등록 브릿지
-  const mcpManager = MCPManager.getInstance();
-  await mcpManager.initialize(context);
-
-  // MCPManager 연결 이벤트 → ToolRegistry 동적 등록
-  mcpManager.onConnectionEvent((event) => {
-    if (event.type === 'connected' && event.tools) {
-      // 기존 도구 해제 후 새로 등록 (serverId 기반)
-      toolRegistry.unregisterByServerId(event.serverId);
-
-      for (const tool of event.tools) {
-        const handler = new MCPToolHandler(event.serverId, event.serverName, tool);
-        const registeredName = toolRegistry.registerMCP(handler, event.serverId, event.serverName, tool.name);
-        if (registeredName !== handler.name) {
-          handler.setRegisteredName(registeredName);
-        }
-      }
-    } else if (event.type === 'disconnected') {
-      toolRegistry.unregisterByServerId(event.serverId);
-    }
-  });
-
-  // 이미 연결된 서버의 도구를 ToolRegistry에 등록
-  const allMcpTools = mcpManager.getAllTools();
-  for (const { serverId, serverName, tool } of allMcpTools) {
-    const handler = new MCPToolHandler(serverId, serverName, tool);
-    const registeredName = toolRegistry.registerMCP(handler, serverId, serverName, tool.name);
-    if (registeredName !== handler.name) {
-      handler.setRegisteredName(registeredName);
-    }
-  }
-
   // 터미널 매니저에 오류 수정 서비스 설정은 각 웹뷰 프로바이더에서 수행됨
 
-  // Graceful shutdown: register cleanup functions for ExecutionManager and MCPManager
+  // Graceful shutdown: register cleanup functions for ExecutionManager
   registerCleanup(async () => {
     await execManager.cleanup();
-  });
-  registerCleanup(async () => {
-    await mcpManager.dispose();
   });
 
   const autoCorrectionEnabled = await stateManager.getAutoCorrectionEnabled();
@@ -651,7 +693,7 @@ export async function activate(context: vscode.ExtensionContext) {
   setTimeout(async () => {
     try {
       await vscode.commands.executeCommand(
-        "workbench.view.extension.codepilot-standalone",
+        "workbench.view.extension.agentgocoder",
       );
       // 뷰가 열릴 때까지 약간 대기
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -665,10 +707,10 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Command 등록
   context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot-standalone.openChatView", async () => {
+    vscode.commands.registerCommand("agentgocoder.openChatView", async () => {
       try {
         await vscode.commands.executeCommand(
-          "workbench.view.extension.codepilot-standalone",
+          "workbench.view.extension.agentgocoder",
         );
         await vscode.commands.executeCommand(
           `${ChatViewProvider.viewType}.focus`,
@@ -681,7 +723,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Registering commands
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot-standalone.openSettingsPanel", () => {
+    vscode.commands.registerCommand("agentgocoder.openSettingsPanel", () => {
       // openSettingsPanel command called
       if (!openSettingsPanel) {
         console.error(
@@ -705,23 +747,23 @@ export async function activate(context: vscode.ExtensionContext) {
       );
     }),
   );
-  // Command registered: codepilot.openSettingsPanel
+  // Command registered: agentgocoder.openSettingsPanel
 
   // 언어 변경 브로드캐스트 명령어 등록
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "codepilot-standalone.broadcastLanguageChange",
+      "agentgocoder.broadcastLanguageChange",
       (language: string) => {
         // 모든 활성 webview에 언어 변경 메시지 브로드캐스트
         vscode.window.terminals.forEach((terminal) => {
-          if (terminal.name.includes("codepilot")) {
+          if (terminal.name.includes("agentgocoder")) {
             terminal.sendText(`echo "Language changed to: ${language}"`);
           }
         });
 
         // 모든 활성 webview 패널에 언어 변경 메시지 전송
         vscode.window.terminals.forEach((terminal) => {
-          if (terminal.name.includes("codepilot")) {
+          if (terminal.name.includes("agentgocoder")) {
             terminal.sendText(`echo "Language changed to: ${language}"`);
           }
         });
@@ -736,13 +778,13 @@ export async function activate(context: vscode.ExtensionContext) {
   );
   stopErrorCorrectionButton.text = "$(stop-circle)";
   stopErrorCorrectionButton.tooltip = "자동 오류 수정 중단";
-  stopErrorCorrectionButton.command = "codepilot-standalone.stopErrorCorrection";
+  stopErrorCorrectionButton.command = "agentgocoder.stopErrorCorrection";
   stopErrorCorrectionButton.show();
   context.subscriptions.push(stopErrorCorrectionButton);
 
   // 자동 오류 수정 중단 명령어 등록
   context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot-standalone.stopErrorCorrection", () => {
+    vscode.commands.registerCommand("agentgocoder.stopErrorCorrection", () => {
       vscode.window.showInformationMessage(
         "자동 오류 수정 중단 기능은 AutoFixService로 이동되었습니다.",
       );
@@ -752,10 +794,10 @@ export async function activate(context: vscode.ExtensionContext) {
   // 설정 변경 시 TerminalManager에 반영
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(async (event) => {
-      if (event.affectsConfiguration("codepilot-standalone.errorRetryCount")) {
+      if (event.affectsConfiguration("agentgocoder.errorRetryCount")) {
         const errorRetryCount = await settingsManager.getErrorRetryCount();
       }
-      if (event.affectsConfiguration("codepilot-standalone.autoCorrectionEnabled")) {
+      if (event.affectsConfiguration("agentgocoder.autoCorrectionEnabled")) {
         const enabled = await stateManager.getAutoCorrectionEnabled();
         // onDidChangeConfiguration: autoCorrectionEnabled
       }
@@ -765,27 +807,22 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // 진단/테스트 커맨드 등록 (diagnosticCommands.ts)
   context.subscriptions.push(
-    ...registerDiagnosticCommands({ context, chatViewProvider })
+    ...registerDiagnosticCommands({ context, chatViewProvider }),
   );
 
   // 캐시/세션 커맨드 등록 (sessionCommands.ts)
   context.subscriptions.push(
-    ...registerSessionCommands({ context, chatViewProvider, ollamaApi })
-  );
-
-  // MCP 커맨드 등록 (mcpCommands.ts)
-  context.subscriptions.push(
-    ...registerMcpCommands({ context, chatViewProvider })
+    ...registerSessionCommands({ context, chatViewProvider, ollamaApi }),
   );
 
   // Git 커맨드 등록 (gitCommands.ts)
   context.subscriptions.push(
-    ...registerGitCommands({ context, chatViewProvider })
+    ...registerGitCommands({ context, chatViewProvider }),
   );
 }
 
 export async function deactivate(): Promise<void> {
-  console.log('[Extension] Deactivating...');
+  console.log("[Extension] Deactivating...");
   await runCleanupFunctions(5000);
-  console.log('[Extension] Deactivated');
+  console.log("[Extension] Deactivated");
 }

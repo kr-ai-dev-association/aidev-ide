@@ -63,7 +63,7 @@ export interface ActionEntry {
  * UI 메시지 엔트리 (히스토리 복원용)
  */
 export interface UIMessageEntry {
-    sender: 'USER' | 'CODEPILOT' | 'System';
+    sender: 'USER' | 'AgentGoCoder' | 'System';
     text: string;
     type?: 'action' | 'code' | 'summary' | 'message';  // 메시지 타입
 }

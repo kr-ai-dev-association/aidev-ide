@@ -357,7 +357,7 @@ export class ActionMapper {
   /**
    * 파일 생성 영역을 감지합니다 (명령어 추출 전에 호출)
    * "새 파일:" / "New file:" 다음에 오는 모든 내용을 파일 생성 영역으로 간주
-   * codepilot-old와 동일하게 오직 bash 코드 블록만 명령어로 처리하므로,
+   * 레거시 동작과 동일하게 오직 bash 코드 블록만 명령어로 처리하므로,
    * 파일 생성 영역 내부의 모든 내용(코드 블록 포함)을 제외해야 함
    */
   private detectFileCreationRanges(
@@ -424,7 +424,7 @@ export class ActionMapper {
     const fileActionRanges = fileCreationRanges;
 
     // bash, sh, shell, powershell, cmd 코드 블록만 추출
-    // codepilot-old와 동일하게 오직 bash 코드 블록만 명령어로 처리
+    // 레거시 동작과 동일하게 오직 bash 코드 블록만 명령어로 처리
     // 중요: 파일 생성 영역 내부의 bash 블록은 파일 내용일 수 있으므로 제외해야 함
     const commandBlockPattern =
       /```(?:bash|sh|shell|powershell|cmd|terminal)\s*\n([\s\S]*?)\n```/g;
@@ -507,7 +507,7 @@ export class ActionMapper {
       }
     }
 
-    // codepilot-old와 동일하게 오직 bash 코드 블록만 명령어로 처리
+    // 레거시 동작과 동일하게 오직 bash 코드 블록만 명령어로 처리
     // 프롬프트에서도 ` ```bash ... ``` ` 형식으로 명령어를 제공하도록 지시하므로,
     // 인라인 백틱이나 명시적 명령어 패턴은 추출하지 않음
     // (파일 내용 내의 백틱이 명령어로 오인되는 문제 방지)
@@ -780,7 +780,8 @@ export class ActionMapper {
     }
 
     // 삭제 패턴 (한국어 + 영어): "삭제 파일: ..." / "Delete file: ..."
-    const deleteFilePattern = /(?:삭제 파일|Delete file|Remove file):\s+(.+?)(?:\r?\n|$)/gi;
+    const deleteFilePattern =
+      /(?:삭제 파일|Delete file|Remove file):\s+(.+?)(?:\r?\n|$)/gi;
 
     while ((match = deleteFilePattern.exec(content)) !== null) {
       const rawPath = match[1].trim();

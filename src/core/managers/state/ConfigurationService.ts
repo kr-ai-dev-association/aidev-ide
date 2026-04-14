@@ -11,7 +11,7 @@ import * as vscode from 'vscode';
  */
 export class ConfigurationService {
     private static config: vscode.WorkspaceConfiguration | null = null;
-    private static configSection = 'codepilot';
+    private static configSection = 'agentgocoder';
 
     /**
      * Configuration 객체를 가져옵니다 (캐싱됨)

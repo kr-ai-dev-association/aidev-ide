@@ -92,7 +92,7 @@ export class AgentPolicyHandler {
 
             safePostMessage(panel, { command: "agentPolicyStableVersionSaved" });
             notificationService.showInfoMessage(
-              `CODEPILOT: Stable Version Markdown saved to ${filePath}`,
+              `AgentGoCoder: Stable Version Markdown saved to ${filePath}`,
             );
           } else {
             safePostMessage(panel, {
@@ -138,7 +138,7 @@ export class AgentPolicyHandler {
 
             safePostMessage(panel, { command: "agentPolicyCodingStyleSaved" });
             notificationService.showInfoMessage(
-              `CODEPILOT: Coding Style Markdown saved to ${filePath}`,
+              `AgentGoCoder: Coding Style Markdown saved to ${filePath}`,
             );
           } else {
             safePostMessage(panel, {
@@ -184,7 +184,7 @@ export class AgentPolicyHandler {
 
             safePostMessage(panel, { command: "agentPolicyProjectArchitectureSaved" });
             notificationService.showInfoMessage(
-              `CODEPILOT: Project Architecture Markdown saved to ${filePath}`,
+              `AgentGoCoder: Project Architecture Markdown saved to ${filePath}`,
             );
           } else {
             safePostMessage(panel, {
@@ -230,7 +230,7 @@ export class AgentPolicyHandler {
 
             safePostMessage(panel, { command: "agentPolicyDependencyPolicySaved" });
             notificationService.showInfoMessage(
-              `CODEPILOT: Dependency Policy Markdown saved to ${filePath}`,
+              `AgentGoCoder: Dependency Policy Markdown saved to ${filePath}`,
             );
           } else {
             safePostMessage(panel, {
@@ -276,7 +276,7 @@ export class AgentPolicyHandler {
 
             safePostMessage(panel, { command: "agentPolicyDbPolicySaved" });
             notificationService.showInfoMessage(
-              `CODEPILOT: DB Policy Markdown saved to ${filePath}`,
+              `AgentGoCoder: DB Policy Markdown saved to ${filePath}`,
             );
           } else {
             safePostMessage(panel, {
@@ -392,7 +392,7 @@ export class AgentPolicyHandler {
           }
           await stateManager.deleteAgentPolicyStableVersion();
           safePostMessage(panel, { command: "agentPolicyStableVersionDeleted" });
-          notificationService.showInfoMessage("CODEPILOT: Stable Version Markdown deleted.");
+          notificationService.showInfoMessage("AgentGoCoder: Stable Version Markdown deleted.");
         } catch (error: any) {
           safePostMessage(panel, {
             command: "agentPolicyStableVersionDeleteError",
@@ -416,7 +416,7 @@ export class AgentPolicyHandler {
           }
           await stateManager.deleteAgentPolicyCodingStyle();
           safePostMessage(panel, { command: "agentPolicyCodingStyleDeleted" });
-          notificationService.showInfoMessage("CODEPILOT: Coding Style Markdown deleted.");
+          notificationService.showInfoMessage("AgentGoCoder: Coding Style Markdown deleted.");
         } catch (error: any) {
           safePostMessage(panel, {
             command: "agentPolicyCodingStyleDeleteError",
@@ -440,7 +440,7 @@ export class AgentPolicyHandler {
           }
           await stateManager.deleteAgentPolicyProjectArchitecture();
           safePostMessage(panel, { command: "agentPolicyProjectArchitectureDeleted" });
-          notificationService.showInfoMessage("CODEPILOT: Project Architecture Markdown deleted.");
+          notificationService.showInfoMessage("AgentGoCoder: Project Architecture Markdown deleted.");
         } catch (error: any) {
           safePostMessage(panel, {
             command: "agentPolicyProjectArchitectureDeleteError",
@@ -464,7 +464,7 @@ export class AgentPolicyHandler {
           }
           await stateManager.deleteAgentPolicyDependencyPolicy();
           safePostMessage(panel, { command: "agentPolicyDependencyPolicyDeleted" });
-          notificationService.showInfoMessage("CODEPILOT: Dependency Policy Markdown deleted.");
+          notificationService.showInfoMessage("AgentGoCoder: Dependency Policy Markdown deleted.");
         } catch (error: any) {
           safePostMessage(panel, {
             command: "agentPolicyDependencyPolicyDeleteError",
@@ -488,7 +488,7 @@ export class AgentPolicyHandler {
           }
           await stateManager.deleteAgentPolicyDbPolicy();
           safePostMessage(panel, { command: "agentPolicyDbPolicyDeleted" });
-          notificationService.showInfoMessage("CODEPILOT: DB Policy Markdown deleted.");
+          notificationService.showInfoMessage("AgentGoCoder: DB Policy Markdown deleted.");
         } catch (error: any) {
           safePostMessage(panel, {
             command: "agentPolicyDbPolicyDeleteError",
@@ -564,7 +564,7 @@ export class AgentPolicyHandler {
             fileName: safeFileName
           });
           notificationService.showInfoMessage(
-            `CODEPILOT: ${safeFileName} saved to skills/${category}/`,
+            `AgentGoCoder: ${safeFileName} saved to skills/${category}/`,
           );
         } catch (error: any) {
           safePostMessage(panel, {
@@ -638,7 +638,7 @@ export class AgentPolicyHandler {
             fileName: safeFileName,
           });
           notificationService.showInfoMessage(
-            `CODEPILOT: ${safeFileName} saved to skills/${category}/`,
+            `AgentGoCoder: ${safeFileName} saved to skills/${category}/`,
           );
         } catch (error: any) {
           safePostMessage(panel, {
@@ -713,7 +713,7 @@ export class AgentPolicyHandler {
             fileName: targetFileName
           });
           notificationService.showInfoMessage(
-            `CODEPILOT: ${targetFileName} deleted`,
+            `AgentGoCoder: ${targetFileName} deleted`,
           );
         } catch (error: any) {
           console.error(`[SettingsPanel] deleteAgentPolicyFile error:`, error);

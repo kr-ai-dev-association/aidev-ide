@@ -88,7 +88,7 @@ export class FetchUrlToolHandler implements IToolHandler {
 
             const req = protocol.get(url, {
                 headers: {
-                    'User-Agent': 'CodePilot/1.0 (VSCode Extension)',
+                    'User-Agent': 'AgentGoCoder/1.0 (VSCode Extension)',
                     'Accept': 'text/html,application/json,text/plain,*/*'
                 },
                 timeout: timeout

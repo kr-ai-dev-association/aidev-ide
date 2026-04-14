@@ -8,7 +8,7 @@ import { CommandContext } from "./types";
  * viewCacheStats, clearCache, listSavedSessions, restoreSavedSession, compactConversation
  */
 export function registerSessionCommands(
-  deps: CommandContext
+  deps: CommandContext,
 ): vscode.Disposable[] {
   const { context, chatViewProvider, ollamaApi } = deps;
 
@@ -20,15 +20,14 @@ export function registerSessionCommands(
     });
 
   const getSessionManager = async () => {
-    const { SessionManager } = await import(
-      "../core/managers/state/SessionManager"
-    );
+    const { SessionManager } =
+      await import("../core/managers/state/SessionManager");
     return SessionManager.getInstance(context);
   };
 
   return [
     // 캐시 통계 보기
-    vscode.commands.registerCommand("codepilot-standalone.viewCacheStats", async () => {
+    vscode.commands.registerCommand("agentgocoder.viewCacheStats", async () => {
       try {
         const sessionManager = await getSessionManager();
         const stats = sessionManager.getCacheStats();
@@ -44,7 +43,7 @@ export function registerSessionCommands(
             `- 총 캐시 크기: ${(stats.totalSize / 1024 / 1024).toFixed(2)} MB\n` +
             `- 캐시 히트: ${stats.hitCount}회\n` +
             `- 캐시 미스: ${stats.missCount}회\n` +
-            `- 캐시 히트율: ${(stats.hitRate * 100).toFixed(1)}%\n\n`
+            `- 캐시 히트율: ${(stats.hitRate * 100).toFixed(1)}%\n\n`,
         );
       } catch (error) {
         postSystem(`캐시 통계 조회 실패: ${error}`);
@@ -52,7 +51,7 @@ export function registerSessionCommands(
     }),
 
     // 캐시 초기화 (QuickPick 확인 + 패널에 결과 출력)
-    vscode.commands.registerCommand("codepilot-standalone.clearCache", async () => {
+    vscode.commands.registerCommand("agentgocoder.clearCache", async () => {
       try {
         const confirm = await vscode.window.showQuickPick(["예", "아니오"], {
           title: "캐시 초기화",
@@ -63,7 +62,7 @@ export function registerSessionCommands(
           const sessionManager = await getSessionManager();
           sessionManager.clearAllCache();
           postSystem(
-            "\n캐시 초기화 완료\n\n모든 컨텍스트 캐시가 초기화되었습니다.\n\n"
+            "\n캐시 초기화 완료\n\n모든 컨텍스트 캐시가 초기화되었습니다.\n\n",
           );
         }
       } catch (error) {
@@ -73,7 +72,7 @@ export function registerSessionCommands(
 
     // 저장된 세션 목록 보기 (QuickPick)
     vscode.commands.registerCommand(
-      "codepilot-standalone.listSavedSessions",
+      "agentgocoder.listSavedSessions",
       async () => {
         try {
           const sessionManager = await getSessionManager();
@@ -85,8 +84,7 @@ export function registerSessionCommands(
           }
 
           const items = sessions.map((session: any) => ({
-            label:
-              path.basename(session.projectPath) || session.projectPath,
+            label: path.basename(session.projectPath) || session.projectPath,
             description: `메시지 ${session.conversationHistory.length}개`,
             detail: `마지막 활성: ${new Date(session.lastActiveAt).toLocaleString()}`,
             sessionId: session.id,
@@ -99,12 +97,12 @@ export function registerSessionCommands(
         } catch (error) {
           vscode.window.showErrorMessage(`세션 목록 조회 실패: ${error}`);
         }
-      }
+      },
     ),
 
     // 저장된 세션 복원 (QuickPick)
     vscode.commands.registerCommand(
-      "codepilot-standalone.restoreSavedSession",
+      "agentgocoder.restoreSavedSession",
       async () => {
         try {
           const sessionManager = await getSessionManager();
@@ -116,8 +114,7 @@ export function registerSessionCommands(
           }
 
           const items = sessions.map((session: any) => ({
-            label:
-              path.basename(session.projectPath) || session.projectPath,
+            label: path.basename(session.projectPath) || session.projectPath,
             description: `메시지 ${session.conversationHistory.length}개`,
             detail: `생성: ${new Date(session.createdAt).toLocaleString()}`,
             sessionId: session.id,
@@ -130,15 +127,15 @@ export function registerSessionCommands(
 
           if (selected && (selected as any).sessionId) {
             const success = sessionManager.setCurrentSession(
-              (selected as any).sessionId
+              (selected as any).sessionId,
             );
             if (success) {
               const session = sessionManager.getSession(
-                (selected as any).sessionId
+                (selected as any).sessionId,
               );
               if (session && chatViewProvider.restoreConversationHistory) {
                 chatViewProvider.restoreConversationHistory(
-                  session.conversationHistory
+                  session.conversationHistory,
                 );
               }
             } else {
@@ -148,75 +145,82 @@ export function registerSessionCommands(
         } catch (error) {
           vscode.window.showErrorMessage(`세션 복원 실패: ${error}`);
         }
-      }
+      },
     ),
 
     // 세션 삭제 (QuickPick 선택 후 삭제)
-    vscode.commands.registerCommand(
-      "codepilot-standalone.deleteSession",
-      async () => {
-        try {
-          const sessionManager = await getSessionManager();
-          const sessions = sessionManager.getAllSessions();
+    vscode.commands.registerCommand("agentgocoder.deleteSession", async () => {
+      try {
+        const sessionManager = await getSessionManager();
+        const sessions = sessionManager.getAllSessions();
 
-          if (sessions.length === 0) {
-            vscode.window.showInformationMessage("삭제할 세션이 없습니다.");
-            return;
-          }
+        if (sessions.length === 0) {
+          vscode.window.showInformationMessage("삭제할 세션이 없습니다.");
+          return;
+        }
 
-          const items = sessions.map((session: any) => ({
-            label: path.basename(session.projectPath) || session.projectPath,
-            description: `메시지 ${session.conversationHistory.length}개`,
-            detail: `마지막 활성: ${new Date(session.lastActiveAt).toLocaleString()}`,
-            sessionId: session.id,
-          }));
+        const items = sessions.map((session: any) => ({
+          label: path.basename(session.projectPath) || session.projectPath,
+          description: `메시지 ${session.conversationHistory.length}개`,
+          detail: `마지막 활성: ${new Date(session.lastActiveAt).toLocaleString()}`,
+          sessionId: session.id,
+        }));
 
-          const selected = await vscode.window.showQuickPick(items, {
-            title: "세션 삭제",
-            placeHolder: "삭제할 세션을 선택하세요",
-            canPickMany: true,
-          });
+        const selected = await vscode.window.showQuickPick(items, {
+          title: "세션 삭제",
+          placeHolder: "삭제할 세션을 선택하세요",
+          canPickMany: true,
+        });
 
-          if (!selected || selected.length === 0) return;
+        if (!selected || selected.length === 0) return;
 
-          const confirm = await vscode.window.showWarningMessage(
-            `선택한 세션 ${selected.length}개를 삭제하시겠습니까?`,
-            { modal: true },
-            "삭제"
-          );
+        const confirm = await vscode.window.showWarningMessage(
+          `선택한 세션 ${selected.length}개를 삭제하시겠습니까?`,
+          { modal: true },
+          "삭제",
+        );
 
-          if (confirm !== "삭제") return;
+        if (confirm !== "삭제") return;
 
-          let deleted = 0;
-          for (const item of selected) {
-            const sessionId = (item as any).sessionId;
-            if (sessionManager.deleteSession(sessionId)) {
-              deleted++;
-              // Clean up associated plan files
-              try {
-                const globalStoragePath = context.globalStorageUri?.fsPath;
-                if (globalStoragePath) {
-                  const fs = require('fs');
-                  const planFilePath = path.join(globalStoragePath, 'plans', `plan_${sessionId}.md`);
-                  if (fs.existsSync(planFilePath)) {
-                    fs.unlinkSync(planFilePath);
-                    console.log(`[SessionCommands] Deleted plan file: ${planFilePath}`);
-                  }
+        let deleted = 0;
+        for (const item of selected) {
+          const sessionId = (item as any).sessionId;
+          if (sessionManager.deleteSession(sessionId)) {
+            deleted++;
+            // Clean up associated plan files
+            try {
+              const globalStoragePath = context.globalStorageUri?.fsPath;
+              if (globalStoragePath) {
+                const fs = require("fs");
+                const planFilePath = path.join(
+                  globalStoragePath,
+                  "plans",
+                  `plan_${sessionId}.md`,
+                );
+                if (fs.existsSync(planFilePath)) {
+                  fs.unlinkSync(planFilePath);
+                  console.log(
+                    `[SessionCommands] Deleted plan file: ${planFilePath}`,
+                  );
                 }
-              } catch { /* non-fatal */ }
+              }
+            } catch {
+              /* non-fatal */
             }
           }
-
-          vscode.window.showInformationMessage(`세션 ${deleted}개가 삭제되었습니다.`);
-        } catch (error) {
-          vscode.window.showErrorMessage(`세션 삭제 실패: ${error}`);
         }
+
+        vscode.window.showInformationMessage(
+          `세션 ${deleted}개가 삭제되었습니다.`,
+        );
+      } catch (error) {
+        vscode.window.showErrorMessage(`세션 삭제 실패: ${error}`);
       }
-    ),
+    }),
 
     // 대화 압축 (QuickPick 확인 추가)
     vscode.commands.registerCommand(
-      "codepilot-standalone.compactConversation",
+      "agentgocoder.compactConversation",
       async () => {
         try {
           const sessionManager = await getSessionManager();
@@ -227,7 +231,7 @@ export function registerSessionCommands(
             currentSession.conversationHistory.length < 3
           ) {
             postSystem(
-              "압축할 대화가 충분하지 않습니다. (최소 3개 이상의 대화 필요)"
+              "압축할 대화가 충분하지 않습니다. (최소 3개 이상의 대화 필요)",
             );
             return;
           }
@@ -246,15 +250,12 @@ export function registerSessionCommands(
             status: "> 대화 압축 준비 중...",
           });
 
-          const { ConversationCompactor } = await import(
-            "../core/managers/conversation/ConversationCompactor"
-          );
-          const { LLMManager } = await import(
-            "../core/managers/model/LLMManager"
-          );
-          const { StateManager } = await import(
-            "../core/managers/state/StateManager"
-          );
+          const { ConversationCompactor } =
+            await import("../core/managers/conversation/ConversationCompactor");
+          const { LLMManager } =
+            await import("../core/managers/model/LLMManager");
+          const { StateManager } =
+            await import("../core/managers/state/StateManager");
           const llmManager = LLMManager.getInstance(ollamaApi);
           const compactor = ConversationCompactor.getInstance(llmManager);
           compactor.setStateManager(StateManager.getInstance(context));
@@ -262,7 +263,7 @@ export function registerSessionCommands(
           const userParts = currentSession.conversationHistory.map(
             (entry: any) => ({
               text: `[User]: ${entry.userRequest}\n[Assistant]: ${entry.assistantResponse || "(응답 없음)"}`,
-            })
+            }),
           );
 
           const currentModelType = llmManager.getCurrentModel();
@@ -282,12 +283,12 @@ export function registerSessionCommands(
           if (result.compacted && result.summary) {
             sessionManager.addCompactedSummary(
               currentSession.id,
-              result.summary
+              result.summary,
             );
 
             const keepCount = Math.min(
               6,
-              currentSession.conversationHistory.length
+              currentSession.conversationHistory.length,
             );
             sessionManager.trimSessionHistory(keepCount);
             sessionManager.setTotalTokensUsed(result.compactedTokens);
@@ -302,7 +303,7 @@ export function registerSessionCommands(
                 `- 원본 토큰: ${result.originalTokens.toLocaleString()}\n` +
                 `- 압축 후 토큰: ${result.compactedTokens.toLocaleString()}\n` +
                 `- 절감률: ${savedPercent}%\n\n` +
-                `최근 ${keepCount}개의 대화만 유지됩니다.\n\n`
+                `최근 ${keepCount}개의 대화만 유지됩니다.\n\n`,
             );
 
             chatViewProvider.postMessageToWebview({
@@ -324,7 +325,7 @@ export function registerSessionCommands(
           chatViewProvider.postMessageToWebview({ command: "hideLoading" });
           postSystem(`대화 압축 실패: ${error}`);
         }
-      }
+      },
     ),
   ];
 }

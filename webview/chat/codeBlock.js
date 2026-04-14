@@ -83,7 +83,7 @@ export function loadFileIcon(filename, container, displayLang, iconSize = 18) {
 
 /**
  * 🔥 스트리밍 완료 후 코드 블록 UI 개선
- * displayCodePilotMessage()와 동일한 UI로 코드 블록을 재렌더링
+ * displayAgentGoCoderMessage()와 동일한 UI로 코드 블록을 재렌더링
  * 단, Keep/Undo 버튼은 제외 (요약의 예시 코드에는 필요 없음)
  *
  * 기능:
@@ -169,7 +169,7 @@ export function enhanceCodeBlocks(contentElement) {
     codeContainer.setAttribute("data-container-for", blockId);
 
     // 토글 링크 설정
-    headerLeft.href = `codepilot://toggle?id=${blockId}`;
+    headerLeft.href = `agentgocoder://toggle?id=${blockId}`;
 
     // 커서 스타일
     codeHeader.style.cursor = "pointer";

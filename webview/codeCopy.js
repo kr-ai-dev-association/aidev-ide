@@ -282,7 +282,7 @@ function attachCopyButtonListener(button, codeElement) {
     });
 }
 
-// 이 함수는 chat.js의 displayCodePilotMessage 함수에서 호출됩니다.
+// 이 함수는 chat.js의 displayAgentGoCoderMessage 함수에서 호출됩니다.
 // Keep 버튼 생성 함수 (anchor 태그 방식 - 파일 열기 아이콘과 동일한 로직)
 function createKeepButton(filePath) {
     const button = document.createElement('a');
@@ -290,9 +290,9 @@ function createKeepButton(filePath) {
     button.textContent = 'Keep';
     button.title = `Keep all changes for ${filePath}`;
 
-    // ✅ codepilot://acceptAll 스킴 사용 (chatMessages click 핸들러에서 처리)
+    // ✅ agentgocoder://acceptAll 스킴 사용 (chatMessages click 핸들러에서 처리)
     const encodedPath = encodeURIComponent(filePath);
-    button.href = `codepilot://acceptAll?path=${encodedPath}`;
+    button.href = `agentgocoder://acceptAll?path=${encodedPath}`;
     
     button.style.cssText = `
         display: flex;
@@ -325,9 +325,9 @@ function createUndoButton(filePath) {
     button.textContent = 'Undo';
     button.title = `Undo all changes for ${filePath}`;
 
-    // ✅ codepilot://rejectAll 스킴 사용 (chatMessages click 핸들러에서 처리)
+    // ✅ agentgocoder://rejectAll 스킴 사용 (chatMessages click 핸들러에서 처리)
     const encodedPath = encodeURIComponent(filePath);
-    button.href = `codepilot://rejectAll?path=${encodedPath}`;
+    button.href = `agentgocoder://rejectAll?path=${encodedPath}`;
     
     button.style.cssText = `
         display: flex;
