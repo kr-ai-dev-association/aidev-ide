@@ -8,6 +8,13 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ## v1.0.66 (2026-04-20)
 
+### update_file Block Anchor Matching 제거
+
+- **`UpdateFileToolHandler.blockAnchorFallbackMatch()` 제거**: Match strategy "Block anchor" (3+ lines의 첫/마지막 라인 anchor + 중간 60% 유사도 허용) 전체 삭제
+- **이유**: 중간 60% similarity threshold가 **중간 40% 내용이 달라도 매칭 성공**으로 판정 → 보일러플레이트 첫/끝 라인을 공유하는 다른 블록(예: 여러 try/catch, 여러 if 조건, 같은 prefix를 가진 여러 함수)을 잘못 매칭할 위험이 가장 큼
+- **영향**: update_file 매칭은 이제 4단계 (exact → quote → line-trimmed → structural)로 축소. "모든 라인이 완전 일치" 또는 "공백 무시하되 내용 엄격 일치" 경로만 남음 — 유사도 기반 partial 매칭 사라짐
+- **Fuzzy 제거와 같은 원칙**: "매칭 실패 → LLM 재시도로 회복" vs "잘못된 위치 매칭 → 조용한 코드 오염"의 비대칭에서 후자 제거가 우선
+
 ### update_file Fuzzy Matching 제거
 
 - **`UpdateFileToolHandler.fuzzyContentMatch()` 제거**: Match strategy 5 (formatter 라인 브레이크 변경 복구용 토큰 기반 fuzzy 매칭) 전체 삭제

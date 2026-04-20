@@ -301,22 +301,7 @@ export class UpdateFileToolHandler implements IToolHandler {
         }
       }
 
-      // Match strategy 3: Block anchor match (when still failing)
-      if (!matchResult) {
-        const blockMatch = this.blockAnchorFallbackMatch(
-          fileContent,
-          replacement.search,
-          0,
-        );
-        if (blockMatch) {
-          matchResult = blockMatch;
-          console.log(
-            `[UpdateFileToolHandler] Block anchor match found for ${filePath}`,
-          );
-        }
-      }
-
-      // Match strategy 4: Structural whitespace-ignoring match
+      // Match strategy 3: Structural whitespace-ignoring match
       if (!matchResult) {
         const structuralMatch = this.structuralFallbackMatch(
           fileContent,
@@ -642,95 +627,6 @@ export class UpdateFileToolHandler implements IToolHandler {
     }
 
     return false;
-  }
-
-  /**
-   * For blocks of 3+ lines, use first and last lines as anchors for matching
-   */
-  private blockAnchorFallbackMatch(
-    originalContent: string,
-    searchContent: string,
-    startIndex: number,
-  ): [number, number] | false {
-    const originalLines = originalContent.split("\n");
-    const searchLines = searchContent.split("\n");
-
-    // Apply anchor matching only for 3+ lines
-    if (searchLines.length < 3) {
-      return false;
-    }
-
-    // Remove last empty line
-    if (searchLines[searchLines.length - 1].trim() === "") {
-      searchLines.pop();
-    }
-
-    const firstLineSearch = searchLines[0].trim();
-    const lastLineSearch = searchLines[searchLines.length - 1].trim();
-    const searchBlockSize = searchLines.length;
-
-    // For middle line similarity verification (excluding first/last lines)
-    const middleSearchLines = searchLines.slice(1, -1).map((l) => l.trim());
-    const MIDDLE_SIMILARITY_THRESHOLD = 0.6;
-
-    let bestMatch: [number, number] | false = false;
-    let bestSimilarity = -1;
-
-    for (let i = 0; i <= originalLines.length - searchBlockSize; i++) {
-      // Check if first and last lines match based on trim()
-      if (
-        originalLines[i].trim() !== firstLineSearch ||
-        originalLines[i + searchBlockSize - 1].trim() !== lastLineSearch
-      ) {
-        continue;
-      }
-
-      // Middle line similarity check (prevent false positives)
-      if (middleSearchLines.length > 0) {
-        const middleOriginalLines = originalLines
-          .slice(i + 1, i + searchBlockSize - 1)
-          .map((l) => l.trim());
-
-        let matchCount = 0;
-        const compareLen = Math.min(
-          middleSearchLines.length,
-          middleOriginalLines.length,
-        );
-        for (let k = 0; k < compareLen; k++) {
-          if (middleSearchLines[k] === middleOriginalLines[k]) matchCount++;
-        }
-        const similarity = compareLen > 0 ? matchCount / compareLen : 1.0;
-
-        if (similarity < MIDDLE_SIMILARITY_THRESHOLD) continue;
-
-        // Select match with highest similarity
-        if (similarity <= bestSimilarity) continue;
-        bestSimilarity = similarity;
-      }
-
-      // Calculate matched start and end indices
-      let matchStartIndex = 0;
-      for (let k = 0; k < i; k++) {
-        matchStartIndex += originalLines[k].length + 1;
-      }
-
-      let matchEndIndex = matchStartIndex;
-      for (let k = 0; k < searchBlockSize; k++) {
-        matchEndIndex += originalLines[i + k].length + 1;
-      }
-
-      // Correct trailing \n (when not at end of file)
-      if (matchEndIndex > originalContent.length) {
-        matchEndIndex = originalContent.length;
-      }
-
-      bestMatch = [matchStartIndex, matchEndIndex];
-
-      // Return immediately on perfect match
-      if (bestSimilarity === 1.0) return bestMatch;
-    }
-
-    return bestMatch;
   }
 
   /**
