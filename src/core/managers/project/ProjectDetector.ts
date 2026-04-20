@@ -99,6 +99,78 @@ export class ProjectDetector {
   }
 
   /**
+   * compileall 이후 추가로 수행할 import 검증 스텝을 생성합니다.
+   * 캐스케이드 우선순위: Django manage.py check → pytest --collect-only → pyright → python -c "import X"
+   * 프로젝트에 해당 도구 설정이 있을 때만 활성화 (없으면 빈 문자열 반환).
+   */
+  private static buildPythonImportCheck(
+    projectRoot: string,
+    pythonCmd: string,
+  ): string {
+    // 1. Django: manage.py check — import + Django system check
+    if (fs.existsSync(path.join(projectRoot, "manage.py"))) {
+      return ` && ${pythonCmd} manage.py check`;
+    }
+
+    const pyprojectPath = path.join(projectRoot, "pyproject.toml");
+    let pyprojectContent = "";
+    try {
+      if (fs.existsSync(pyprojectPath)) {
+        pyprojectContent = fs.readFileSync(pyprojectPath, "utf-8");
+      }
+    } catch {
+      /* pyproject 읽기 실패 시 무시 */
+    }
+
+    // 2. pytest: conftest가 env 주입 → FastAPI/DB side effect 억제 가능
+    const hasPytestConfig =
+      fs.existsSync(path.join(projectRoot, "pytest.ini")) ||
+      fs.existsSync(path.join(projectRoot, "tox.ini")) ||
+      pyprojectContent.includes("[tool.pytest") ||
+      fs.existsSync(path.join(projectRoot, "tests")) ||
+      fs.existsSync(path.join(projectRoot, "test"));
+    if (hasPytestConfig) {
+      return ` && pytest --collect-only -q`;
+    }
+
+    // 3. pyright: static import 해상도 (부작용 없음)
+    const hasPyrightConfig =
+      fs.existsSync(path.join(projectRoot, "pyrightconfig.json")) ||
+      pyprojectContent.includes("[tool.pyright");
+    if (hasPyrightConfig) {
+      return ` && pyright`;
+    }
+
+    // 4. entry point: python -c "import X"
+    const entryModule = ProjectDetector.detectPythonEntryModule(projectRoot);
+    if (entryModule) {
+      return ` && ${pythonCmd} -c "import ${entryModule}"`;
+    }
+
+    return "";
+  }
+
+  /**
+   * `python -c "import X"` 용 entry 모듈 탐지.
+   * 루트의 main/app/wsgi/asgi 또는 app/ 하위 패키지.
+   */
+  private static detectPythonEntryModule(projectRoot: string): string | null {
+    const rootEntries = ["main.py", "app.py", "wsgi.py", "asgi.py"];
+    for (const f of rootEntries) {
+      if (fs.existsSync(path.join(projectRoot, f))) {
+        return f.replace(".py", "");
+      }
+    }
+    if (fs.existsSync(path.join(projectRoot, "app", "main.py"))) {
+      return "app.main";
+    }
+    if (fs.existsSync(path.join(projectRoot, "app", "__init__.py"))) {
+      return "app";
+    }
+    return null;
+  }
+
+  /**
    * 프로젝트 타입을 감지합니다
    */
   public async detectProjectType(projectRoot: string): Promise<{
@@ -623,6 +695,20 @@ export class ProjectDetector {
 
     const serverOverride = await this.getServerBuildTestOverride(allFiles);
     if (serverOverride) {
+      // Baseline 체인: admin 등록 명령 앞에 언어별 빠른 신택스 게이트(compileall 등) prefix
+      // admin 명령이 뭘 검증하든 기본 신택스 에러는 먼저 잡아냄 → "라우터 체크만 등록해서 syntax 놓침" 방지
+      const baseline = await this.buildBaselineCommand(
+        projectType,
+        projectRoot,
+        allFiles,
+      );
+      if (baseline) {
+        return {
+          command: `${baseline} && ${serverOverride.command}`,
+          description: `Baseline + ${serverOverride.description}`,
+          fromSettings: true,
+        };
+      }
       return { ...serverOverride, fromSettings: true };
     }
 
@@ -924,10 +1010,16 @@ export class ProjectDetector {
             )
             .join(" ");
 
-          // Python: 문법 검사만 (lint는 LLM이 필요 시 직접 실행)
+          // Python: 문법 검사 + import 검증 캐스케이드
+          const importCheck = ProjectDetector.buildPythonImportCheck(
+            projectRoot,
+            pythonCmd,
+          );
           return {
-            command: `${pythonCmd} -m compileall -q -j 0 ${relativePaths}`,
-            description: "Python Syntax Check",
+            command: `${pythonCmd} -m compileall -q -j 0 ${relativePaths}${importCheck}`,
+            description: importCheck
+              ? "Python Syntax + Import Check"
+              : "Python Syntax Check",
           };
         }
 
@@ -1477,10 +1569,14 @@ export class ProjectDetector {
               description: "Mypy Type Check",
             });
           }
-          // 문법 검사는 항상 후보에 포함 (최후의 수단)
+          // 문법 검사 + import 검증 캐스케이드 (항상 후보에 포함)
+          const importCheckForCandidate =
+            ProjectDetector.buildPythonImportCheck(projectRoot, pythonCmd);
           candidates.push({
-            command: `${pythonCmd} -m compileall -q -j 0 ${relativePaths}`,
-            description: "Python Syntax Check",
+            command: `${pythonCmd} -m compileall -q -j 0 ${relativePaths}${importCheckForCandidate}`,
+            description: importCheckForCandidate
+              ? "Python Syntax + Import Check"
+              : "Python Syntax Check",
           });
         }
         break;
@@ -1641,6 +1737,36 @@ export class ProjectDetector {
         error,
       );
       return null;
+    }
+  }
+
+  /**
+   * Admin 등록 명령(serverOverride)의 prefix로 실행할 언어별 baseline 신택스 게이트 생성.
+   * - 빠른 실행(100ms~1s) + 의견 없는 순수 신택스 검사만 수행
+   * - 깊은 검증(pytest/pyright 등)은 admin이 선언한 것만 실행 (baseline에 포함 안 함)
+   * - 지원 안 되는 타입이면 null 반환 (admin 명령만 단독 실행)
+   */
+  private async buildBaselineCommand(
+    projectType: ProjectType,
+    projectRoot: string,
+    allFiles: string[],
+  ): Promise<string | null> {
+    switch (projectType) {
+      case ProjectType.PYTHON:
+      case ProjectType.DJANGO:
+      case ProjectType.FLASK:
+      case ProjectType.FASTAPI: {
+        const pythonFiles = allFiles.filter((f) => f.endsWith(".py"));
+        if (pythonFiles.length === 0) return null;
+        const pythonCmd =
+          await ProjectDetector.detectPythonRuntime(projectRoot);
+        const relativePaths = pythonFiles
+          .map((f) => (path.isAbsolute(f) ? path.relative(projectRoot, f) : f))
+          .join(" ");
+        return `${pythonCmd} -m compileall -q -j 0 ${relativePaths}`;
+      }
+      default:
+        return null;
     }
   }
 

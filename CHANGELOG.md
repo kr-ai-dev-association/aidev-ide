@@ -2,7 +2,43 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.65**
+> **현재 버전: v1.0.66**
+
+---
+
+## v1.0.66 (2026-04-20)
+
+### Admin 등록 빌드/테스트 명령에 Baseline 신택스 게이트 prefix
+
+- **`ProjectDetector.buildBaselineCommand()` 신규**: `projectType`별로 빠른 신택스 검사 전용 baseline 명령 생성 (Python → `python -m compileall -q -j 0 {files}`). 기본은 Python 계열(Python/Django/Flask/FastAPI)만 지원, 다른 타입은 null 반환
+- **LEVEL 0 동작 변경**: `getValidationCommand`의 `serverOverride` 경로에서 admin이 등록한 명령 앞에 `{baseline} && {admin}` 형태로 체인. 예: admin이 `cd backend && pytest` 등록 시 실제 실행은 `python3 -m compileall -q -j 0 backend/app/main.py && cd backend && pytest`
+- **의도**: admin이 좁은 검증만 등록(예: 라우터 존재 체크)하고 신택스 검사 포함 잊어버리는 실수 방지. 기본 신택스 에러를 깊은 검증 전에 조기 발견
+- **범위 제한 — baseline만 체인**: pytest/pyright/import cascade 같은 의견·도구선택 축은 여전히 admin이 완전 override (중복 실행·도구 충돌 회피)
+- **description 표기**: `Baseline + {원래 description}` 으로 변경 → 체인 여부 식별 가능
+- **fromSettings 플래그 유지**: COMMAND_NOT_FOUND 발생 시 기존 폴백 로직 그대로 작동. 실패한 combined 명령은 exclude 목록에 들어가고 auto-detect 후보로 폴백
+
+### 컨텍스트 주입 가시화 (채팅 패널)
+
+- **RAG 참조 알림**: `ContextGatherer`가 RAG 검색 결과 N개 문서를 시스템 프롬프트에 포함한 순간 `📚 [RAG] {문서명} (N개 청크)`를 채팅 패널에 출력 (amber 색상)
+- **Rules 참조 알림**: 서버 등록 Rules가 프롬프트에 포함되면 `📋 [Rules] {title 목록}` 출력 (기본 회색)
+- **Skills 참조 알림**: IntentDetector가 선택하고 실제로 skill registry에 등록된 Skills만 `🧩 [Skills] {key 목록}` 출력 (emerald 색상)
+- **MCP 프롬프트 알림**: MCP 커스텀 프롬프트 포함 시 `🔌 [MCP] N개 서버 프롬프트 포함` 출력 (purple 색상)
+- **webview 색상 매핑 확장**: `webview/chat/message-display.js`의 system-message 색상 분기에 RAG(amber)/Skills(emerald)/MCP(purple) 케이스 추가
+
+### update_file 프롬프트 규칙 강화
+
+- **SEARCH 블록 사이즈 가드**: 툴 설명의 CRITICAL rules 1번에 "3줄 이상 AND 공백 제외 10자 이상" 하한, "20줄 이내" 상한 추가 — 한 줄짜리 SEARCH 금지 명시
+- **턴당 동일 파일 1회 호출 규칙**: CRITICAL rules 2번을 "동일 파일에 연속 수정 필요하면 하나의 update_file에 여러 SEARCH/REPLACE 블록으로 묶을 것" 로 강화 — shadow 콘텐츠 갱신으로 인한 이후 SEARCH 어긋남 방지
+
+### Python import 검증 캐스케이드
+
+- **compileall 이후 import 검증 추가**: `ProjectDetector.getValidationCommand`/`getValidationCandidates`의 Python 분기를 `python -m compileall && [cascade]` 형태로 확장
+- **캐스케이드 우선순위** (프로젝트 설정 기준 자동 선택, 미검출 시 스킵):
+  1. `manage.py` 존재 → `python manage.py check` (Django system check)
+  2. `pytest.ini` / `tox.ini` / `pyproject.toml [tool.pytest]` / `tests/` 중 하나라도 있음 → `pytest --collect-only -q` (conftest.py가 env/mock을 주입 → FastAPI/DB side effect 억제)
+  3. `pyrightconfig.json` / `pyproject.toml [tool.pyright]` 존재 → `pyright` (static import 해상도, 부작용 없음)
+  4. 루트 `main.py`/`app.py`/`wsgi.py`/`asgi.py` 또는 `app/main.py`/`app/__init__.py` 감지 → `python -c "import X"` (entry point smoke test)
+- **도구 미설치 시 폴백**: 설정 파일 없으면 조용히 스킵 → compileall만 수행하고 빌드 통과 처리 (설치 강요 없음)
 
 ---
 
