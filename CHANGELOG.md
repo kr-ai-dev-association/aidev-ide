@@ -8,6 +8,13 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ## v1.0.66 (2026-04-20)
 
+### update_file Fuzzy Matching 제거
+
+- **`UpdateFileToolHandler.fuzzyContentMatch()` 제거**: Match strategy 5 (formatter 라인 브레이크 변경 복구용 토큰 기반 fuzzy 매칭) 전체 삭제
+- **이유**: Fuzzy 매칭은 구조적으로 유사한 다른 위치(예: 형태가 비슷한 다른 함수)를 silent하게 잘못 수정할 리스크 존재. "매칭 실패 → LLM 재시도로 회복 가능" vs "잘못된 위치 매칭 → 조용한 코드 오염"의 비대칭에서 후자가 훨씬 비쌈
+- **영향**: update_file 매칭은 이제 5단계 (exact → quote → line-trimmed → block anchor → structural)로 축소. 예전 Fuzzy가 잡던 일부 케이스는 "SEARCH block not found" 에러로 반환되며, LLM이 에러+파일내용 받고 재시도하는 기존 경로로 처리됨
+- **agentgocoder v1.1.0의 "정확 매칭만 유지" 원칙과 정렬** — 4개 프로젝트 매칭 전략 통일 방향
+
 ### Admin 등록 빌드/테스트 명령에 Baseline 신택스 게이트 prefix
 
 - **`ProjectDetector.buildBaselineCommand()` 신규**: `projectType`별로 빠른 신택스 검사 전용 baseline 명령 생성 (Python → `python -m compileall -q -j 0 {files}`). 기본은 Python 계열(Python/Django/Flask/FastAPI)만 지원, 다른 타입은 null 반환

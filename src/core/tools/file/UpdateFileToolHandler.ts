@@ -9,7 +9,10 @@ import {
   fixModelHtmlEscaping,
   removeCDataSections,
 } from "../../../utils/string";
-import { FileMutationManager, PatchStrategy } from "../../managers/file/FileMutationManager";
+import {
+  FileMutationManager,
+  PatchStrategy,
+} from "../../managers/file/FileMutationManager";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { z } from "zod";
@@ -23,7 +26,10 @@ const UpdateFileParamsSchema = z.object({
 export class UpdateFileToolHandler implements IToolHandler {
   readonly name = Tool.UPDATE_FILE;
   /** Track failed SEARCH patterns per file (for detecting repeated pattern failures) */
-  private _failedSearchPatterns: Map<string, { pattern: string; count: number }[]> = new Map();
+  private _failedSearchPatterns: Map<
+    string,
+    { pattern: string; count: number }[]
+  > = new Map();
 
   async execute(
     toolUse: ToolUse,
@@ -31,8 +37,12 @@ export class UpdateFileToolHandler implements IToolHandler {
   ): Promise<ToolResponse> {
     const parseResult = UpdateFileParamsSchema.safeParse(toolUse.params);
     if (!parseResult.success) {
-      const msg = parseResult.error.errors[0]?.message ?? 'Invalid params';
-      return { success: false, message: msg, error: { code: 'INVALID_PARAMS', message: msg } };
+      const msg = parseResult.error.errors[0]?.message ?? "Invalid params";
+      return {
+        success: false,
+        message: msg,
+        error: { code: "INVALID_PARAMS", message: msg },
+      };
     }
     const filePath = parseResult.data.path;
     let diff = parseResult.data.diff;
@@ -41,15 +51,22 @@ export class UpdateFileToolHandler implements IToolHandler {
     if (!filePath || filePath.trim().length === 0) {
       return {
         success: false,
-        message: 'Path parameter is empty',
-        error: { code: 'EMPTY_PARAM', message: 'path parameter must not be empty' },
+        message: "Path parameter is empty",
+        error: {
+          code: "EMPTY_PARAM",
+          message: "path parameter must not be empty",
+        },
       };
     }
     if (diff && diff.trim().length < 10) {
       return {
         success: false,
-        message: 'Diff parameter is too short (< 10 chars). Provide a valid SEARCH/REPLACE block.',
-        error: { code: 'INVALID_DIFF', message: 'diff is too short to contain a valid SEARCH/REPLACE block' },
+        message:
+          "Diff parameter is too short (< 10 chars). Provide a valid SEARCH/REPLACE block.",
+        error: {
+          code: "INVALID_DIFF",
+          message: "diff is too short to contain a valid SEARCH/REPLACE block",
+        },
       };
     }
 
@@ -57,29 +74,45 @@ export class UpdateFileToolHandler implements IToolHandler {
     if (!diff && parseResult.data.content) {
       const content = parseResult.data.content;
       // If content contains SEARCH/REPLACE markers, re-route as diff
-      if (/^<{4,}\s*SEARCH/m.test(content) || /^-{3,}\s*SEARCH/m.test(content)) {
-        console.log(`[UpdateFileToolHandler] LLM sent SEARCH/REPLACE diff in 'content' param. Re-routing as diff for ${filePath}`);
+      if (
+        /^<{4,}\s*SEARCH/m.test(content) ||
+        /^-{3,}\s*SEARCH/m.test(content)
+      ) {
+        console.log(
+          `[UpdateFileToolHandler] LLM sent SEARCH/REPLACE diff in 'content' param. Re-routing as diff for ${filePath}`,
+        );
         diff = content;
       } else {
-        console.log(`[UpdateFileToolHandler] LLM sent 'content' instead of 'diff'. Using create_file fallback for ${filePath}`);
-        const { CreateFileToolHandler } = await import('./CreateFileToolHandler');
+        console.log(
+          `[UpdateFileToolHandler] LLM sent 'content' instead of 'diff'. Using create_file fallback for ${filePath}`,
+        );
+        const { CreateFileToolHandler } =
+          await import("./CreateFileToolHandler");
         const createHandler = new CreateFileToolHandler();
-        return createHandler.execute({
-          ...toolUse,
-          name: Tool.CREATE_FILE,
-          params: {
-            path: filePath,
-            content: content
-          }
-        }, context);
+        return createHandler.execute(
+          {
+            ...toolUse,
+            name: Tool.CREATE_FILE,
+            params: {
+              path: filePath,
+              content: content,
+            },
+          },
+          context,
+        );
       }
     }
 
     if (!filePath || !diff) {
       return {
         success: false,
-        message: "Path and diff parameters are required. Use 'diff' parameter with SEARCH/REPLACE blocks, not 'content'.",
-        error: { code: "MISSING_PARAM", message: "path and diff are required. If you want to replace entire file, use 'content' parameter instead." },
+        message:
+          "Path and diff parameters are required. Use 'diff' parameter with SEARCH/REPLACE blocks, not 'content'.",
+        error: {
+          code: "MISSING_PARAM",
+          message:
+            "path and diff are required. If you want to replace entire file, use 'content' parameter instead.",
+        },
       };
     }
 
@@ -91,11 +124,17 @@ export class UpdateFileToolHandler implements IToolHandler {
     cleanedDiff = removeCDataSections(cleanedDiff);
 
     // Parse SEARCH/REPLACE blocks
-    console.log(`[UpdateFileToolHandler] Raw diff: (${cleanedDiff.length} chars)`);
+    console.log(
+      `[UpdateFileToolHandler] Raw diff: (${cleanedDiff.length} chars)`,
+    );
     const replacements = this.parseDiff(cleanedDiff);
-    console.log(`[UpdateFileToolHandler] Parsed ${replacements.length} replacement(s)`);
+    console.log(
+      `[UpdateFileToolHandler] Parsed ${replacements.length} replacement(s)`,
+    );
     replacements.forEach((r, i) => {
-      console.log(`[UpdateFileToolHandler] Replacement ${i}: search=(${r.search.length} chars), replace=(${r.replace.length} chars)`);
+      console.log(
+        `[UpdateFileToolHandler] Replacement ${i}: search=(${r.search.length} chars), replace=(${r.replace.length} chars)`,
+      );
     });
     if (replacements.length === 0) {
       return {
@@ -111,7 +150,9 @@ export class UpdateFileToolHandler implements IToolHandler {
     // B-5: No-op edit detection (search === replace)
     for (const replacement of replacements) {
       if (replacement.search === replacement.replace) {
-        console.log(`[UpdateFileToolHandler] No-op edit detected (search === replace), skipping: ${filePath}`);
+        console.log(
+          `[UpdateFileToolHandler] No-op edit detected (search === replace), skipping: ${filePath}`,
+        );
         return {
           success: true,
           message: `No changes needed for ${filePath} — search and replace content are identical.`,
@@ -123,23 +164,27 @@ export class UpdateFileToolHandler implements IToolHandler {
     // Ellipsis pattern detection: fail early if LLM uses "... (omitted)", "// ...", etc. in SEARCH blocks
     // These patterns do not match actual file content and cause infinite loops
     const ELLIPSIS_PATTERNS = [
-      /^\s*\.\.\.\s*\(생략됨\)\s*$/m,    // ... (omitted)
-      /^\s*\/\/\s*\.\.\.\s*$/m,          // // ...
-      /^\s*#\s*\.\.\.\s*$/m,             // # ...
-      /^\s*\.\.\.\s*$/m,                 // ... (standalone line)
-      /^\s*\/\*\s*\.\.\.\s*\*\/\s*$/m,  // /* ... */
-      /^\s*<!--\s*\.\.\.\s*-->\s*$/m,   // <!-- ... -->
+      /^\s*\.\.\.\s*\(생략됨\)\s*$/m, // ... (omitted)
+      /^\s*\/\/\s*\.\.\.\s*$/m, // // ...
+      /^\s*#\s*\.\.\.\s*$/m, // # ...
+      /^\s*\.\.\.\s*$/m, // ... (standalone line)
+      /^\s*\/\*\s*\.\.\.\s*\*\/\s*$/m, // /* ... */
+      /^\s*<!--\s*\.\.\.\s*-->\s*$/m, // <!-- ... -->
     ];
 
     for (const replacement of replacements) {
-      const hasEllipsis = ELLIPSIS_PATTERNS.some(p => p.test(replacement.search));
+      const hasEllipsis = ELLIPSIS_PATTERNS.some((p) =>
+        p.test(replacement.search),
+      );
       if (hasEllipsis) {
-        console.warn(`[UpdateFileToolHandler] Ellipsis pattern detected in SEARCH block for ${filePath}`);
+        console.warn(
+          `[UpdateFileToolHandler] Ellipsis pattern detected in SEARCH block for ${filePath}`,
+        );
         const llmMsg = `The SEARCH block contains ellipsis expressions ("... (omitted)", "// ...", "..." etc.) (file: ${filePath}).\n\nThe SEARCH block must contain the exact actual code from the file. Ellipsis expressions are strictly forbidden.\n\nUse read_file to check the current file content, and copy the exact code range to be modified into the SEARCH block.`;
         return {
           success: false,
           message: `**Edit failed: Ellipsis expressions are not allowed in SEARCH blocks** (file: ${filePath})`,
-          error: { code: 'ELLIPSIS_IN_SEARCH', message: llmMsg },
+          error: { code: "ELLIPSIS_IN_SEARCH", message: llmMsg },
         };
       }
     }
@@ -167,14 +212,19 @@ export class UpdateFileToolHandler implements IToolHandler {
     // LLM generates search patterns based on shadow (accumulated edit state),
     // so SEARCH must also use shadow as reference (prevents pending change mismatch on toggle)
     try {
-      const diffModule = await import('../../managers/diff/InlineDiffManager');
+      const diffModule = await import("../../managers/diff/InlineDiffManager");
       const inlineDiffManager = diffModule.InlineDiffManager.getInstance();
-      const shadowContent = inlineDiffManager.getCurrentDocumentContent(absolutePath);
+      const shadowContent =
+        inlineDiffManager.getCurrentDocumentContent(absolutePath);
       if (shadowContent !== undefined) {
         fileContent = shadowContent;
-        console.log(`[UpdateFileToolHandler] Using shadow content for SEARCH (pending changes included): ${filePath}`);
+        console.log(
+          `[UpdateFileToolHandler] Using shadow content for SEARCH (pending changes included): ${filePath}`,
+        );
       }
-    } catch { /* Use disk content if shadow is unavailable */ }
+    } catch {
+      /* Use disk content if shadow is unavailable */
+    }
 
     // --- Preflight Inspection ---
     const analysis = mutationManager.analyzeFile(fileContent);
@@ -182,14 +232,21 @@ export class UpdateFileToolHandler implements IToolHandler {
     // Core: Always use SEARCH_REPLACE strategy when SEARCH/REPLACE diff is present
     // Never mix: SEARCH/REPLACE diff + STRUCTURAL_REWRITE
     // STRUCTURAL_REWRITE is a full file rewrite strategy, contradicting SEARCH/REPLACE
-    let strategy = mutationManager.chooseStrategy(analysis, replacements[0].search);
+    let strategy = mutationManager.chooseStrategy(
+      analysis,
+      replacements[0].search,
+    );
 
     // Always use SEARCH_REPLACE strategy when SEARCH/REPLACE blocks exist
     if (replacements.length > 0) {
       strategy = PatchStrategy.SEARCH_REPLACE;
-      console.log(`[UpdateFileToolHandler] Using SEARCH_REPLACE strategy (SEARCH/REPLACE diff detected) for ${filePath}`);
+      console.log(
+        `[UpdateFileToolHandler] Using SEARCH_REPLACE strategy (SEARCH/REPLACE diff detected) for ${filePath}`,
+      );
     } else if (strategy === PatchStrategy.STRUCTURAL_REWRITE) {
-      console.log(`[UpdateFileToolHandler] Strategy switched to STRUCTURAL_REWRITE for ${filePath}`);
+      console.log(
+        `[UpdateFileToolHandler] Strategy switched to STRUCTURAL_REWRITE for ${filePath}`,
+      );
       // STRUCTURAL_REWRITE requires separate handling for full file rewrite
       // But currently only SEARCH/REPLACE is handled, so this case should not occur
     }
@@ -219,7 +276,10 @@ export class UpdateFileToolHandler implements IToolHandler {
         const normalizedSearch = this.normalizeQuotes(replacement.search);
         const normalizedIndex = normalizedFile.indexOf(normalizedSearch);
         if (normalizedIndex !== -1) {
-          matchResult = [normalizedIndex, normalizedIndex + normalizedSearch.length];
+          matchResult = [
+            normalizedIndex,
+            normalizedIndex + normalizedSearch.length,
+          ];
           console.log(
             `[UpdateFileToolHandler] Quote-normalized exact match found for ${filePath}`,
           );
@@ -271,17 +331,6 @@ export class UpdateFileToolHandler implements IToolHandler {
         }
       }
 
-      // Match strategy 5: Fuzzy line-content matching (handles formatter line-break changes)
-      if (!matchResult) {
-        const fuzzyMatch = this.fuzzyContentMatch(fileContent, replacement.search);
-        if (fuzzyMatch) {
-          matchResult = fuzzyMatch;
-          console.log(
-            `[UpdateFileToolHandler] Fuzzy content match found for ${filePath}`,
-          );
-        }
-      }
-
       // Add to apply list on successful match
       if (matchResult) {
         replacementsToApply.push({
@@ -307,7 +356,7 @@ export class UpdateFileToolHandler implements IToolHandler {
           // Detect repeated failures with same file + same pattern
           const searchKey = replacement.search.substring(0, 80);
           const failedList = this._failedSearchPatterns.get(filePath) || [];
-          const existing = failedList.find(f => f.pattern === searchKey);
+          const existing = failedList.find((f) => f.pattern === searchKey);
           if (existing) {
             existing.count++;
           } else {
@@ -318,7 +367,11 @@ export class UpdateFileToolHandler implements IToolHandler {
 
           if (repeatCount >= 2) {
             llmMessage += `**Same SEARCH pattern has failed ${repeatCount} times in a row.** This file may have already been modified in a previous turn. The previous SEARCH pattern is no longer valid. You must use read_file to re-read the current file content and write a new SEARCH block based on the actual content.\n\n`;
-          } else if (analysis.isViteTemplate && !fileContent.includes('<nav') && !fileContent.includes('Router')) {
+          } else if (
+            analysis.isViteTemplate &&
+            !fileContent.includes("<nav") &&
+            !fileContent.includes("Router")
+          ) {
             llmMessage += `Analysis: The menu or navigation structure expected by the agent has not been implemented yet, making partial modification (SEARCH/REPLACE) impossible.\n\n`;
           } else {
             llmMessage += `SEARCH block does not match the file content. This file may have been modified in a previous turn. Use read_file to re-read the current content and copy it exactly. (including whitespace, indentation, newlines)\n\n`;
@@ -326,9 +379,11 @@ export class UpdateFileToolHandler implements IToolHandler {
 
           // Provide more content on 2+ repeated failures
           const maxPreviewLength = repeatCount >= 2 ? 8000 : 3000;
-          const preview = fileContent.length > maxPreviewLength
-            ? fileContent.substring(0, maxPreviewLength) + `\n... (${fileContent.length - maxPreviewLength} chars omitted)`
-            : fileContent;
+          const preview =
+            fileContent.length > maxPreviewLength
+              ? fileContent.substring(0, maxPreviewLength) +
+                `\n... (${fileContent.length - maxPreviewLength} chars omitted)`
+              : fileContent;
           llmMessage += `Current actual file content (copy the content below into the SEARCH block):\n`;
           llmMessage += `\`\`\`\n${preview}\n\`\`\`\n`;
           llmMessage += `\nTo completely replace the file, use create_file instead of update_file.`;
@@ -373,7 +428,7 @@ export class UpdateFileToolHandler implements IToolHandler {
     newContent += fileContent.substring(lastEnd);
 
     // Show diff via InlineDiffManager
-    const diffModule = await import('../../managers/diff/InlineDiffManager');
+    const diffModule = await import("../../managers/diff/InlineDiffManager");
     const inlineDiffManager = diffModule.InlineDiffManager.getInstance();
 
     // Core fix: Get the actual content of the current document (excluding pending changes)
@@ -381,43 +436,64 @@ export class UpdateFileToolHandler implements IToolHandler {
     // getCurrentDocumentContent() returns "stable content" excluding pending changes, so we use that
     let currentDocumentContent: string;
     try {
-      const currentContent = inlineDiffManager.getCurrentDocumentContent(absolutePath);
+      const currentContent =
+        inlineDiffManager.getCurrentDocumentContent(absolutePath);
       if (currentContent !== undefined) {
         currentDocumentContent = currentContent;
-        console.log(`[UpdateFileToolHandler] Using current document content (pending changes excluded) for ${filePath}`);
+        console.log(
+          `[UpdateFileToolHandler] Using current document content (pending changes excluded) for ${filePath}`,
+        );
       } else {
         // Fallback: Get directly from VS Code editor
-        const vscode = await import('vscode');
+        const vscode = await import("vscode");
         const uri = vscode.Uri.file(absolutePath);
         try {
           const document = await vscode.workspace.openTextDocument(uri);
           currentDocumentContent = document.getText();
-          console.log(`[UpdateFileToolHandler] Using document.getText() as fallback for ${filePath}`);
+          console.log(
+            `[UpdateFileToolHandler] Using document.getText() as fallback for ${filePath}`,
+          );
         } catch {
           // Final Fallback: Use content read from disk
           currentDocumentContent = fileContent;
-          console.log(`[UpdateFileToolHandler] Using fileContent from disk as final fallback for ${filePath}`);
+          console.log(
+            `[UpdateFileToolHandler] Using fileContent from disk as final fallback for ${filePath}`,
+          );
         }
       }
     } catch (error) {
-      console.warn(`[UpdateFileToolHandler] Could not get current document content, using fileContent: ${error}`);
+      console.warn(
+        `[UpdateFileToolHandler] Could not get current document content, using fileContent: ${error}`,
+      );
       currentDocumentContent = fileContent;
     }
 
     // Show diff (based on current document state)
-    await inlineDiffManager.showInlineDiff(absolutePath, currentDocumentContent, newContent, context.conversationTurnId);
+    await inlineDiffManager.showInlineDiff(
+      absolutePath,
+      currentDocumentContent,
+      newContent,
+      context.conversationTurnId,
+    );
 
     // E-1: Git diff verification (fire and forget)
     try {
-        const { execSync } = require('child_process');
-        const gitRoot = context.projectRoot;
-        const nullDev = process.platform === 'win32' ? '2>nul' : '2>/dev/null';
-        const diffOutput = execSync(`git diff --stat -- "${absolutePath}" ${nullDev}`, { cwd: gitRoot, timeout: 3000 }).toString().trim();
-        if (diffOutput) {
-            console.log(`[UpdateFileToolHandler] Git diff for ${filePath}: ${diffOutput}`);
-        }
+      const { execSync } = require("child_process");
+      const gitRoot = context.projectRoot;
+      const nullDev = process.platform === "win32" ? "2>nul" : "2>/dev/null";
+      const diffOutput = execSync(
+        `git diff --stat -- "${absolutePath}" ${nullDev}`,
+        { cwd: gitRoot, timeout: 3000 },
+      )
+        .toString()
+        .trim();
+      if (diffOutput) {
+        console.log(
+          `[UpdateFileToolHandler] Git diff for ${filePath}: ${diffOutput}`,
+        );
+      }
     } catch {
-        // Not a git repo or git not available — ignore
+      // Not a git repo or git not available — ignore
     }
 
     return {
@@ -466,7 +542,9 @@ export class UpdateFileToolHandler implements IToolHandler {
         if (inSearch && !hadSeparator) {
           // Case where SEARCH transitions directly to REPLACE without =======
           // Keep SEARCH content as-is and start collecting REPLACE
-          console.log('[UpdateFileToolHandler] Warning: Missing ======= separator, treating content after >>>>>>> REPLACE as replacement');
+          console.log(
+            "[UpdateFileToolHandler] Warning: Missing ======= separator, treating content after >>>>>>> REPLACE as replacement",
+          );
           inSearch = false;
           inReplace = true;
           currentReplace = "";
@@ -592,7 +670,7 @@ export class UpdateFileToolHandler implements IToolHandler {
     const searchBlockSize = searchLines.length;
 
     // For middle line similarity verification (excluding first/last lines)
-    const middleSearchLines = searchLines.slice(1, -1).map(l => l.trim());
+    const middleSearchLines = searchLines.slice(1, -1).map((l) => l.trim());
     const MIDDLE_SIMILARITY_THRESHOLD = 0.6;
 
     let bestMatch: [number, number] | false = false;
@@ -611,10 +689,13 @@ export class UpdateFileToolHandler implements IToolHandler {
       if (middleSearchLines.length > 0) {
         const middleOriginalLines = originalLines
           .slice(i + 1, i + searchBlockSize - 1)
-          .map(l => l.trim());
+          .map((l) => l.trim());
 
         let matchCount = 0;
-        const compareLen = Math.min(middleSearchLines.length, middleOriginalLines.length);
+        const compareLen = Math.min(
+          middleSearchLines.length,
+          middleOriginalLines.length,
+        );
         for (let k = 0; k < compareLen; k++) {
           if (middleSearchLines[k] === middleOriginalLines[k]) matchCount++;
         }
@@ -700,59 +781,12 @@ export class UpdateFileToolHandler implements IToolHandler {
   }
 
   /**
-   * Strategy 5: Fuzzy content matching
-   * Handles cases where formatter changes line breaks, indentation, or code structure.
-   * Compares non-whitespace tokens to find the best matching region.
-   */
-  private fuzzyContentMatch(
-    fileContent: string,
-    searchContent: string,
-  ): [number, number] | false {
-    // Tokenize: extract non-whitespace tokens
-    const searchTokens = searchContent.match(/\S+/g);
-    if (!searchTokens || searchTokens.length < 5) return false; // too short = risky
-
-    const fileLines = fileContent.split('\n');
-
-    // Use first 3 + last 3 tokens as anchors
-    const headTokens = searchTokens.slice(0, 3).map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    const tailTokens = searchTokens.slice(-3).map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-
-    // Find first token position
-    const headPattern = new RegExp(headTokens.join('\\s+'));
-    const headMatch = headPattern.exec(fileContent);
-    if (!headMatch) return false;
-
-    // Find last token position (search after head)
-    const tailPattern = new RegExp(tailTokens.join('\\s+'));
-    const searchAfterHead = fileContent.substring(headMatch.index);
-    const tailMatch = tailPattern.exec(searchAfterHead);
-    if (!tailMatch) return false;
-
-    const startIndex = headMatch.index;
-    const endIndex = headMatch.index + tailMatch.index + tailMatch[0].length;
-
-    // Verify: matched region should have similar token count (within 30% tolerance)
-    const matchedRegion = fileContent.substring(startIndex, endIndex);
-    const matchedTokens = matchedRegion.match(/\S+/g) || [];
-    const tokenRatio = matchedTokens.length / searchTokens.length;
-
-    if (tokenRatio < 0.7 || tokenRatio > 1.3) return false; // too different in size
-
-    console.log(
-      `[UpdateFileToolHandler] Fuzzy match: ${searchTokens.length} search tokens, ${matchedTokens.length} file tokens (ratio: ${tokenRatio.toFixed(2)})`,
-    );
-
-    return [startIndex, endIndex];
-  }
-
-  /**
    * B-4: Normalize curly/smart quotes to straight quotes for matching
    */
   private normalizeQuotes(str: string): string {
     return str
-      .replace(/[\u2018\u2019]/g, "'")   // curly single quotes -> straight
-      .replace(/[\u201C\u201D]/g, '"');   // curly double quotes -> straight
+      .replace(/[\u2018\u2019]/g, "'") // curly single quotes -> straight
+      .replace(/[\u201C\u201D]/g, '"'); // curly double quotes -> straight
   }
 
   getDescription(toolUse: ToolUse): string {
