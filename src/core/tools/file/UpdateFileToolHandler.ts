@@ -301,22 +301,7 @@ export class UpdateFileToolHandler implements IToolHandler {
         }
       }
 
-      // Match strategy 3: Block anchor match (when still failing)
-      if (!matchResult) {
-        const blockMatch = this.blockAnchorFallbackMatch(
-          fileContent,
-          replacement.search,
-          0,
-        );
-        if (blockMatch) {
-          matchResult = blockMatch;
-          console.log(
-            `[UpdateFileToolHandler] Block anchor match found for ${filePath}`,
-          );
-        }
-      }
-
-      // Match strategy 4: Structural whitespace-ignoring match
+      // Match strategy 3: Structural whitespace-ignoring match
       if (!matchResult) {
         const structuralMatch = this.structuralFallbackMatch(
           fileContent,
@@ -639,85 +624,6 @@ export class UpdateFileToolHandler implements IToolHandler {
 
         return [matchStartIndex, matchEndIndex];
       }
-    }
-
-    return false;
-  }
-
-  /**
-   * For blocks of 3+ lines, use first and last lines as anchors for matching
-   */
-  private blockAnchorFallbackMatch(
-    originalContent: string,
-    searchContent: string,
-    startIndex: number,
-  ): [number, number] | false {
-    const originalLines = originalContent.split("\n");
-    const searchLines = searchContent.split("\n");
-
-    // Apply anchor matching only for 3+ lines
-    if (searchLines.length < 3) {
-      return false;
-    }
-
-    // Remove last empty line
-    if (searchLines[searchLines.length - 1].trim() === "") {
-      searchLines.pop();
-    }
-
-    const firstLineSearch = searchLines[0].trim();
-    const lastLineSearch = searchLines[searchLines.length - 1].trim();
-    const searchBlockSize = searchLines.length;
-
-    // Middle lines (excluding first/last): must match exactly after trim()
-    const middleSearchLines = searchLines.slice(1, -1).map((l) => l.trim());
-
-    for (let i = 0; i <= originalLines.length - searchBlockSize; i++) {
-      // Check if first and last lines match based on trim()
-      if (
-        originalLines[i].trim() !== firstLineSearch ||
-        originalLines[i + searchBlockSize - 1].trim() !== lastLineSearch
-      ) {
-        continue;
-      }
-
-      if (middleSearchLines.length > 0) {
-        const middleOriginalLines = originalLines
-          .slice(i + 1, i + searchBlockSize - 1)
-          .map((l) => l.trim());
-
-        if (middleOriginalLines.length !== middleSearchLines.length) {
-          continue;
-        }
-        let middleOk = true;
-        for (let k = 0; k < middleSearchLines.length; k++) {
-          if (middleSearchLines[k] !== middleOriginalLines[k]) {
-            middleOk = false;
-            break;
-          }
-        }
-        if (!middleOk) {
-          continue;
-        }
-      }
-
-      // Calculate matched start and end indices
-      let matchStartIndex = 0;
-      for (let k = 0; k < i; k++) {
-        matchStartIndex += originalLines[k].length + 1;
-      }
-
-      let matchEndIndex = matchStartIndex;
-      for (let k = 0; k < searchBlockSize; k++) {
-        matchEndIndex += originalLines[i + k].length + 1;
-      }
-
-      // Correct trailing \n (when not at end of file)
-      if (matchEndIndex > originalContent.length) {
-        matchEndIndex = originalContent.length;
-      }
-
-      return [matchStartIndex, matchEndIndex];
     }
 
     return false;
