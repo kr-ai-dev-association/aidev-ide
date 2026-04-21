@@ -142,7 +142,8 @@
     body[data-theme="light"] select,
     body[data-theme="light"] input[type="text"],
     body[data-theme="light"] input[type="password"],
-    body[data-theme="light"] input[type="number"] {
+    body[data-theme="light"] input[type="number"],
+    body[data-theme="light"] textarea {
       background-color: #ffffff !important;
       color: #111827 !important;
       border-color: #d1d5db !important;
@@ -1942,7 +1943,7 @@
               <p id="user-models-status" class="info-message"></p>
 
               <!-- 추가/수정 폼 -->
-              <div id="user-model-form" style="display:none;margin-top:12px;padding:12px;border:1px solid var(--vscode-input-border);border-radius:6px;">
+              <div id="user-model-form" style="display:none;margin-top:12px;">
                 <input type="hidden" id="user-model-key" value="" />
 
                 <div class="api-key-input-group" style="flex-direction:column;align-items:stretch;">
