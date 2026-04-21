@@ -2,7 +2,37 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.69**
+> **현재 버전: v1.0.70**
+
+---
+
+## v1.0.70 (2026-04-22)
+
+### 스킬 저장·삭제·리스팅이 워크스페이스 없이도 동작
+
+- **문제**: 워크스페이스(폴더) 미오픈 상태에서 글로벌 규칙 외 카테고리(stable-version / coding-style / project-architecture / dependency-policy / db-policy)의 스킬·룰 저장·삭제·리스팅 시 `"저장 실패: 워크스페이스가 열려있지 않습니다."` 에러 발생
+- **수정**: `AgentPolicyHandler.ts` 의 `addAgentPolicyFile` / `addPathAgentPolicy` / `deleteAgentPolicyFile` / `listAllAgentPolicyFiles` 4개 핸들러에서 `context.storageUri!` non-null 단언과 워크스페이스 체크 throw 제거 → `(context.storageUri || context.globalStorageUri).fsPath` 폴백 적용
+- **설계 유지**: `global-rules` 는 여전히 `globalStorageUri` (기기 전역), 나머지 5개는 워크스페이스 있으면 `storageUri` (프로젝트 전용), 없으면 `globalStorageUri` 폴백
+- **Legacy 단일 파일 업로드 핸들러**(`uploadAgentPolicyStableVersion` 등)는 건드리지 않음
+
+### 스킬 저장 시 Optimistic UI 갱신
+
+- **문제**: 스킬을 파일/URL/경로로 저장하면 백엔드는 성공했지만 리스트가 즉시 갱신 안 됨 — 사용자에게는 "저장됨" 메시지만 보이고 항목은 안 나타남
+- **수정 (webview)**: `agentPolicyFileAdded` 핸들러에서 로컬 캐시(`agentPolicyFilesCache`/`TypesCache`/`DescsCache`)에 즉시 추가 후 `renderPolicyFileList()` 호출 → 백엔드 `listAllAgentPolicyFiles` 응답을 기다리지 않고 즉시 표시. 응답 도착 시 frontmatter 메타로 덮어써 동기화
+- **수정 (backend)**: `addAgentPolicyFile` / `addPathAgentPolicy` 성공 응답에 `policyType` + `skillDescription` 추가 → optimistic 렌더 시 규칙/스킬 badge·설명이 올바르게 표시
+
+### 사용자 정의 모델 활성화를 채팅 패널로 이동
+
+- **설정 패널 리스트**: 라디오 선택 버튼·"활성 모델로 적용" 메시지·프로바이더 접미사(`(openai)`)·🔑/⚠ 이모지 제거 → 추가/편집/삭제/연결 테스트만 담당
+- **메인 AI 모델 드롭다운 (`#ai-model-select`)**: 사용자 모델을 그룹 없이 평문 `<option>`으로 직접 주입 (label 없음, 이름만)
+- **채팅 패널 모델 셀렉터**: Admin 섹션과 Ollama 섹션 사이에 **"User" 섹션** 추가. 항목 클릭 시 `setUserModel` 메시지 전송 → `ChatViewProvider`가 `UserModelHandler.buildAdminConfigByKey` 로 `AdminModelConfig` 빌드 후 `LLMManager.setAdminModelConfig` + `AiModelType.ADMIN` 적용
+- **Extension**: `ChatViewProvider.ollamaModels` 브로드캐스트 3곳에 `userModels` 필드 포함. `UserModelHandler.listForChatDropdown()` static 헬퍼 추가
+
+### 사용자 정의 모델 UI 다듬기 (v1.0.69 follow-up 통합)
+
+- **"(표시용)" 라벨 제거**: `모델 이름 (표시용)` → `모델 이름`
+- **삭제 버튼 빨강 제거**: 인라인 `background-color: #ef4444` 삭제 → 기본 파란 버튼
+- **리스트 아이템 여백 정렬**: `border + border-radius` → `border-bottom` 으로 변경 (모델 라우팅 섹션과 시각적 여백 일치)
 
 ---
 
