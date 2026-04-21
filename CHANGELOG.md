@@ -24,6 +24,12 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 - **"미설정" 코드 블록 배경 진하게**: `--vscode-textCodeBlock-background` → `#d6dae0` (기존 약한 회색 → 가독성 확보), 글자색 `#1f2937`
 - **"조직 연결" 설명 문구 진하게**: 기본 회색 → `#4b5563` (한 단계 진하게)
 
+### 라이트 모드 — 기본 차단 명령어 리스트 가독성 (follow-up)
+
+- **아이템이 컨테이너와 구분 안 되던 문제 수정**: `#blocked-command-default-list > div`에 강제 적용되던 `background: transparent !important`로 인해 컨테이너(`#f3f4f6`)와 아이템이 동색으로 보이던 문제 해결 — 흰색(`#ffffff`) 배경 + `#e5e7eb` 엷은 테두리 + `#374151` 글자로 다크 모드와 유사한 구분감 확보
+- **검은 OS 스크롤바 → 흰색 계열 스크롤바**: WebKit 의사 요소(`::-webkit-scrollbar`, `-track`, `-thumb`)로 라이트 테마 전용 흰색 계열 강제 — 트랙 `#f3f4f6`, thumb `#d1d5db` (hover `#9ca3af`), width 10px
+- standalone v1.0.69와 동일 패치 적용
+
 ---
 
 ## v1.0.68 (2026-04-21)
