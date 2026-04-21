@@ -2,8 +2,38 @@
 
 VS Code용 AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.1.2**  
-> **브랜치:** `agentgocoder-v1.1.2`
+> **현재 버전: v1.1.3**  
+> **브랜치:** `agentgocoder`
+
+---
+
+## v1.1.3 (2026-04-21)
+
+### Skills/Rules 설정 패널 UX 재구성
+
+- **통합 Add 모달**: 6개 카테고리(글로벌 관리 / 버전 관리 / 코딩 스타일 / 프로젝트 아키텍처 / 의존성 정책 / DB) 각각 기존 "파일 추가 / 저장 / 경로 추가 / URL 다운로드" 다중 입력 그룹을 **`+ 추가` 버튼 하나**로 통합
+- **Add 모달 구성**: 타입 토글(규칙/스킬) + (스킬 선택 시) 필요 상황 설명 input + 방법 드롭다운(파일 업로드 / 경로 추가 / URL 다운로드) + 동적 입력 영역 + `[취소]` / `[다음]`
+- **미리보기 모달 연계**: Add 모달 `다음` → 파일 읽기(클라이언트) / 경로 읽기(백엔드 `previewAgentPolicyPath`) / URL fetch(`downloadSkillFromUrl`) → MD 미리보기 모달 → `[취소]` / `[저장]`
+
+### 버그 수정
+
+- **global-rules 카테고리 setup 누락 해결**: 카테고리 목록에 정식 추가 — "파일 추가" 버튼 무반응 문제 해결
+- **`application/octet-stream` Content-Type 허용**: URL 이 `.md`/`.markdown` 확장자인 경우에만 octet-stream 통과 (화이트리스트 2차 검증)
+- **frontmatter 필수 검증 제거**: `injectOriginMetadata` 가 frontmatter 없으면 origin 메타만 포함한 블록 자동 생성 → Core 의 `injectFm` 이 이후 type/description 병합
+
+### 테마/스타일 개선 — 라이트 모드
+
+- **일반 탭 저장 버튼 outline 스타일**: 파란 배경 → 투명 + 회색 테두리 + 회색 글씨
+- **규칙/스킬 토글 `.policy-type-btn`**: 양쪽 테마 모두 active 파란색 유지
+- **보안 탭 기본 차단 명령어 목록**: 컨테이너 `#f3f4f6` 회색 배경 + 각 아이템 배경 투명
+- **미리보기 모달 색상**: 박스 배경 회색 + 내부 pre 흰색 + 스크롤바 흰색 계열
+- **미리보기 메타 색상**: label + value 모두 `color: inherit` 통일, code 폰트 monospace 명시
+
+### 알림 메시지 한글화
+
+- `CODEPILOT: {파일명} saved/deleted` → `CODEPILOT: {파일명} 저장됨/삭제됨`
+- `Error adding/deleting Agent Policy file: …` → `CODEPILOT: 파일 저장/삭제 실패 — …`
+- 카테고리별 저장/삭제/에러 메시지 한글 (버전 관리/코딩 스타일/프로젝트 아키텍처/의존성 정책/DB)
 
 ---
 
