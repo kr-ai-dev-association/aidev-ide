@@ -4606,6 +4606,151 @@ setupAgentPolicyPathInput(
   "db-policy-status",
 );
 
+// ─── URL 다운로드로 Skill/Rule 추가 ───────────────────────────────
+function setupAgentPolicyUrlDownload(category) {
+  const pathInput = document.getElementById(`path-${category}-input`);
+  if (!pathInput) return;
+  const pathGroup = pathInput.closest(".api-key-input-group");
+  if (!pathGroup) return;
+  if (document.getElementById(`url-${category}-input`)) return;
+
+  const urlGroup = document.createElement("div");
+  urlGroup.className = "api-key-input-group";
+  urlGroup.style.marginTop = "6px";
+  const urlInput = document.createElement("input");
+  urlInput.type = "text";
+  urlInput.id = `url-${category}-input`;
+  urlInput.className = "api-key-input";
+  urlInput.placeholder = "URL에서 Skill .md 다운로드 (https://...)";
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.id = `download-${category}-button`;
+  btn.textContent = "URL 다운로드";
+  urlGroup.appendChild(urlInput);
+  urlGroup.appendChild(btn);
+  pathGroup.insertAdjacentElement("afterend", urlGroup);
+
+  const statusElement = document.getElementById(`${category}-status`);
+  const doDownload = () => {
+    const url = urlInput.value.trim();
+    if (!url) {
+      if (statusElement)
+        showStatus(statusElement, "URL을 입력하세요.", "error");
+      return;
+    }
+    if (statusElement) showStatus(statusElement, "다운로드 중...", "info");
+    btn.disabled = true;
+    const typeSelector = document.querySelector(
+      `.policy-type-selector[data-category="${category}"]`,
+    );
+    const activeTypeBtn = typeSelector
+      ? typeSelector.querySelector(".policy-type-btn.active")
+      : null;
+    const policyType = activeTypeBtn ? activeTypeBtn.dataset.type : "rule";
+    const skillDescInput = typeSelector
+      ? typeSelector.querySelector(".policy-skill-desc")
+      : null;
+    const skillDescription =
+      policyType === "skill" && skillDescInput
+        ? skillDescInput.value.trim()
+        : "";
+    vscode.postMessage({
+      command: "downloadSkillFromUrl",
+      url,
+      category,
+      policyType,
+      skillDescription,
+    });
+  };
+  btn.addEventListener("click", doDownload);
+  urlInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") doDownload();
+  });
+}
+
+[
+  "global-rules",
+  "stable-version",
+  "coding-style",
+  "project-architecture",
+  "dependency-policy",
+  "db-policy",
+].forEach((c) => setupAgentPolicyUrlDownload(c));
+
+function _showSkillPreviewModal(data, onConfirm, onCancel) {
+  const existing = document.getElementById("skill-preview-modal");
+  if (existing) existing.remove();
+  const overlay = document.createElement("div");
+  overlay.id = "skill-preview-modal";
+  overlay.style.cssText =
+    "position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10000;display:flex;align-items:center;justify-content:center;";
+  const box = document.createElement("div");
+  box.style.cssText =
+    "background:var(--vscode-editor-background,#1e1e1e);color:var(--vscode-foreground,#ccc);border:1px solid var(--vscode-input-border,#444);border-radius:6px;width:80%;max-width:820px;max-height:80vh;padding:16px;display:flex;flex-direction:column;gap:8px;font-family:var(--vscode-font-family);";
+  const title = document.createElement("h3");
+  title.style.cssText = "margin:0 0 4px 0;font-size:1em;";
+  title.textContent = "Skill 다운로드 미리보기";
+  box.appendChild(title);
+  const metaRoot = document.createElement("div");
+  metaRoot.style.cssText =
+    "font-size:0.82em;color:var(--vscode-descriptionForeground);line-height:1.6;";
+  const addMetaRow = (label, value) => {
+    const row = document.createElement("div");
+    const b = document.createElement("b");
+    b.textContent = `${label} `;
+    row.appendChild(b);
+    const code = document.createElement("code");
+    code.textContent = String(value);
+    row.appendChild(code);
+    metaRoot.appendChild(row);
+  };
+  addMetaRow("출처:", data.originUrl);
+  addMetaRow("크기:", `${data.size} bytes · SHA256(16): ${data.hash}`);
+  addMetaRow("파일명:", data.filename);
+  box.appendChild(metaRoot);
+  if (Array.isArray(data.suspicious) && data.suspicious.length > 0) {
+    const warn = document.createElement("div");
+    warn.style.cssText =
+      "background:rgba(245,158,11,0.18);border-left:3px solid #f59e0b;padding:8px;font-size:0.85em;";
+    const head = document.createElement("div");
+    head.textContent = "⚠️ 의심 패턴 감지:";
+    warn.appendChild(head);
+    data.suspicious.forEach((s) => {
+      const line = document.createElement("div");
+      line.textContent = `• ${String(s)}`;
+      warn.appendChild(line);
+    });
+    box.appendChild(warn);
+  }
+  const pre = document.createElement("pre");
+  pre.style.cssText =
+    "flex:1;overflow:auto;background:var(--vscode-textCodeBlock-background,#2a2a2a);padding:8px;margin:0;font-size:0.78em;max-height:45vh;border-radius:4px;white-space:pre;";
+  pre.textContent = String(data.content || "");
+  box.appendChild(pre);
+  const actions = document.createElement("div");
+  actions.style.cssText =
+    "display:flex;gap:8px;justify-content:flex-end;margin-top:4px;";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.textContent = "취소";
+  const saveBtn = document.createElement("button");
+  saveBtn.type = "button";
+  saveBtn.textContent = "저장";
+  actions.appendChild(cancelBtn);
+  actions.appendChild(saveBtn);
+  box.appendChild(actions);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  cancelBtn.addEventListener("click", () => {
+    overlay.remove();
+    if (onCancel) onCancel();
+  });
+  saveBtn.addEventListener("click", () => {
+    overlay.remove();
+    if (onConfirm) onConfirm();
+  });
+}
+
 // AgentPolicy 관련 메시지 핸들러 (다중 파일 지원)
 window.addEventListener("message", (event) => {
   const message = event.data;
@@ -4678,6 +4823,51 @@ window.addEventListener("message", (event) => {
         }
       }
       break;
+
+    // URL 다운로드 미리보기 — 모달 표시 후 승인 시 기존 저장 경로 재사용
+    case "skillUrlDownloadPreview": {
+      const previewStatusEl = document.getElementById(
+        `${message.category}-status`,
+      );
+      const previewBtn = document.getElementById(
+        `download-${message.category}-button`,
+      );
+      if (previewBtn) previewBtn.disabled = false;
+      _showSkillPreviewModal(
+        message,
+        () => {
+          vscode.postMessage({
+            command: "addAgentPolicyFile",
+            category: message.category,
+            fileName: message.filename,
+            content: message.content,
+            policyType: message.policyType,
+            skillDescription: message.skillDescription,
+          });
+          if (previewStatusEl)
+            showStatus(previewStatusEl, "저장 중...", "info");
+          const urlInputEl = document.getElementById(
+            `url-${message.category}-input`,
+          );
+          if (urlInputEl) urlInputEl.value = "";
+        },
+        () => {
+          if (previewStatusEl) showStatus(previewStatusEl, "취소됨", "info");
+        },
+      );
+      break;
+    }
+
+    case "skillUrlDownloadError": {
+      const errStatusEl = document.getElementById(`${message.category}-status`);
+      const errBtn = document.getElementById(
+        `download-${message.category}-button`,
+      );
+      if (errBtn) errBtn.disabled = false;
+      if (errStatusEl)
+        showStatus(errStatusEl, `다운로드 실패: ${message.error}`, "error");
+      break;
+    }
 
     // Skills 전체 초기화 완료
     case "allSkillsReset":
@@ -5731,4 +5921,550 @@ window.addEventListener("message", (event) => {
       }
     }
   });
+})();
+
+/* ========================================================================= *
+ *  사용자 정의 AI 모델 (User-Defined Models)
+ *  - 로컬 저장(globalState + SecretStorage)
+ *  - UserModelHandler.ts 와 메시지 송수신
+ * ========================================================================= */
+(function initUserModels() {
+  const PROVIDER_PLACEHOLDERS = {
+    openai: {
+      name: "GPT-4o",
+      model: "gpt-4o",
+      endpoint: "https://api.openai.com/v1/chat/completions",
+    },
+    gemini: {
+      name: "Gemini 2.5 Pro",
+      model: "gemini-2.5-pro-preview",
+      endpoint: "https://generativelanguage.googleapis.com/v1beta",
+    },
+    anthropic: {
+      name: "Claude Opus 4.6",
+      model: "claude-opus-4-6",
+      endpoint: "https://api.anthropic.com",
+    },
+    vertex: {
+      name: "Gemini 2.5 Pro",
+      model: "gemini-2.5-pro-preview",
+      endpoint: "https://us-central1-aiplatform.googleapis.com/v1",
+    },
+    azure: {
+      name: "GPT-4o",
+      model: "gpt-4o",
+      endpoint:
+        "https://{resource}.openai.azure.com/openai/deployments/{deployment}/chat/completions?api-version=2024-10-21",
+    },
+    groq: {
+      name: "Llama 3.3 70B",
+      model: "llama-3.3-70b-versatile",
+      endpoint: "https://api.groq.com/openai/v1/chat/completions",
+    },
+    deepseek: {
+      name: "DeepSeek R1",
+      model: "deepseek-reasoner",
+      endpoint: "https://api.deepseek.com/chat/completions",
+    },
+    mistral: {
+      name: "Mistral Large",
+      model: "mistral-large-latest",
+      endpoint: "https://api.mistral.ai/v1/chat/completions",
+    },
+    together: {
+      name: "Llama 3.3 70B",
+      model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      endpoint: "https://api.together.xyz/v1/chat/completions",
+    },
+    xai: {
+      name: "Grok 3",
+      model: "grok-3",
+      endpoint: "https://api.x.ai/v1/chat/completions",
+    },
+    fireworks: {
+      name: "Llama 3.3 70B",
+      model: "accounts/fireworks/models/llama-v3p3-70b-instruct",
+      endpoint: "https://api.fireworks.ai/inference/v1/chat/completions",
+    },
+    perplexity: {
+      name: "Sonar Pro",
+      model: "sonar-pro",
+      endpoint: "https://api.perplexity.ai/chat/completions",
+    },
+    chat_completions: {
+      name: "Custom Model",
+      model: "model-id",
+      endpoint: "https://api.example.com/v1/chat/completions",
+    },
+    custom: {
+      name: "Custom Model",
+      model: "model-id",
+      endpoint: "https://api.example.com/v1/chat/completions",
+    },
+  };
+
+  /** 전역 캐시 — 메인 드롭다운 optgroup 렌더에도 사용 */
+  window.__userModels = [];
+  window.__activeUserModelKey = "";
+
+  const $ = (id) => document.getElementById(id);
+
+  const form = $("user-model-form");
+  const listEl = $("user-models-list");
+  const statusEl = $("user-models-status");
+  const formErrorEl = $("user-model-form-error");
+  const addBtn = $("user-model-add-button");
+  const saveBtn = $("user-model-save-button");
+  const testBtn = $("user-model-test-button");
+  const cancelBtn = $("user-model-cancel-button");
+  const providerSel = $("user-model-provider");
+  const authTypeSel = $("user-model-auth-type");
+  const authHeaderGroup = $("user-model-auth-header-group");
+  const nameInput = $("user-model-name");
+  const modelIdInput = $("user-model-id");
+  const endpointInput = $("user-model-endpoint");
+  const apiKeyInput = $("user-model-api-key");
+  const apiKeyHint = $("user-model-api-key-hint");
+  const contextInput = $("user-model-context-window");
+  const maxOutInput = $("user-model-max-output-tokens");
+  const tempInput = $("user-model-temperature");
+  const topPInput = $("user-model-top-p");
+  const customHeadersInput = $("user-model-custom-headers");
+  const streamingSel = $("user-model-streaming-supported");
+  const nativeToolsSel = $("user-model-native-tools-supported");
+  const authHeaderNameInput = $("user-model-auth-header-name");
+  const keyHidden = $("user-model-key");
+  const formTitle = $("user-model-form-title");
+
+  if (!form || !listEl) return;
+
+  function applyProviderPlaceholders() {
+    if (!providerSel) return;
+    const ph =
+      PROVIDER_PLACEHOLDERS[providerSel.value] || PROVIDER_PLACEHOLDERS.custom;
+    if (nameInput && !nameInput.value) nameInput.placeholder = ph.name;
+    if (modelIdInput) modelIdInput.placeholder = ph.model;
+    if (endpointInput) endpointInput.placeholder = ph.endpoint;
+  }
+
+  function applyAuthTypeVisibility() {
+    if (!authTypeSel || !authHeaderGroup) return;
+    authHeaderGroup.style.display =
+      authTypeSel.value === "custom_header" ? "flex" : "none";
+  }
+
+  function resetForm(isEdit) {
+    if (formTitle)
+      formTitle.textContent = isEdit ? "AI 모델 수정" : "새 AI 모델 추가";
+    if (keyHidden) keyHidden.value = "";
+    if (providerSel) providerSel.value = "openai";
+    if (nameInput) nameInput.value = "";
+    if (modelIdInput) modelIdInput.value = "";
+    if (endpointInput) endpointInput.value = "";
+    if (authTypeSel) authTypeSel.value = "bearer";
+    if (authHeaderNameInput) authHeaderNameInput.value = "";
+    if (apiKeyInput) apiKeyInput.value = "";
+    if (apiKeyHint) apiKeyHint.style.display = isEdit ? "block" : "none";
+    if (contextInput) contextInput.value = "";
+    if (maxOutInput) maxOutInput.value = "";
+    if (tempInput) tempInput.value = "0.7";
+    if (topPInput) topPInput.value = "0.9";
+    if (customHeadersInput) customHeadersInput.value = "";
+    if (streamingSel) streamingSel.value = "true";
+    if (nativeToolsSel) nativeToolsSel.value = "true";
+    if (formErrorEl) formErrorEl.textContent = "";
+    applyAuthTypeVisibility();
+    applyProviderPlaceholders();
+  }
+
+  function populateForm(m) {
+    if (!m) return;
+    resetForm(true);
+    if (formTitle) formTitle.textContent = "AI 모델 수정";
+    if (keyHidden) keyHidden.value = m.key || "";
+    if (providerSel) providerSel.value = m.provider || "openai";
+    if (nameInput) nameInput.value = m.name || "";
+    if (modelIdInput) modelIdInput.value = m.model || "";
+    if (endpointInput) endpointInput.value = m.endpoint || "";
+    if (authTypeSel) authTypeSel.value = m.authType || "bearer";
+    if (authHeaderNameInput) authHeaderNameInput.value = m.authHeaderName || "";
+    if (apiKeyInput) apiKeyInput.value = "";
+    if (apiKeyHint) {
+      apiKeyHint.textContent = m.hasApiKey
+        ? "이미 저장된 API 키가 있습니다. 변경하려면 새 키를 입력하세요."
+        : "이 모델에 API 키를 등록하려면 입력하세요.";
+      apiKeyHint.style.display = "block";
+    }
+    if (contextInput)
+      contextInput.value =
+        m.contextWindow != null ? String(m.contextWindow) : "";
+    if (maxOutInput)
+      maxOutInput.value =
+        m.maxOutputTokens != null ? String(m.maxOutputTokens) : "";
+    if (tempInput)
+      tempInput.value =
+        m.defaultTemperature != null ? String(m.defaultTemperature) : "0.7";
+    if (topPInput) topPInput.value = m.topP != null ? String(m.topP) : "0.9";
+    if (customHeadersInput) {
+      customHeadersInput.value =
+        m.customHeaders && typeof m.customHeaders === "object"
+          ? JSON.stringify(m.customHeaders, null, 2)
+          : "";
+    }
+    if (streamingSel)
+      streamingSel.value = m.streamingSupported === false ? "false" : "true";
+    if (nativeToolsSel)
+      nativeToolsSel.value = m.nativeToolCallingSupported ? "true" : "false";
+    applyAuthTypeVisibility();
+    applyProviderPlaceholders();
+  }
+
+  function showForm() {
+    form.style.display = "block";
+  }
+  function hideForm() {
+    form.style.display = "none";
+    if (formErrorEl) formErrorEl.textContent = "";
+  }
+
+  function makeEl(tag, opts) {
+    const el = document.createElement(tag);
+    if (!opts) return el;
+    if (opts.text != null) el.textContent = opts.text;
+    if (opts.style) el.setAttribute("style", opts.style);
+    if (opts.cls) el.className = opts.cls;
+    if (opts.attrs) {
+      for (const [k, v] of Object.entries(opts.attrs)) el.setAttribute(k, v);
+    }
+    return el;
+  }
+
+  function clearChildren(node) {
+    while (node.firstChild) node.removeChild(node.firstChild);
+  }
+
+  function renderList(models, activeKey) {
+    if (!listEl) return;
+    clearChildren(listEl);
+    if (!Array.isArray(models) || models.length === 0) {
+      listEl.appendChild(
+        makeEl("p", {
+          text: '등록된 사용자 모델이 없습니다. "+ 모델 추가"를 눌러 등록하세요.',
+          cls: "info-message",
+          style: "font-style:italic;",
+        }),
+      );
+      return;
+    }
+    for (const m of models) {
+      const isActive = m.key === activeKey;
+      const row = makeEl("div", {
+        cls: "policy-file-item",
+        style: `display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--vscode-input-border);border-radius:4px;margin-bottom:6px;${isActive ? "background:rgba(16,185,129,0.08);" : ""}`,
+        attrs: { "data-key": m.key },
+      });
+
+      const radio = makeEl("input", {
+        attrs: {
+          type: "radio",
+          name: "user-model-active",
+          value: m.key,
+          "data-user-model-radio": "1",
+        },
+      });
+      if (isActive) radio.checked = true;
+      row.appendChild(radio);
+
+      const info = makeEl("div", { style: "flex:1;min-width:0;" });
+      const title = makeEl("div", { style: "font-weight:600;" });
+      title.textContent = m.name;
+      const providerSpan = makeEl("span", {
+        style:
+          "font-weight:400;color:var(--vscode-descriptionForeground);font-size:0.85em;margin-left:6px;",
+        text: `(${m.provider})`,
+      });
+      title.appendChild(providerSpan);
+      info.appendChild(title);
+
+      const detail = makeEl("div", {
+        style:
+          "font-family:monospace;font-size:0.8em;color:var(--vscode-descriptionForeground);",
+        text: `${m.model} · ${m.endpoint}`,
+      });
+      info.appendChild(detail);
+
+      const keyLine = makeEl("div", {
+        style: m.hasApiKey
+          ? "font-size:0.75em;color:#10b981;"
+          : "font-size:0.75em;color:#f59e0b;",
+        text: m.hasApiKey ? "🔑 API 키 저장됨" : "⚠ API 키 없음",
+      });
+      info.appendChild(keyLine);
+
+      row.appendChild(info);
+
+      const editBtn = makeEl("button", {
+        text: "편집",
+        style: "padding:4px 10px;",
+        attrs: {
+          type: "button",
+          "data-user-model-edit": m.key,
+        },
+      });
+      row.appendChild(editBtn);
+
+      const deleteBtn = makeEl("button", {
+        text: "삭제",
+        style: "padding:4px 10px;background-color:#ef4444;",
+        attrs: {
+          type: "button",
+          "data-user-model-delete": m.key,
+        },
+      });
+      row.appendChild(deleteBtn);
+
+      listEl.appendChild(row);
+    }
+  }
+
+  function setStatus(text, isError) {
+    if (!statusEl) return;
+    statusEl.textContent = text || "";
+    statusEl.className =
+      "info-message" +
+      (isError ? " error-message" : text ? " success-message" : "");
+  }
+
+  function collectFormInput() {
+    return {
+      key: keyHidden ? keyHidden.value.trim() : "",
+      name: nameInput ? nameInput.value.trim() : "",
+      provider: providerSel ? providerSel.value : "openai",
+      model: modelIdInput ? modelIdInput.value.trim() : "",
+      endpoint: endpointInput ? endpointInput.value.trim() : "",
+      authType: authTypeSel ? authTypeSel.value : "bearer",
+      authHeaderName: authHeaderNameInput
+        ? authHeaderNameInput.value.trim()
+        : "",
+      contextWindow:
+        contextInput && contextInput.value !== ""
+          ? Number(contextInput.value)
+          : undefined,
+      maxOutputTokens:
+        maxOutInput && maxOutInput.value !== ""
+          ? Number(maxOutInput.value)
+          : undefined,
+      defaultTemperature: tempInput ? Number(tempInput.value) : 0.7,
+      topP: topPInput ? Number(topPInput.value) : 0.9,
+      customHeaders: customHeadersInput ? customHeadersInput.value.trim() : "",
+      streamingSupported: streamingSel ? streamingSel.value === "true" : true,
+      nativeToolCallingSupported: nativeToolsSel
+        ? nativeToolsSel.value === "true"
+        : false,
+    };
+  }
+
+  if (addBtn) {
+    addBtn.addEventListener("click", () => {
+      resetForm(false);
+      showForm();
+    });
+  }
+  if (cancelBtn) {
+    cancelBtn.addEventListener("click", () => {
+      hideForm();
+    });
+  }
+  if (providerSel)
+    providerSel.addEventListener("change", applyProviderPlaceholders);
+  if (authTypeSel)
+    authTypeSel.addEventListener("change", applyAuthTypeVisibility);
+
+  if (saveBtn) {
+    saveBtn.addEventListener("click", () => {
+      if (formErrorEl) formErrorEl.textContent = "";
+      const input = collectFormInput();
+      if (!input.name) {
+        formErrorEl.textContent = "모델 이름을 입력하세요.";
+        return;
+      }
+      if (!input.model) {
+        formErrorEl.textContent = "모델 ID를 입력하세요.";
+        return;
+      }
+      if (!/^https?:\/\//i.test(input.endpoint)) {
+        formErrorEl.textContent = "엔드포인트는 http(s)://로 시작해야 합니다.";
+        return;
+      }
+      if (input.authType === "custom_header" && !input.authHeaderName) {
+        formErrorEl.textContent =
+          "custom_header 인증 방식에서는 헤더 이름이 필요합니다.";
+        return;
+      }
+      if (input.customHeaders) {
+        try {
+          const parsed = JSON.parse(input.customHeaders);
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+            throw new Error("not object");
+          input.customHeaders = parsed;
+        } catch {
+          formErrorEl.textContent = "추가 헤더는 올바른 JSON 객체여야 합니다.";
+          return;
+        }
+      } else {
+        input.customHeaders = undefined;
+      }
+      const apiKey = apiKeyInput ? apiKeyInput.value : "";
+      const isUpdate = !!input.key;
+      vscode.postMessage({
+        command: isUpdate ? "updateUserModel" : "addUserModel",
+        model: input,
+        apiKey,
+      });
+    });
+  }
+
+  if (testBtn) {
+    testBtn.addEventListener("click", () => {
+      if (formErrorEl) formErrorEl.textContent = "";
+      const input = collectFormInput();
+      if (!input.key) {
+        formErrorEl.textContent = "연결 테스트는 저장 후 사용할 수 있습니다.";
+        return;
+      }
+      setStatus("연결 테스트 중...", false);
+      vscode.postMessage({
+        command: "testUserModelConnection",
+        key: input.key,
+      });
+    });
+  }
+
+  if (listEl) {
+    listEl.addEventListener("click", (e) => {
+      const t = e.target;
+      if (!(t instanceof Element)) return;
+      const editKey = t.getAttribute("data-user-model-edit");
+      const deleteKey = t.getAttribute("data-user-model-delete");
+      if (editKey) {
+        const m = (window.__userModels || []).find((x) => x.key === editKey);
+        if (m) {
+          populateForm(m);
+          showForm();
+        }
+      } else if (deleteKey) {
+        if (
+          confirm(
+            "이 사용자 모델을 삭제하시겠습니까? API 키도 함께 삭제됩니다.",
+          )
+        ) {
+          vscode.postMessage({ command: "deleteUserModel", key: deleteKey });
+        }
+      }
+    });
+    listEl.addEventListener("change", (e) => {
+      const t = e.target;
+      if (!(t instanceof HTMLInputElement)) return;
+      if (t.getAttribute("data-user-model-radio") && t.checked) {
+        vscode.postMessage({ command: "selectUserModel", key: t.value });
+      }
+    });
+  }
+
+  window.addEventListener("message", (event) => {
+    const message = event.data || {};
+    switch (message.command) {
+      case "userModelsLoaded": {
+        window.__userModels = Array.isArray(message.models)
+          ? message.models
+          : [];
+        window.__activeUserModelKey = message.activeKey || "";
+        renderList(window.__userModels, window.__activeUserModelKey);
+        if (typeof window.refreshUserModelsInMainDropdown === "function") {
+          window.refreshUserModelsInMainDropdown();
+        }
+        break;
+      }
+      case "userModelSaved": {
+        window.__userModels = Array.isArray(message.models)
+          ? message.models
+          : window.__userModels;
+        renderList(window.__userModels, window.__activeUserModelKey);
+        hideForm();
+        setStatus("저장되었습니다.", false);
+        if (typeof window.refreshUserModelsInMainDropdown === "function") {
+          window.refreshUserModelsInMainDropdown();
+        }
+        break;
+      }
+      case "userModelDeleted": {
+        window.__userModels = Array.isArray(message.models)
+          ? message.models
+          : window.__userModels;
+        if (window.__activeUserModelKey === message.key)
+          window.__activeUserModelKey = "";
+        renderList(window.__userModels, window.__activeUserModelKey);
+        setStatus("삭제되었습니다.", false);
+        if (typeof window.refreshUserModelsInMainDropdown === "function") {
+          window.refreshUserModelsInMainDropdown();
+        }
+        break;
+      }
+      case "userModelSaveError": {
+        if (formErrorEl) formErrorEl.textContent = message.error || "저장 실패";
+        setStatus(message.error || "저장 실패", true);
+        break;
+      }
+      case "userModelSelected": {
+        window.__activeUserModelKey = message.key || "";
+        renderList(window.__userModels, window.__activeUserModelKey);
+        setStatus(
+          `활성 모델로 적용: ${message.modelName || message.key}`,
+          false,
+        );
+        break;
+      }
+      case "userModelConnectionTestResult": {
+        setStatus(
+          (message.success ? "✅ " : "❌ ") + (message.message || ""),
+          !message.success,
+        );
+        break;
+      }
+    }
+  });
+
+  // 메인 드롭다운(#ai-model-select)에 "사용자 정의" optgroup 추가
+  window.refreshUserModelsInMainDropdown =
+    function refreshUserModelsInMainDropdown() {
+      const mainSelect = document.getElementById("ai-model-select");
+      if (!mainSelect) return;
+      mainSelect
+        .querySelectorAll("optgroup[data-user-group]")
+        .forEach((og) => og.remove());
+      mainSelect
+        .querySelectorAll("option[data-user-option]")
+        .forEach((o) => o.remove());
+      const models = window.__userModels || [];
+      if (models.length === 0) return;
+      const og = document.createElement("optgroup");
+      og.setAttribute("data-user-group", "true");
+      og.label = "사용자 정의";
+      for (const m of models) {
+        const opt = document.createElement("option");
+        opt.value = `user:${m.key}`;
+        opt.textContent = `${m.name} (${m.provider})`;
+        opt.setAttribute("data-user-option", "true");
+        og.appendChild(opt);
+      }
+      mainSelect.appendChild(og);
+    };
+
+  // 초기 로드
+  document.addEventListener("DOMContentLoaded", () => {
+    vscode.postMessage({ command: "listUserModels" });
+  });
+  if (document.readyState !== "loading") {
+    vscode.postMessage({ command: "listUserModels" });
+  }
 })();

@@ -2,8 +2,43 @@
 
 VS Code용 AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.1.1**  
-> **브랜치:** `agentgocoder-v1.1.1`
+> **현재 버전: v1.1.2**  
+> **브랜치:** `agentgocoder-v1.1.2`
+
+---
+
+## v1.1.2 (2026-04-21)
+
+### URL에서 Skill/Rule .md 다운로드
+
+- **Skills 설정 UI에 URL 다운로드 추가**: 6개 카테고리(global-rules / stable-version / coding-style / project-architecture / dependency-policy / db-policy) 각각의 경로 입력 그룹 뒤에 URL 입력+"URL 다운로드" 버튼 동적 주입
+- **다운로드 → 미리보기 → 저장** 플로우: 백엔드가 fetch·검증한 뒤 출처·크기·SHA256·의심 패턴을 표시하는 모달로 응답. 사용자 확인 후 기존 `addAgentPolicyFile` 저장 경로 재사용
+- **컨텐츠 검증**: 1MB 상한, Content-Type 화이트리스트(text/markdown 계열), UTF-8 유효성, Null byte 거부, BOM 스트립, YAML frontmatter 존재 확인
+- **파일 시스템 안전장치**: URL→파일명 slug 변환 시 `..` / 비-단어 문자 / leading dots 제거, 80자 상한, `.md` 강제
+- **프롬프트 인젝션 휴리스틱** (경고만): "ignore previous" / 역할 태그 / 긴 base64 / curl·wget / JS 코드 실행 패턴 / prompt injection 마커 감지 시 모달 amber 경고
+- **출처 메타데이터 주입**: 다운로드된 `.md` frontmatter에 `_source_url` + `_source_hash` 자동 추가
+- **보안 제외 (명시)**: Transport & SSRF / 프롬프트 삽입 경고 배너 / allowlist / hash pinning / 감사 로그 / 비활성화 토글 — 현재 스코프 외
+
+### Prompt Injection Defense — `<untrusted_content>` 래핑 지원
+
+- **시스템 프롬프트 가이드 추가** (`base.ts`): `<untrusted_content source="..." ...>...</untrusted_content>` 태그 내부는 지시문이 아닌 참고 데이터임을 명시
+- **`FetchUrlToolHandler` 결과 래핑**: 외부 웹 페이지 내용을 `<untrusted_content source="fetch_url" url="..." ...>` 형식으로 LLM에 전달
+- **래핑 대상**: fetch_url **만**. Skills/Rules/사용자 메시지/시스템 프롬프트 래핑 안 함 (agentgocoder는 RAG/MCP 이미 제거됨)
+
+### 설정 UI 버튼 너비 조정
+
+- **한국어 4~6글자 버튼 줄바꿈 방지**: `.api-key-input-group button`에 `white-space: nowrap` + `word-break: keep-all` + `width: max-content` + `min-width: 110px`
+- **2글자 저장 버튼은 좁게**: `#upload-*-button`, `.save-button`, `#save-mcp-server-button`, `#bt-add-button`에 `min-width: 64px`
+
+### 사용자 정의 AI 모델 설정 UI
+
+- **`UserModelHandler.ts` 신규** (`src/core/webview/handlers/`): Admin 백엔드 없이 IDE에서 직접 AI 모델을 CRUD·선택·연결 테스트할 수 있는 핸들러. 메시지 컨트랙트: `listUserModels` / `addUserModel` / `updateUserModel` / `deleteUserModel` / `selectUserModel` / `testUserModelConnection`
+- **설정 탭 `tab-ai-model`에 "사용자 정의 모델" 섹션 추가**: 14개 필드 (provider / name / model / endpoint / authType / authHeaderName 조건부 / apiKey / contextWindow / maxOutputTokens / defaultTemperature / topP / customHeaders(JSON) / streamingSupported / nativeToolCallingSupported) — admin 대시보드의 `AIModelForm.jsx` 입력 스펙을 그대로 포팅
+- **저장 분리**: `apiKey`는 `vscode.SecretStorage`, 나머지는 `globalState['agentgocoder.userModels']`. `saveAiModel` 경로에 `user:{key}` 접두어 분기 추가 — 기존 admin·supported 경로와 대칭
+- **런타임 재사용**: 사용자 모델 선택 시 `AdminModelConfig` 빌드 → `LLMManager.setAdminModelConfig()` + `AiModelType.ADMIN` 적용. Provider 레이어(`OpenAICompatProvider` / `AnthropicProvider` / `GeminiProvider`) 변경 **없음**
+- **UI 동작**: 라디오로 활성 모델 선택·즉시 적용, 편집/삭제/연결 테스트 버튼, 폼 유효성 검사(엔드포인트 프로토콜·JSON 헤더·온도/TopP 범위·이름 중복), 메인 드롭다운 `#ai-model-select`에 "사용자 정의" optgroup 자동 주입
+- **i18n**: `userModelsTitle` / `userModelsDescription` / `userModelAddButton` 등 11개 키 추가 (ko/en)
+- **의의**: RAG/Admin 서버 없이도 IDE 단독으로 임의의 OpenAI-호환·Anthropic·Gemini 엔드포인트를 사용할 수 있음. Cloud 버전 admin 대시보드의 기능 공백을 IDE 자체가 메움
 
 ---
 

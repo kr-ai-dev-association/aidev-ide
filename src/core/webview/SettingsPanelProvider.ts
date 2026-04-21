@@ -13,6 +13,7 @@ import { UsageMetricsManager } from "../managers/state/UsageMetricsManager";
 import { DEFAULT_OLLAMA_URL } from "../config/ApiDefaults";
 import { AgentPolicyHandler } from "./handlers/AgentPolicyHandler";
 import { SecurityRulesHandler } from "./handlers/SecurityRulesHandler";
+import { UserModelHandler } from "./handlers/UserModelHandler";
 
 // 전역 webview 배열 - 모든 활성 webview를 추적
 const allWebviews: vscode.Webview[] = [];
@@ -61,7 +62,8 @@ export function openSettingsPanel(
         const group = (preset as any)?.group || "";
         if (group) {
           return (
-            context.globalState.get<string>(`agentgocoder.apiKey.${group}`) || ""
+            context.globalState.get<string>(`agentgocoder.apiKey.${group}`) ||
+            ""
           );
         }
         return (
@@ -81,6 +83,15 @@ export function openSettingsPanel(
       }
       if (SecurityRulesHandler.isSecurityRulesCommand(data.command)) {
         await SecurityRulesHandler.handleMessage(
+          data,
+          panel,
+          context,
+          notificationService,
+        );
+        return;
+      }
+      if (UserModelHandler.isUserModelCommand(data.command)) {
+        await UserModelHandler.handleMessage(
           data,
           panel,
           context,
@@ -1743,9 +1754,10 @@ export function openSettingsPanel(
           const aiModelToSave = data.aiModel || data.model;
           if (aiModelToSave && typeof aiModelToSave === "string") {
             try {
-              // 관리자 모델 처리: "admin:key" 또는 "supported:key" 형식
+              // 관리자 모델 처리: "admin:key", "supported:key", 또는 "user:key" 형식
               const isAdminModel = aiModelToSave.startsWith("admin:");
               const isSupportedModel = aiModelToSave.startsWith("supported:");
+              const isUserModel = aiModelToSave.startsWith("user:");
               let toRuntime = aiModelToSave;
               let modelName = aiModelToSave;
 
@@ -1913,6 +1925,38 @@ export function openSettingsPanel(
                     `관리자 모델 '${adminKey}'을 찾을 수 없습니다.`,
                   );
                 }
+              } else if (isUserModel) {
+                const userKey = aiModelToSave.substring("user:".length);
+                toRuntime = "admin";
+                const adminConfig =
+                  await UserModelHandler.buildAdminConfigByKey(
+                    context,
+                    userKey,
+                  );
+                if (!adminConfig) {
+                  throw new Error(
+                    `사용자 모델 '${userKey}'을 찾을 수 없습니다.`,
+                  );
+                }
+                await stateManager.saveAdminModelConfig(
+                  JSON.stringify(adminConfig),
+                );
+                modelName = adminConfig.model || userKey;
+                try {
+                  const { LLMManager } =
+                    await import("../managers/model/LLMManager");
+                  const llmManager = LLMManager.getInstance();
+                  llmManager.setAdminModelConfig(adminConfig as any);
+                  llmManager.setCurrentModel(AiModelType.ADMIN);
+                } catch {}
+                try {
+                  const { updateAdminTokenLimits } =
+                    await import("../../utils/tokenUtils");
+                  updateAdminTokenLimits(
+                    adminConfig.contextWindow,
+                    adminConfig.maxOutputTokens,
+                  );
+                } catch {}
               } else if (aiModelToSave.toLowerCase() === "ollama") {
                 toRuntime = "ollama";
               }
@@ -1922,7 +1966,7 @@ export function openSettingsPanel(
               await stateManager.saveCurrentAiModel(toRuntime);
 
               // 런타임 모델 타입도 즉시 업데이트
-              if (!isAdminModel && !isSupportedModel) {
+              if (!isAdminModel && !isSupportedModel && !isUserModel) {
                 try {
                   const { LLMManager } =
                     await import("../managers/model/LLMManager");
@@ -2942,8 +2986,9 @@ export function openSettingsPanel(
           const provider = (data.provider || "").trim();
           if (provider) {
             const savedKey =
-              context.globalState.get<string>(`agentgocoder.apiKey.${provider}`) ||
-              "";
+              context.globalState.get<string>(
+                `agentgocoder.apiKey.${provider}`,
+              ) || "";
             safePostMessage(panel, {
               command: "providerApiKeyStatus",
               hasKey: !!savedKey,
