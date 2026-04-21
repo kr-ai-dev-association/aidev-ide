@@ -257,7 +257,7 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
         if (this.hasBashCommands(cleanedResponse)) {
             const warningMsg = "ASK 탭에서는 터미널 명령어를 실행할 수 없습니다. CODE 탭을 사용해주세요.";
             safePostMessage(webview, { command: 'receiveMessage', sender: 'CODEPILOT', text: warningMsg });
-            this.notificationService.showWarningMessage(`CODEPILOT: ${warningMsg}`);
+            this.notificationService.showWarningMessage(`CODEPILOT-STANDALONE: ${warningMsg}`);
             hasWarnings = true;
             cleanedResponse = this.removeBashCommands(cleanedResponse);
         }
@@ -266,7 +266,7 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
         if (this.hasFileDirectives(cleanedResponse)) {
             const warningMsg = "ASK 탭에서는 파일 생성, 수정, 삭제를 할 수 없습니다. CODE 탭을 사용해주세요.";
             safePostMessage(webview, { command: 'receiveMessage', sender: 'CODEPILOT', text: warningMsg });
-            this.notificationService.showWarningMessage(`CODEPILOT: ${warningMsg}`);
+            this.notificationService.showWarningMessage(`CODEPILOT-STANDALONE: ${warningMsg}`);
             hasWarnings = true;
             cleanedResponse = this.removeFileDirectives(cleanedResponse);
         }
