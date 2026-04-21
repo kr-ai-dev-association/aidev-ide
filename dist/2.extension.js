@@ -87,7 +87,9 @@ class CodePilotApiClient {
      * 사용자 설정 업데이트
      */
     async updateUserSetting(category, key, value, orgId) {
-        return this.patch(`/settings/user/${category}/${key}/?org_id=${orgId}`, { value });
+        return this.patch(`/settings/user/${category}/${key}/?org_id=${orgId}`, {
+            value,
+        });
     }
     /**
      * RAG 검색
@@ -172,16 +174,23 @@ class CodePilotApiClient {
         }
         const response = await this.fetchWithTimeout(url, { ...options, headers });
         // 401 → 토큰 리프레시 시도 (auth 엔드포인트 자체는 재귀 방지)
-        if (response.status === 401 && !url.includes("/auth/refresh/") && !url.includes("/auth/logout/")) {
+        if (response.status === 401 &&
+            !url.includes("/auth/refresh/") &&
+            !url.includes("/auth/logout/")) {
             try {
                 const { AuthService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 758));
                 const auth = AuthService.getInstance();
                 const newToken = await auth.refreshAccessToken();
                 if (newToken) {
                     headers["Authorization"] = `Bearer ${newToken}`;
-                    const retryResponse = await this.fetchWithTimeout(url, { ...options, headers });
+                    const retryResponse = await this.fetchWithTimeout(url, {
+                        ...options,
+                        headers,
+                    });
                     if (!retryResponse.ok) {
-                        throw new Error(await this.extractErrorMessage(retryResponse));
+                        const err = new Error(await this.extractErrorMessage(retryResponse));
+                        err.status = retryResponse.status;
+                        throw err;
                     }
                     return retryResponse.json();
                 }
@@ -192,7 +201,9 @@ class CodePilotApiClient {
             throw new Error("인증이 필요합니다. 다시 로그인해주세요.");
         }
         if (!response.ok) {
-            throw new Error(await this.extractErrorMessage(response));
+            const err = new Error(await this.extractErrorMessage(response));
+            err.status = response.status;
+            throw err;
         }
         // 204 No Content
         if (response.status === 204)

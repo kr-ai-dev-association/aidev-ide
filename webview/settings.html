@@ -3077,7 +3077,10 @@
               // 인증 상태 재확인 → showSettings에서 조직 정보 업데이트
               vscode.postMessage({ command: 'checkAuthState' });
             } else {
-              if (apikeyStatus) { apikeyStatus.textContent = message.message || '유효하지 않은 API 키입니다'; apikeyStatus.style.color = 'var(--vscode-errorForeground)'; }
+              const errMsg = message.message || '유효하지 않은 API 키입니다';
+              if (apikeyStatus) { apikeyStatus.textContent = errMsg; apikeyStatus.style.color = 'var(--vscode-errorForeground)'; }
+              // 비활성화된 키나 잘못된 키일 경우 명시적 알림창 표시 (놓치지 않도록)
+              try { alert('조직 가입 실패\n\n' + errMsg + '\n\n관리자에게 키 상태를 확인해 주세요.'); } catch (_) {}
             }
             break;
 
@@ -3087,6 +3090,13 @@
               if (clearApikeyBtn) clearApikeyBtn.style.display = 'none';
               if (apikeyChangeSection) apikeyChangeSection.style.display = 'none';
             }
+            break;
+
+          case 'organizationAccessRevoked':
+            try {
+              alert((message.message || '조직 접근 권한이 해제되어 개인 모드로 전환되었습니다.') + '\n\n관리자에게 문의하여 권한을 다시 요청하세요.');
+            } catch (_) {}
+            try { vscode.postMessage({ command: 'checkAuthState' }); } catch (_) {}
             break;
         }
       });

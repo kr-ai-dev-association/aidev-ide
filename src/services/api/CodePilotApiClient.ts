@@ -23,7 +23,10 @@ export class CodePilotApiClient {
   /**
    * GET 요청
    */
-  async get<T = any>(path: string, params?: Record<string, string>): Promise<T> {
+  async get<T = any>(
+    path: string,
+    params?: Record<string, string>,
+  ): Promise<T> {
     const url = new URL(`${this.baseUrl}${path}`);
     if (params) {
       Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
@@ -72,7 +75,10 @@ export class CodePilotApiClient {
   /**
    * 전체 유효 설정 조회
    */
-  async getAllEffectiveSettings(orgId?: string, projectId?: string): Promise<Record<string, any[]>> {
+  async getAllEffectiveSettings(
+    orgId?: string,
+    projectId?: string,
+  ): Promise<Record<string, any[]>> {
     const params: any = {};
     if (orgId) params.org_id = orgId;
     if (projectId) params.project_id = projectId;
@@ -86,12 +92,11 @@ export class CodePilotApiClient {
     category: string,
     key: string,
     value: any,
-    orgId: string
+    orgId: string,
   ): Promise<any> {
-    return this.patch(
-      `/settings/user/${category}/${key}/?org_id=${orgId}`,
-      { value }
-    );
+    return this.patch(`/settings/user/${category}/${key}/?org_id=${orgId}`, {
+      value,
+    });
   }
 
   /**
@@ -102,7 +107,7 @@ export class CodePilotApiClient {
     orgId?: string,
     sourceIds?: string[],
     topK: number = 5,
-    projectId?: string
+    projectId?: string,
   ): Promise<any[]> {
     const body: any = { query, top_k: topK };
     if (orgId) body.org_id = orgId;
@@ -166,7 +171,7 @@ export class CodePilotApiClient {
   private static getAgent(): any {
     if (!CodePilotApiClient._agent) {
       try {
-        const { Agent } = require('undici');
+        const { Agent } = require("undici");
         CodePilotApiClient._agent = new Agent({
           connect: { timeout: CodePilotApiClient.TIMEOUT_MS },
         });
@@ -197,16 +202,27 @@ export class CodePilotApiClient {
     const response = await this.fetchWithTimeout(url, { ...options, headers });
 
     // 401 → 토큰 리프레시 시도 (auth 엔드포인트 자체는 재귀 방지)
-    if (response.status === 401 && !url.includes("/auth/refresh/") && !url.includes("/auth/logout/")) {
+    if (
+      response.status === 401 &&
+      !url.includes("/auth/refresh/") &&
+      !url.includes("/auth/logout/")
+    ) {
       try {
         const { AuthService } = await import("../auth/AuthService");
         const auth = AuthService.getInstance();
         const newToken = await auth.refreshAccessToken();
         if (newToken) {
           headers["Authorization"] = `Bearer ${newToken}`;
-          const retryResponse = await this.fetchWithTimeout(url, { ...options, headers });
+          const retryResponse = await this.fetchWithTimeout(url, {
+            ...options,
+            headers,
+          });
           if (!retryResponse.ok) {
-            throw new Error(await this.extractErrorMessage(retryResponse));
+            const err: any = new Error(
+              await this.extractErrorMessage(retryResponse),
+            );
+            err.status = retryResponse.status;
+            throw err;
           }
           return retryResponse.json();
         }
@@ -217,7 +233,9 @@ export class CodePilotApiClient {
     }
 
     if (!response.ok) {
-      throw new Error(await this.extractErrorMessage(response));
+      const err: any = new Error(await this.extractErrorMessage(response));
+      err.status = response.status;
+      throw err;
     }
 
     // 204 No Content
@@ -226,9 +244,15 @@ export class CodePilotApiClient {
     return response.json();
   }
 
-  private async fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
+  private async fetchWithTimeout(
+    url: string,
+    options: RequestInit,
+  ): Promise<Response> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), CodePilotApiClient.TIMEOUT_MS);
+    const timer = setTimeout(
+      () => controller.abort(),
+      CodePilotApiClient.TIMEOUT_MS,
+    );
     try {
       const fetchOptions: any = { ...options, signal: controller.signal };
       // undici의 TCP connect timeout(기본 10초)을 늘리기 위해 dispatcher 설정
@@ -238,9 +262,15 @@ export class CodePilotApiClient {
       }
       return await fetch(url, fetchOptions);
     } catch (e: any) {
-      console.error(`[CodePilotApiClient] fetch 실패: ${url}`, e?.message, e?.cause);
+      console.error(
+        `[CodePilotApiClient] fetch 실패: ${url}`,
+        e?.message,
+        e?.cause,
+      );
       if (e?.name === "AbortError") {
-        throw new Error(`요청 시간 초과 (${CodePilotApiClient.TIMEOUT_MS / 1000}초)`);
+        throw new Error(
+          `요청 시간 초과 (${CodePilotApiClient.TIMEOUT_MS / 1000}초)`,
+        );
       }
       throw e;
     } finally {

@@ -1,13 +1,13 @@
 import * as vscode from "vscode";
 import * as path from "path";
 
-import {
-  NotificationService,
-  OllamaApi,
-} from "./services";
+import { NotificationService, OllamaApi } from "./services";
 import { AiModelType } from "./services/types";
 import { ChatViewProvider } from "./webview/providers";
-import { openSettingsPanel } from "./core/webview/SettingsPanelProvider";
+import {
+  openSettingsPanel,
+  broadcastToSettingsPanels,
+} from "./core/webview/SettingsPanelProvider";
 import {
   ActionManager,
   ExecutionManager,
@@ -66,20 +66,19 @@ import { SpawnAgentToolHandler } from "./core/tools/agent/SpawnAgentToolHandler"
 import { StopAgentToolHandler } from "./core/tools/agent/StopAgentToolHandler";
 import { WorkPlanToolHandler } from "./core/tools/agent/WorkPlanToolHandler";
 import { AuthService } from "./services/auth/AuthService";
-import { DEFAULT_OLLAMA_URL } from './core/config/ApiDefaults';
+import { DEFAULT_OLLAMA_URL } from "./core/config/ApiDefaults";
 import {
   registerGitCommands,
   registerMcpCommands,
   registerSessionCommands,
   registerDiagnosticCommands,
 } from "./commands";
-import { runCleanupFunctions, registerCleanup } from './utils/cleanupRegistry';
+import { runCleanupFunctions, registerCleanup } from "./utils/cleanupRegistry";
 
 // 전역 변수
 let authService: AuthService;
 let ollamaApi: OllamaApi;
 let notificationService: NotificationService;
-
 
 export async function activate(context: vscode.ExtensionContext) {
   // punycode deprecation 경고 억제 (간접 의존성에서 발생, 기능에는 영향 없음)
@@ -99,13 +98,13 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Skills 파일을 storageUri (프로젝트 폴더 외부)에 저장
   if (context.storageUri) {
-    const skillsDir = path.join(context.storageUri.fsPath, 'rules');
+    const skillsDir = path.join(context.storageUri.fsPath, "rules");
     PromptComposer.setSkillsDir(skillsDir);
     await vscode.workspace.fs.createDirectory(vscode.Uri.file(skillsDir));
   }
 
   // 글로벌 규칙 디렉토리 설정 (globalStorageUri — 모든 프로젝트 공통)
-  const globalRulesDir = path.join(context.globalStorageUri.fsPath, 'rules');
+  const globalRulesDir = path.join(context.globalStorageUri.fsPath, "rules");
   PromptComposer.setGlobalRulesDir(globalRulesDir);
   await vscode.workspace.fs.createDirectory(vscode.Uri.file(globalRulesDir));
 
@@ -120,7 +119,7 @@ export async function activate(context: vscode.ExtensionContext) {
           authService.handleOAuthCallback(uri);
         }
       },
-    })
+    }),
   );
 
   // 로그인 / 로그아웃 명령어 등록 (채팅 패널에서 라이선스 키 입력)
@@ -131,7 +130,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand("codepilot.logout", async () => {
       await authService.logout();
-    })
+    }),
   );
 
   // 로그인 상태 변경 시 서버 설정 동기화
@@ -149,10 +148,31 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // 로그인 상태이면 서버 설정 동기화
   if (authService.isLoggedIn()) {
-    SettingsManager.getInstance(context).syncServerSettings().catch(err => {
-      console.warn("[Extension] Initial settings sync failed:", err);
-    });
+    SettingsManager.getInstance(context)
+      .syncServerSettings()
+      .catch((err) => {
+        console.warn("[Extension] Initial settings sync failed:", err);
+      });
   }
+
+  // IDE 창 포커스 복귀 시 TTL 만료됐으면 서버 설정 refetch
+  context.subscriptions.push(
+    vscode.window.onDidChangeWindowState((e) => {
+      if (e.focused) {
+        SettingsManager.getInstance(context)
+          .syncIfStale()
+          .catch(() => {});
+      }
+    }),
+  );
+
+  // 조직 접근 권한 해제(403) 감지 시 webview에 알림 broadcast
+  SettingsManager.getInstance(context).onOrganizationAccessRevoked(() => {
+    broadcastToSettingsPanels({
+      command: "organizationAccessRevoked",
+      message: "조직 접근 권한이 해제되어 개인 모드로 전환되었습니다.",
+    });
+  });
 
   // Core Manager 시스템 초기화
   const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -181,10 +201,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Ollama API 초기화
   const initialOllamaUrl = await stateManager.getOllamaApiUrl();
   const initialOllamaModel = await stateManager.getOllamaModel();
-  ollamaApi = new OllamaApi(
-    initialOllamaUrl || DEFAULT_OLLAMA_URL,
-    context,
-  );
+  ollamaApi = new OllamaApi(initialOllamaUrl || DEFAULT_OLLAMA_URL, context);
   ollamaApi.setModel(initialOllamaModel);
   try {
     await ollamaApi.loadSettingsFromStorage();
@@ -193,15 +210,20 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   // Ollama 모델의 실제 context length 조회 및 토큰 제한 업데이트 (현재 모델이 Ollama일 때만)
-  if (initialOllamaModel && currentAiModel === 'ollama') {
-    ModelConnectionService.getOllamaModelContextLength(initialOllamaModel, initialOllamaUrl || DEFAULT_OLLAMA_URL)
+  if (initialOllamaModel && currentAiModel === "ollama") {
+    ModelConnectionService.getOllamaModelContextLength(
+      initialOllamaModel,
+      initialOllamaUrl || DEFAULT_OLLAMA_URL,
+    )
       .then((ctxLen: number | null) => {
         if (ctxLen) {
           const { updateOllamaTokenLimits } = require("./utils/tokenUtils");
           updateOllamaTokenLimits(ctxLen);
         }
       })
-      .catch(() => { /* non-critical */ });
+      .catch(() => {
+        /* non-critical */
+      });
   }
 
   // 사용자 OS 정보를 PromptBuilder에 설정
@@ -321,7 +343,8 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   // 커스텀 제외 패턴 캐시 로드
-  const { loadCustomExclusionPatterns } = await import('./core/utils/FileExclusionConstants');
+  const { loadCustomExclusionPatterns } =
+    await import("./core/utils/FileExclusionConstants");
   loadCustomExclusionPatterns(context);
 
   // Project Manager는 이미 위에서 초기화됨
@@ -393,7 +416,11 @@ export async function activate(context: vscode.ExtensionContext) {
     let mappedUiModel: string = uiAiModel;
     if (uiAiModel.startsWith("ollama")) {
       mappedUiModel = "ollama";
-    } else if (uiAiModel.startsWith("admin:") || uiAiModel.startsWith("group:") || uiAiModel.startsWith("supported:")) {
+    } else if (
+      uiAiModel.startsWith("admin:") ||
+      uiAiModel.startsWith("group:") ||
+      uiAiModel.startsWith("supported:")
+    ) {
       mappedUiModel = "admin";
     }
     currentAiModel = mappedUiModel as any;
@@ -406,47 +433,64 @@ export async function activate(context: vscode.ExtensionContext) {
     userOS,
     ollamaApi,
   );
-  const llmApiClient = new LLMApiClient(
-    ollamaApi,
-    currentAiModel as any,
-  );
-  const llmManager = LLMManager.getInstance(
-    ollamaApi,
-    currentAiModel as any,
-  );
+  const llmApiClient = new LLMApiClient(ollamaApi, currentAiModel as any);
+  const llmManager = LLMManager.getInstance(ollamaApi, currentAiModel as any);
   // 관리자 모델 설정 로드 (admin 타입인 경우)
-  if (currentAiModel === 'admin') {
+  if (currentAiModel === "admin") {
     try {
       const adminConfigJson = await stateManager.getAdminModelConfig();
       if (adminConfigJson) {
         const adminConfig = JSON.parse(adminConfigJson);
         // 사용자가 IDE에서 저장한 API 키가 있으면 병합
-        const userAdminApiKey = context.globalState.get<string>("codepilot.adminApiKey");
+        const userAdminApiKey = context.globalState.get<string>(
+          "codepilot.adminApiKey",
+        );
         if (userAdminApiKey && !adminConfig.apiKey) {
           adminConfig.apiKey = userAdminApiKey;
         }
         // nativeToolCallingSupported 누락 시 서버 설정 캐시에서 보완
-        if (adminConfig.nativeToolCallingSupported === undefined && adminConfig.key) {
+        if (
+          adminConfig.nativeToolCallingSupported === undefined &&
+          adminConfig.key
+        ) {
           try {
-            const aiModelSettings = settingsManager.getServerSettings('ai_model');
-            const serverEntry = aiModelSettings.find((s: any) => s.key === adminConfig.key);
+            const aiModelSettings =
+              settingsManager.getServerSettings("ai_model");
+            const serverEntry = aiModelSettings.find(
+              (s: any) => s.key === adminConfig.key,
+            );
             if (serverEntry?.value) {
               const v = serverEntry.value;
-              const rawNative = v.nativeToolCallingSupported ?? v.native_tool_calling_supported;
-              adminConfig.nativeToolCallingSupported = rawNative === true || String(rawNative) === 'true';
-              adminConfig.streamingSupported = adminConfig.streamingSupported ?? v.streamingSupported ?? v.streaming_supported ?? true;
+              const rawNative =
+                v.nativeToolCallingSupported ?? v.native_tool_calling_supported;
+              adminConfig.nativeToolCallingSupported =
+                rawNative === true || String(rawNative) === "true";
+              adminConfig.streamingSupported =
+                adminConfig.streamingSupported ??
+                v.streamingSupported ??
+                v.streaming_supported ??
+                true;
             }
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
         llmManager.setAdminModelConfig(adminConfig);
         llmApiClient.setAdminModelConfig(adminConfig);
         // 토큰 제한 동적 업데이트
         const { updateAdminTokenLimits } = await import("./utils/tokenUtils");
-        updateAdminTokenLimits(adminConfig.contextWindow, adminConfig.maxOutputTokens || adminConfig.maxTokens);
-        console.log('[Extension] Admin model config loaded:', adminConfig.model, `nativeToolCalling=${adminConfig.nativeToolCallingSupported}`);
+        updateAdminTokenLimits(
+          adminConfig.contextWindow,
+          adminConfig.maxOutputTokens || adminConfig.maxTokens,
+        );
+        console.log(
+          "[Extension] Admin model config loaded:",
+          adminConfig.model,
+          `nativeToolCalling=${adminConfig.nativeToolCallingSupported}`,
+        );
       }
     } catch (e) {
-      console.warn('[Extension] Failed to load admin model config:', e);
+      console.warn("[Extension] Failed to load admin model config:", e);
     }
   }
 
@@ -481,12 +525,15 @@ export async function activate(context: vscode.ExtensionContext) {
     ),
   );
   // 소스코드 자동완성 Provider 등록 (Ghost Text / Tab Completion)
-  const inlineCompletionProvider = new InlineCompletionProvider(llmManager, stateManager);
+  const inlineCompletionProvider = new InlineCompletionProvider(
+    llmManager,
+    stateManager,
+  );
   context.subscriptions.push(
     vscode.languages.registerInlineCompletionItemProvider(
-      { scheme: 'file' },
-      inlineCompletionProvider
-    )
+      { scheme: "file" },
+      inlineCompletionProvider,
+    ),
   );
 
   // 커서 IDE 방식: 인라인 Diff 명령어 등록
@@ -603,18 +650,27 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // MCPManager 연결 이벤트 → ToolRegistry 동적 등록
   mcpManager.onConnectionEvent((event) => {
-    if (event.type === 'connected' && event.tools) {
+    if (event.type === "connected" && event.tools) {
       // 기존 도구 해제 후 새로 등록 (serverId 기반)
       toolRegistry.unregisterByServerId(event.serverId);
 
       for (const tool of event.tools) {
-        const handler = new MCPToolHandler(event.serverId, event.serverName, tool);
-        const registeredName = toolRegistry.registerMCP(handler, event.serverId, event.serverName, tool.name);
+        const handler = new MCPToolHandler(
+          event.serverId,
+          event.serverName,
+          tool,
+        );
+        const registeredName = toolRegistry.registerMCP(
+          handler,
+          event.serverId,
+          event.serverName,
+          tool.name,
+        );
         if (registeredName !== handler.name) {
           handler.setRegisteredName(registeredName);
         }
       }
-    } else if (event.type === 'disconnected') {
+    } else if (event.type === "disconnected") {
       toolRegistry.unregisterByServerId(event.serverId);
     }
   });
@@ -623,7 +679,12 @@ export async function activate(context: vscode.ExtensionContext) {
   const allMcpTools = mcpManager.getAllTools();
   for (const { serverId, serverName, tool } of allMcpTools) {
     const handler = new MCPToolHandler(serverId, serverName, tool);
-    const registeredName = toolRegistry.registerMCP(handler, serverId, serverName, tool.name);
+    const registeredName = toolRegistry.registerMCP(
+      handler,
+      serverId,
+      serverName,
+      tool.name,
+    );
     if (registeredName !== handler.name) {
       handler.setRegisteredName(registeredName);
     }
@@ -791,27 +852,27 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // 진단/테스트 커맨드 등록 (diagnosticCommands.ts)
   context.subscriptions.push(
-    ...registerDiagnosticCommands({ context, chatViewProvider })
+    ...registerDiagnosticCommands({ context, chatViewProvider }),
   );
 
   // 캐시/세션 커맨드 등록 (sessionCommands.ts)
   context.subscriptions.push(
-    ...registerSessionCommands({ context, chatViewProvider, ollamaApi })
+    ...registerSessionCommands({ context, chatViewProvider, ollamaApi }),
   );
 
   // MCP 커맨드 등록 (mcpCommands.ts)
   context.subscriptions.push(
-    ...registerMcpCommands({ context, chatViewProvider })
+    ...registerMcpCommands({ context, chatViewProvider }),
   );
 
   // Git 커맨드 등록 (gitCommands.ts)
   context.subscriptions.push(
-    ...registerGitCommands({ context, chatViewProvider })
+    ...registerGitCommands({ context, chatViewProvider }),
   );
 }
 
 export async function deactivate(): Promise<void> {
-  console.log('[Extension] Deactivating...');
+  console.log("[Extension] Deactivating...");
   await runCleanupFunctions(5000);
-  console.log('[Extension] Deactivated');
+  console.log("[Extension] Deactivated");
 }

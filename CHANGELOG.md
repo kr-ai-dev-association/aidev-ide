@@ -6,6 +6,42 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ---
 
+## v1.0.70 (2026-04-22) — follow-up
+
+### RAG 소스별 유사도 임계값 / top_k 설정화 + 설정 동기화 TTL 활성화 + 조직 접근 권한 해제 UX
+
+**RAG 소스별 유사도 임계값 / top_k (admin/super 설정값 사용)**
+
+- **문제**: `ContextGatherer.ts` / `OrchestrationRouter.ts` 의 유사도 임계값이 각각 `0.8` / `0.75` 로 하드코딩되어 있었고 두 경로가 서로 다른 값을 쓰고 있었음. top_k 도 `3` 하드코딩
+- **수정**: `SettingsManager.getRagSearchParams()` helper 추가 — 등록된 모든 RAG 소스에서 `similarity_threshold`(기본 0.8) + `top_k`(기본 3) 수집. `source_id` 기반 per-source 필터 + 최대 `top_k` 값을 search 호출에 사용
+- **backend 요구**: `RagSearchResult` 응답에 `source_id` 포함 (codepilot-backend v0.0.11)
+- **관리자 설정**: admin(조직 RAG) + super(RAG 프리셋) 페이지에서 등록·수정 시 두 값 입력 가능 (0~1 step 0.05 / 1~20)
+- 기존에 등록된 RAG 소스는 backend migration 0005 가 default 값 (0.8 / 3) 자동 적용
+
+**설정 동기화 TTL 활성화 (포커스 기반)**
+
+- **문제**: `SettingsManager` 에 `isCacheValid()` / `syncInProgress` / `CACHE_TTL_MS` (5분) 은 이미 정의돼 있었으나 실제로는 `syncIfStale()` 같은 wrapper 없이 매 호출이 바로 서버 fetch — TTL 미적용 상태
+- **수정**: `SettingsManager.syncIfStale()` public method 추가 — TTL 만료 시에만 `syncServerSettings()` 호출. `extension.ts` 에 `vscode.window.onDidChangeWindowState` 리스너 추가 → 창 포커스 복귀 때마다 TTL 체크, 만료 시에만 refetch
+- **효과**: IDE 포커스 안 가져오면 호출 0건. 분당 최대 1회, 평균적으로 훨씬 적음
+
+**조직 접근 권한 해제(403) 자동 감지 → 개인 모드 전환**
+
+- **문제**: admin이 Membership 을 비활성화하면 IDE 는 다음 `/settings/effective/*` 호출에서 403 을 받지만 조용히 실패하고 이전 캐시 계속 사용 — 사용자에게 피드백 없음
+- **수정**:
+  - `CodePilotApiClient.ts`: `throw new Error(...)` 에 `err.status = response.status` 주입 (2곳: 재시도 응답 + 일반 응답)
+  - `SettingsManager._doSync` catch 블록: `status === 403` 감지 → `_handleOrganizationAccessRevoked()` 호출
+  - `_handleOrganizationAccessRevoked()`: serverSettingsCache 초기화 + offline cache 제거 + globalState `codepilot.userInfo` 에서 `organization_id / organization_name / organization` 삭제 + listener 통지
+  - `extension.ts` → `onOrganizationAccessRevoked` 구독 → `broadcastToSettingsPanels` 로 모든 활성 설정 webview 에 `organizationAccessRevoked` 메시지 전파
+  - `SettingsPanelProvider.ts`: `broadcastToSettingsPanels()` helper export 추가
+  - `webview/settings.html`: `organizationAccessRevoked` 메시지 핸들러 추가 — 알림창 + `checkAuthState` 재요청
+
+**API 키 가입 실패 명시적 알림**
+
+- **문제**: admin 이 API 키 비활성화(`ApiKey.is_active=False`) 시 신규 가입 시도가 backend 에서 `INVALID_API_KEY` 400 을 반환하지만, `settings.html` 은 기존에 inline status 로만 빨간 글씨 표시 — 사용자가 못 보고 지나칠 여지
+- **수정**: `changeApiKeyResult.success=false` 처리에 `alert()` 추가 — "조직 가입 실패\n\n{errMsg}\n\n관리자에게 키 상태를 확인해 주세요."
+
+---
+
 ## v1.0.70 (2026-04-22)
 
 ### 스킬 저장·삭제·리스팅이 워크스페이스 없이도 동작

@@ -35,6 +35,20 @@ function safePostMessage(panel: vscode.WebviewPanel, message: any): void {
 }
 
 /**
+ * 열려 있는 모든 설정 webview에 메시지를 broadcast.
+ * 조직 권한 해제 같은 비동기 이벤트를 UI에 알릴 때 사용.
+ */
+export function broadcastToSettingsPanels(message: any): void {
+  for (const w of allWebviews) {
+    try {
+      w.postMessage(message);
+    } catch {
+      /* webview disposed */
+    }
+  }
+}
+
+/**
  * CODEPILOT 설정 패널을 엽니다.
  */
 export function openSettingsPanel(

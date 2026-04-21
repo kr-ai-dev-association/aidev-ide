@@ -267,28 +267,31 @@ export class ContextGatherer {
               SettingsManager.getInstance()?.context?.globalState?.get<string>(
                 "codepilot.projectId",
               );
+            // RAG 소스별 similarity_threshold/top_k 반영 (admin에서 설정)
+            const { topK: ragTopK, thresholdBySourceId } =
+              SettingsManager.getInstance().getRagSearchParams();
             const ragRaw = await CodePilotApiClient.getInstance().searchRag(
               ragQuery,
               orgId || undefined,
               undefined,
-              3, // 5→3: 기본 청크 수 축소 (토큰 절약)
+              ragTopK,
               ctxProjectId || undefined,
             );
             const ragResultsRaw = Array.isArray(ragRaw)
               ? ragRaw
               : (ragRaw as any)?.data || (ragRaw as any)?.results || [];
-            // 유사도 임계값 필터링: 낮은 유사도 결과 제외 (무관한 문서 방지)
-            const RAG_SIMILARITY_THRESHOLD = 0.8;
-            const ragResults = (ragResultsRaw || []).filter(
-              (r: any) =>
-                r.similarity == null ||
-                r.similarity >= RAG_SIMILARITY_THRESHOLD,
-            );
+            // 유사도 임계값 필터링: source_id별 threshold (없으면 0.8 fallback)
+            const ragResults = (ragResultsRaw || []).filter((r: any) => {
+              if (r.similarity == null) return true;
+              const threshold =
+                thresholdBySourceId.get(String(r.source_id)) ?? 0.8;
+              return r.similarity >= threshold;
+            });
             const filteredCount =
               (ragResultsRaw?.length || 0) - ragResults.length;
             if (filteredCount > 0) {
               console.log(
-                `[ContextGatherer] RAG: ${filteredCount}개 청크 유사도 미달로 제외 (threshold: ${(RAG_SIMILARITY_THRESHOLD * 100).toFixed(0)}%)`,
+                `[ContextGatherer] RAG: ${filteredCount}개 청크 유사도 미달로 제외 (per-source threshold)`,
               );
             }
             if (ragResults && ragResults.length > 0) {
