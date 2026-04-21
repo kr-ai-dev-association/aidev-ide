@@ -837,20 +837,11 @@ export class AgentPolicyHandler {
             throw new Error(`유효하지 않은 카테고리: ${category}`);
           }
 
-          // 글로벌 규칙은 globalStorageUri에 저장 (워크스페이스 불필요)
-          if (category !== "global-rules") {
-            const workspaceRoot =
-              vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-            if (!workspaceRoot) {
-              throw new Error("워크스페이스가 열려있지 않습니다.");
-            }
-          }
-
-          // global-rules는 globalStorageUri, 나머지는 storageUri에 저장
+          // global-rules는 globalStorageUri, 나머지는 storageUri (없으면 globalStorageUri 폴백)
           const categoryBaseDir =
             category === "global-rules"
               ? context.globalStorageUri.fsPath
-              : context.storageUri!.fsPath;
+              : (context.storageUri || context.globalStorageUri).fsPath;
           const categoryDir = path.join(categoryBaseDir, "rules", category);
           const categoryDirUri = vscode.Uri.file(categoryDir);
           await vscode.workspace.fs.createDirectory(categoryDirUri);
@@ -958,11 +949,11 @@ export class AgentPolicyHandler {
           }
           let safeFileName = baseName.replace(/[<>:"/\\|?*]/g, "_");
 
-          // global-rules는 globalStorageUri, 나머지는 storageUri에 저장
+          // global-rules는 globalStorageUri, 나머지는 storageUri (없으면 globalStorageUri 폴백)
           const pathBaseDir =
             category === "global-rules"
               ? context.globalStorageUri.fsPath
-              : context.storageUri!.fsPath;
+              : (context.storageUri || context.globalStorageUri).fsPath;
           const categoryDir = path.join(pathBaseDir, "rules", category);
           await vscode.workspace.fs.createDirectory(
             vscode.Uri.file(categoryDir),
@@ -1006,13 +997,6 @@ export class AgentPolicyHandler {
             throw new Error("카테고리와 파일명이 필요합니다.");
           }
 
-          // 워크스페이스 루트 가져오기
-          const workspaceRoot =
-            vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-          if (!workspaceRoot) {
-            throw new Error("워크스페이스가 열려있지 않습니다.");
-          }
-
           // 파일명에 확장자가 없으면 .md 추가
           let targetFileName = fileName;
           if (
@@ -1024,11 +1008,11 @@ export class AgentPolicyHandler {
 
           let deleted = false;
 
-          // global-rules는 globalStorageUri, 나머지는 storageUri
+          // global-rules는 globalStorageUri, 나머지는 storageUri (없으면 globalStorageUri 폴백)
           const deleteBaseDir =
             category === "global-rules"
               ? context.globalStorageUri.fsPath
-              : context.storageUri!.fsPath;
+              : (context.storageUri || context.globalStorageUri).fsPath;
 
           if (isLegacy) {
             // 레거시 파일: rules/{fileName}
@@ -1134,11 +1118,11 @@ export class AgentPolicyHandler {
             allFileTypes[category] = {};
             allFileDescriptions[category] = {};
 
-            // global-rules는 globalStorageUri, 나머지는 storageUri
+            // global-rules는 globalStorageUri, 나머지는 storageUri (없으면 globalStorageUri 폴백)
             const listBaseDir =
               category === "global-rules"
                 ? context.globalStorageUri.fsPath
-                : context.storageUri!.fsPath;
+                : (context.storageUri || context.globalStorageUri).fsPath;
             const categoryDir = path.join(listBaseDir, "rules", category);
 
             // 디렉토리가 존재하면 파일 목록 조회
