@@ -1,7 +1,5 @@
 // settings.js
-import {
-  showStatus,
-} from "./settings/api-keys.js";
+import { showStatus } from "./settings/api-keys.js";
 import {
   bindToggleEvents,
   bindSpinnerEvents,
@@ -33,37 +31,41 @@ let cachedServerSettings = {};
 // ===== 조직 설정 렌더링 =====
 
 const ORG_CATEGORY_LABELS = {
-  mcp_server: 'MCP 서버',
-  rag: 'RAG',
-  build_test: '빌드/테스트',
-  hotload: 'Hot Load',
-  dev_rules: 'Skills',
-  exclude_patterns: '제외 패턴',
-  security_rules: '보안 규칙',
-  ai_model: 'AI 모델',
+  mcp_server: "MCP 서버",
+  rag: "RAG",
+  build_test: "빌드/테스트",
+  hotload: "Hot Load",
+  dev_rules: "Skills",
+  exclude_patterns: "제외 패턴",
+  security_rules: "보안 규칙",
+  ai_model: "AI 모델",
 };
 
 const PERSONAL_LABEL_MAP = {
   // mcp_server는 mcp-settings.js에서 별도 관리
-  rag: 'personal-label-rag',
-  build_test: 'personal-label-build_test',
-  hotload: 'personal-label-hotload',
-  dev_rules: 'personal-label-dev_rules',
-  exclude_patterns: 'personal-label-exclude_patterns',
-  security_rules: 'personal-label-security_rules',
+  rag: "personal-label-rag",
+  build_test: "personal-label-build_test",
+  hotload: "personal-label-hotload",
+  dev_rules: "personal-label-dev_rules",
+  exclude_patterns: "personal-label-exclude_patterns",
+  security_rules: "personal-label-security_rules",
 };
 
 /**
  * 조직 설정 값을 사람이 읽기 좋은 형태로 변환 (기본 폴백)
  */
 function formatSettingValue(value) {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'boolean') return value ? '사용' : '사용 안 함';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number') return String(value);
-  if (Array.isArray(value)) return value.join(', ');
-  if (typeof value === 'object') {
-    try { return JSON.stringify(value, null, 2); } catch { return String(value); }
+  if (value === null || value === undefined) return "";
+  if (typeof value === "boolean") return value ? "사용" : "사용 안 함";
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  if (Array.isArray(value)) return value.join(", ");
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
   }
   return String(value);
 }
@@ -73,145 +75,192 @@ function formatSettingValue(value) {
  * 각 카테고리의 value 구조에 맞게 보기 좋은 카드를 렌더링
  */
 function renderSettingCard(s, category) {
-  const isRequired = s.enforcement === 'required';
+  const isRequired = s.enforcement === "required";
   const isDisabled = !!s.is_disabled;
-  const itemClass = isRequired ? 'org-setting-item is-locked' : (isDisabled ? 'org-setting-item is-excluded' : 'org-setting-item');
+  const itemClass = isRequired
+    ? "org-setting-item is-locked"
+    : isDisabled
+      ? "org-setting-item is-excluded"
+      : "org-setting-item";
   const badge = isRequired
     ? '<span class="badge-required">필수</span>'
     : '<span class="badge-recommended">권장</span>';
 
   // ai_model은 아래 드롭다운에서 선택하므로 토글 불가
-  const clickAttr = (isRequired || category === 'ai_model') ? '' : ` data-org-toggle-cat="${category}" data-org-toggle-key="${escapeHtml(s.key)}"`;
+  const clickAttr =
+    isRequired || category === "ai_model"
+      ? ""
+      : ` data-org-toggle-cat="${category}" data-org-toggle-key="${escapeHtml(s.key)}"`;
   let html = `<div class="${itemClass}"${clickAttr}>`;
   html += badge;
   html += `<div class="setting-info">`;
   // RAG: 소스 이름을 키 대신 표시
-  const displayKey = (category === 'rag' && s.value && s.value.name) ? s.value.name : s.key;
+  const displayKey =
+    category === "rag" && s.value && s.value.name ? s.value.name : s.key;
   html += `<div class="setting-key">${escapeHtml(displayKey)}`;
   // dev_rules: 규칙/스킬 타입 배지
-  if (category === 'dev_rules' && s.skill_type) {
-    const isSkill = s.skill_type === 'skill';
-    const typeLabel = isSkill ? '스킬' : '규칙';
+  if (category === "dev_rules" && s.skill_type) {
+    const isSkill = s.skill_type === "skill";
+    const typeLabel = isSkill ? "스킬" : "규칙";
     html += ` <span style="background:#3b82f6;color:#fff;padding:1px 6px;border-radius:4px;font-size:0.75em;font-weight:500;margin-left:4px;">${typeLabel}</span>`;
   }
   // security_rules: 이름 옆에 유형 배지
-  if (category === 'security_rules' && s.value && typeof s.value === 'object') {
-    const typeLabel = s.value.type === 'hidden_file' ? '파일 은닉' : s.value.type === 'protected_file' ? '보호 파일' : '차단 명령어';
+  if (category === "security_rules" && s.value && typeof s.value === "object") {
+    const typeLabel =
+      s.value.type === "hidden_file"
+        ? "파일 은닉"
+        : s.value.type === "protected_file"
+          ? "보호 파일"
+          : "차단 명령어";
     html += ` <span style="background:#2563eb;color:#fff;padding:1px 6px;border-radius:4px;font-size:0.75em;font-weight:500;margin-left:4px;">${typeLabel}</span>`;
   }
   html += `</div>`;
 
   // 카테고리별 상세 렌더링
   const v = s.value;
-  if (category === 'mcp_server' && v && typeof v === 'object') {
+  if (category === "mcp_server" && v && typeof v === "object") {
     const rows = [];
     if (v.type) rows.push(`<b>타입:</b> ${escapeHtml(v.type)}`);
-    if (v.command) rows.push(`<b>명령어:</b> <code>${escapeHtml(v.command)}</code>`);
+    if (v.command)
+      rows.push(`<b>명령어:</b> <code>${escapeHtml(v.command)}</code>`);
     if (v.url) rows.push(`<b>URL:</b> ${escapeHtml(v.url)}`);
-    if (v.args && Array.isArray(v.args)) rows.push(`<b>인수:</b> <code>${escapeHtml(v.args.join(' '))}</code>`);
-    if (v.env && typeof v.env === 'object') {
+    if (v.args && Array.isArray(v.args))
+      rows.push(`<b>인수:</b> <code>${escapeHtml(v.args.join(" "))}</code>`);
+    if (v.env && typeof v.env === "object") {
       const envKeys = Object.keys(v.env);
-      if (envKeys.length) rows.push(`<b>환경변수:</b> ${envKeys.map(k => escapeHtml(k)).join(', ')}`);
+      if (envKeys.length)
+        rows.push(
+          `<b>환경변수:</b> ${envKeys.map((k) => escapeHtml(k)).join(", ")}`,
+        );
     }
-    if (v.prompt) rows.push(`<b>프롬프트:</b> ${escapeHtml(String(v.prompt).substring(0, 100))}${String(v.prompt).length > 100 ? '...' : ''}`);
-    html += `<div class="setting-detail">${rows.join('<br>')}</div>`;
-
-  } else if (category === 'hotload' && v && typeof v === 'object') {
+    if (v.prompt)
+      rows.push(
+        `<b>프롬프트:</b> ${escapeHtml(String(v.prompt).substring(0, 100))}${String(v.prompt).length > 100 ? "..." : ""}`,
+      );
+    html += `<div class="setting-detail">${rows.join("<br>")}</div>`;
+  } else if (category === "hotload" && v && typeof v === "object") {
     const rows = [];
-    if (v.keywords) rows.push(`<b>키워드:</b> ${escapeHtml(Array.isArray(v.keywords) ? v.keywords.join(', ') : String(v.keywords))}`);
+    if (v.keywords)
+      rows.push(
+        `<b>키워드:</b> ${escapeHtml(Array.isArray(v.keywords) ? v.keywords.join(", ") : String(v.keywords))}`,
+      );
     if (v.description) rows.push(`<b>설명:</b> ${escapeHtml(v.description)}`);
-    if (v.command) rows.push(`<b>명령어:</b> <code>${escapeHtml(v.command)}</code>`);
+    if (v.command)
+      rows.push(`<b>명령어:</b> <code>${escapeHtml(v.command)}</code>`);
     if (v.condition) rows.push(`<b>조건:</b> ${escapeHtml(v.condition)}`);
-    html += `<div class="setting-detail">${rows.join('<br>')}</div>`;
-
-  } else if (category === 'dev_rules' && v && typeof v === 'object') {
+    html += `<div class="setting-detail">${rows.join("<br>")}</div>`;
+  } else if (category === "dev_rules" && v && typeof v === "object") {
     const rows = [];
     if (v.title) rows.push(`<b>제목:</b> ${escapeHtml(v.title)}`);
     if (v.content) {
       const preview = String(v.content).substring(0, 200);
-      rows.push(`<div class="setting-content-preview">${escapeHtml(preview)}${String(v.content).length > 200 ? '...' : ''}</div>`);
+      rows.push(
+        `<div class="setting-content-preview">${escapeHtml(preview)}${String(v.content).length > 200 ? "..." : ""}</div>`,
+      );
     }
-    if (v.category_sub) rows.push(`<b>하위분류:</b> ${escapeHtml(v.category_sub)}`);
-    html += `<div class="setting-detail">${rows.join('<br>')}</div>`;
+    if (v.category_sub)
+      rows.push(`<b>하위분류:</b> ${escapeHtml(v.category_sub)}`);
+    html += `<div class="setting-detail">${rows.join("<br>")}</div>`;
     if (s.skill_description) {
       html += `<div style="margin-top:4px;font-size:0.75em;color:var(--vscode-descriptionForeground);background:var(--vscode-textCodeBlock-background);padding:2px 8px;border-radius:4px;">${escapeHtml(s.skill_description)}</div>`;
     }
-
-  } else if (category === 'ai_model' && v && typeof v === 'object') {
+  } else if (category === "ai_model" && v && typeof v === "object") {
     const rows = [];
     if (v.provider) rows.push(`<b>제공자:</b> ${escapeHtml(v.provider)}`);
-    if (v.model || v.model_name) rows.push(`<b>모델:</b> ${escapeHtml(v.model || v.model_name)}`);
+    if (v.model || v.model_name)
+      rows.push(`<b>모델:</b> ${escapeHtml(v.model || v.model_name)}`);
     const cw = v.context_window || v.contextWindow;
-    rows.push(`<b>Context Window:</b> ${cw ? Number(cw).toLocaleString() : '<span style="opacity:0.5">미설정</span>'}`);
+    rows.push(
+      `<b>Context Window:</b> ${cw ? Number(cw).toLocaleString() : '<span style="opacity:0.5">미설정</span>'}`,
+    );
     const mt = v.max_tokens || v.maxTokens;
-    rows.push(`<b>Max Tokens:</b> ${mt ? Number(mt).toLocaleString() : '<span style="opacity:0.5">미설정</span>'}`);
+    rows.push(
+      `<b>Max Tokens:</b> ${mt ? Number(mt).toLocaleString() : '<span style="opacity:0.5">미설정</span>'}`,
+    );
     if (v.hasApiKey) {
-      rows.push('<span style="font-size:0.85em; color:#16a34a;">✓ 공용 API 키 설정됨</span>');
+      rows.push(
+        '<span style="font-size:0.85em; color:#16a34a;">✓ 공용 API 키 설정됨</span>',
+      );
     }
     if (rows.length) {
-      html += `<div class="setting-detail">${rows.join('<br>')}</div>`;
+      html += `<div class="setting-detail">${rows.join("<br>")}</div>`;
     } else {
       html += `<div class="setting-desc">${escapeHtml(formatSettingValue(v))}</div>`;
     }
-
-  } else if (category === 'build_test' && v && typeof v === 'object') {
+  } else if (category === "build_test" && v && typeof v === "object") {
     const rows = [];
     if (s.description) rows.push(`<b>설명:</b> ${escapeHtml(s.description)}`);
-    if (v.command) rows.push(`<b>명령어:</b> <code>${escapeHtml(v.command)}</code>`);
+    if (v.command)
+      rows.push(`<b>명령어:</b> <code>${escapeHtml(v.command)}</code>`);
     if (v.language) rows.push(`<b>언어:</b> ${escapeHtml(v.language)}`);
     // 레거시 필드 fallback
     if (!v.command) {
-      if (v.validate_command) rows.push(`<b>검증:</b> <code>${escapeHtml(v.validate_command)}</code>`);
-      if (v.format_command) rows.push(`<b>포맷:</b> <code>${escapeHtml(v.format_command)}</code>`);
-      if (v.build_command) rows.push(`<b>빌드:</b> <code>${escapeHtml(v.build_command)}</code>`);
-      if (v.test_command) rows.push(`<b>테스트:</b> <code>${escapeHtml(v.test_command)}</code>`);
+      if (v.validate_command)
+        rows.push(
+          `<b>검증:</b> <code>${escapeHtml(v.validate_command)}</code>`,
+        );
+      if (v.format_command)
+        rows.push(`<b>포맷:</b> <code>${escapeHtml(v.format_command)}</code>`);
+      if (v.build_command)
+        rows.push(`<b>빌드:</b> <code>${escapeHtml(v.build_command)}</code>`);
+      if (v.test_command)
+        rows.push(`<b>테스트:</b> <code>${escapeHtml(v.test_command)}</code>`);
     }
     if (rows.length) {
-      html += `<div class="setting-detail">${rows.join('<br>')}</div>`;
+      html += `<div class="setting-detail">${rows.join("<br>")}</div>`;
     } else {
       html += `<div class="setting-desc">${escapeHtml(formatSettingValue(v))}</div>`;
     }
-
-  } else if (category === 'security_rules' && v && typeof v === 'object') {
+  } else if (category === "security_rules" && v && typeof v === "object") {
     const rows = [];
-    if (v.blocked_commands && Array.isArray(v.blocked_commands)) rows.push(`<b>차단 명령어:</b> <code>${v.blocked_commands.map(c => escapeHtml(c)).join('</code>, <code>')}</code>`);
-    if (v.protected_files && Array.isArray(v.protected_files)) rows.push(`<b>보호 파일:</b> <code>${v.protected_files.map(f => escapeHtml(f)).join('</code>, <code>')}</code>`);
-    if (v.pattern) rows.push(`<b>패턴:</b> <code>${escapeHtml(v.pattern)}</code>`);
+    if (v.blocked_commands && Array.isArray(v.blocked_commands))
+      rows.push(
+        `<b>차단 명령어:</b> <code>${v.blocked_commands.map((c) => escapeHtml(c)).join("</code>, <code>")}</code>`,
+      );
+    if (v.protected_files && Array.isArray(v.protected_files))
+      rows.push(
+        `<b>보호 파일:</b> <code>${v.protected_files.map((f) => escapeHtml(f)).join("</code>, <code>")}</code>`,
+      );
+    if (v.pattern)
+      rows.push(`<b>패턴:</b> <code>${escapeHtml(v.pattern)}</code>`);
     if (v.description) rows.push(`<b>설명:</b> ${escapeHtml(v.description)}`);
     if (rows.length) {
-      html += `<div class="setting-detail">${rows.join('<br>')}</div>`;
+      html += `<div class="setting-detail">${rows.join("<br>")}</div>`;
     } else {
       html += `<div class="setting-desc">${escapeHtml(formatSettingValue(v))}</div>`;
     }
-
-  } else if (category === 'exclude_patterns') {
+  } else if (category === "exclude_patterns") {
     if (Array.isArray(v)) {
-      html += `<div class="setting-detail"><code>${v.map(p => escapeHtml(p)).join('</code>, <code>')}</code></div>`;
-    } else if (typeof v === 'string') {
+      html += `<div class="setting-detail"><code>${v.map((p) => escapeHtml(p)).join("</code>, <code>")}</code></div>`;
+    } else if (typeof v === "string") {
       html += `<div class="setting-desc"><code>${escapeHtml(v)}</code></div>`;
-    } else if (v && typeof v === 'object') {
+    } else if (v && typeof v === "object") {
       const rows = [];
-      if (v.pattern) rows.push(`<b>패턴:</b> <code>${escapeHtml(v.pattern)}</code>`);
-      if (v.patterns && Array.isArray(v.patterns)) rows.push(`<b>패턴:</b> <code>${v.patterns.map(p => escapeHtml(p)).join('</code>, <code>')}</code>`);
+      if (v.pattern)
+        rows.push(`<b>패턴:</b> <code>${escapeHtml(v.pattern)}</code>`);
+      if (v.patterns && Array.isArray(v.patterns))
+        rows.push(
+          `<b>패턴:</b> <code>${v.patterns.map((p) => escapeHtml(p)).join("</code>, <code>")}</code>`,
+        );
       if (v.description) rows.push(`<b>설명:</b> ${escapeHtml(v.description)}`);
       if (v.type) rows.push(`<b>유형:</b> ${escapeHtml(v.type)}`);
       if (rows.length) {
-        html += `<div class="setting-detail">${rows.join('<br>')}</div>`;
+        html += `<div class="setting-detail">${rows.join("<br>")}</div>`;
       } else {
         html += `<div class="setting-desc">${escapeHtml(formatSettingValue(v))}</div>`;
       }
     } else {
       html += `<div class="setting-desc">${escapeHtml(formatSettingValue(v))}</div>`;
     }
-
-  } else if (category === 'rag' && v && typeof v === 'object') {
+  } else if (category === "rag" && v && typeof v === "object") {
     const rows = [];
     if (v.description) rows.push(`${escapeHtml(v.description)}`);
     const docCount = v.document_count != null ? v.document_count : 0;
     const vecCount = v.vector_count != null ? v.vector_count : 0;
-    rows.push(`<b>문서:</b> ${docCount}개 &nbsp; <b>벡터:</b> ${vecCount.toLocaleString()}개`);
-    html += `<div class="setting-detail">${rows.join('<br>')}</div>`;
-
+    rows.push(
+      `<b>문서:</b> ${docCount}개 &nbsp; <b>벡터:</b> ${vecCount.toLocaleString()}개`,
+    );
+    html += `<div class="setting-detail">${rows.join("<br>")}</div>`;
   } else {
     // 범용 폴백
     const valueStr = formatSettingValue(v);
@@ -236,58 +285,64 @@ function renderSettingCard(s, category) {
  */
 function renderOrgSettings(category) {
   // MCP는 별도 관리자 MCP 섹션에서 처리
-  if (category === 'mcp_server') return;
+  if (category === "mcp_server") return;
   const container = document.getElementById(`org-settings-${category}`);
   if (!container) return;
 
   const rawSettings = cachedServerSettings[category] || [];
   let settings;
   if (window.userHasOrganization) {
-    settings = rawSettings.filter(s => s.source !== 'preset');
+    settings = rawSettings.filter((s) => s.source !== "preset");
   } else {
-    settings = rawSettings.filter(s => s.source === 'preset');
+    settings = rawSettings.filter((s) => s.source === "preset");
   }
 
   // RAG 빈 상태 메시지 처리
-  const ragEmptyMsg = document.getElementById('rag-empty-message');
-  if (category === 'rag' && ragEmptyMsg) {
-    ragEmptyMsg.style.display = settings.length === 0 ? 'block' : 'none';
+  const ragEmptyMsg = document.getElementById("rag-empty-message");
+  if (category === "rag" && ragEmptyMsg) {
+    ragEmptyMsg.style.display = settings.length === 0 ? "block" : "none";
   }
 
   if (settings.length === 0) {
-    container.style.display = 'none';
+    container.style.display = "none";
     const personalLabel = document.getElementById(PERSONAL_LABEL_MAP[category]);
-    if (personalLabel) personalLabel.style.display = 'none';
+    if (personalLabel) personalLabel.style.display = "none";
     return;
   }
 
-  container.style.display = 'block';
+  container.style.display = "block";
   const personalLabel = document.getElementById(PERSONAL_LABEL_MAP[category]);
-  if (personalLabel) personalLabel.style.display = 'flex';
+  if (personalLabel) personalLabel.style.display = "flex";
 
-  let html = '';
+  let html = "";
 
   if (window.userHasOrganization) {
-    const teamSettings = settings.filter(s => s.source === 'admin');
-    const projectSettings = settings.filter(s => s.source === 'project');
+    const teamSettings = settings.filter((s) => s.source === "admin");
+    const projectSettings = settings.filter((s) => s.source === "project");
 
     if (teamSettings.length > 0) {
       html += `<div class="org-settings-section">`;
       html += `<div class="org-settings-header">팀 기본 설정 <span class="org-count">(${teamSettings.length})</span></div>`;
-      for (const s of teamSettings) { html += renderSettingCard(s, category); }
+      for (const s of teamSettings) {
+        html += renderSettingCard(s, category);
+      }
       html += `</div>`;
     }
 
     if (projectSettings.length > 0) {
       html += `<div class="org-settings-section" style="margin-top:8px;">`;
       html += `<div class="org-settings-header" style="color:var(--vscode-button-background);">프로젝트 설정 <span class="org-count">(${projectSettings.length})</span></div>`;
-      for (const s of projectSettings) { html += renderSettingCard(s, category); }
+      for (const s of projectSettings) {
+        html += renderSettingCard(s, category);
+      }
       html += `</div>`;
     }
   } else {
     html += `<div class="org-settings-section">`;
     html += `<div class="org-settings-header">기본 설정 <span class="org-count">(${settings.length})</span></div>`;
-    for (const s of settings) { html += renderSettingCard(s, category); }
+    for (const s of settings) {
+      html += renderSettingCard(s, category);
+    }
     html += `</div>`;
   }
 
@@ -330,26 +385,30 @@ function populateSupportedModels() {
   const adminOpt = mainSelect.querySelector('option[value="admin"]');
 
   // 기존 동적 옵션 제거
-  mainSelect.querySelectorAll('optgroup[data-supported-group]').forEach(o => o.remove());
-  mainSelect.querySelectorAll('option[data-supported]').forEach(o => o.remove());
+  mainSelect
+    .querySelectorAll("optgroup[data-supported-group]")
+    .forEach((o) => o.remove());
+  mainSelect
+    .querySelectorAll("option[data-supported]")
+    .forEach((o) => o.remove());
 
-  const aiModels = cachedServerSettings['ai_model'] || [];
-  const supportedModels = aiModels.filter(s => s.source === 'preset');
+  const aiModels = cachedServerSettings["ai_model"] || [];
+  const supportedModels = aiModels.filter((s) => s.source === "preset");
 
   // 그룹별로 분류
   const groups = {};
   for (const s of supportedModels) {
-    const g = s.group || 'default';
+    const g = s.group || "default";
     if (!groups[g]) groups[g] = [];
     groups[g].push(s);
   }
 
   // 각 그룹을 메인 드롭다운에 추가 (group:xxx 형식)
   for (const groupName of Object.keys(groups)) {
-    const option = document.createElement('option');
+    const option = document.createElement("option");
     option.value = `group:${groupName}`;
     option.textContent = groupName.charAt(0).toUpperCase() + groupName.slice(1);
-    option.setAttribute('data-supported', 'true');
+    option.setAttribute("data-supported", "true");
     if (adminOpt) {
       mainSelect.insertBefore(option, adminOpt);
     } else {
@@ -362,53 +421,59 @@ function populateSupportedModels() {
  * supported:key에서 해당 모델의 그룹명을 찾아 반환
  */
 function findGroupForSupportedKey(supportedKey) {
-  const aiModels = cachedServerSettings['ai_model'] || [];
-  const preset = aiModels.find(s => s.key === supportedKey && s.source === 'preset');
-  return preset ? (preset.group || 'default') : null;
+  const aiModels = cachedServerSettings["ai_model"] || [];
+  const preset = aiModels.find(
+    (s) => s.key === supportedKey && s.source === "preset",
+  );
+  return preset ? preset.group || "default" : null;
 }
 
 /**
  * 관리자 설정 AI 모델을 서브 드롭다운에 추가 (preset 제외 — 순수 admin 모델만)
  */
 function populateAdminModelsInDropdown() {
-  const aiModels = cachedServerSettings['ai_model'] || [];
+  const aiModels = cachedServerSettings["ai_model"] || [];
   const mainSelect = document.getElementById("ai-model-select");
 
   // 커스텀 모델 옵션 생성 헬퍼
   function populateCustomModelSelect(selectId, models, mainOptValue) {
     const select = document.getElementById(selectId);
     if (!select) return;
-    select.innerHTML = '';
+    select.innerHTML = "";
 
     if (mainSelect) {
       const opt = mainSelect.querySelector(`option[value="${mainOptValue}"]`);
-      if (opt) opt.style.display = models.length > 0 ? '' : 'none';
+      if (opt) opt.style.display = models.length > 0 ? "" : "none";
     }
 
     for (const s of models) {
       const v = s.value;
-      const option = document.createElement('option');
+      const option = document.createElement("option");
       option.value = s.key;
       const model = v.model || v.model_name || s.key;
-      const lockBadge = s.enforcement === 'required' ? ' 🔒' : '';
+      const lockBadge = s.enforcement === "required" ? " 🔒" : "";
       option.textContent = `${model}${lockBadge}`;
-      option.dataset.hasApiKey = v.hasApiKey ? 'true' : 'false';
+      option.dataset.hasApiKey = v.hasApiKey ? "true" : "false";
       select.appendChild(option);
     }
 
-    const pendingKey = select.getAttribute('data-pending-admin-key');
+    const pendingKey = select.getAttribute("data-pending-admin-key");
     if (pendingKey) {
       select.value = pendingKey;
-      select.removeAttribute('data-pending-admin-key');
+      select.removeAttribute("data-pending-admin-key");
     }
   }
 
   // 팀 기본 모델
-  const teamModels = aiModels.filter(s => s.value && s.value.enabled !== false && s.source === 'admin');
+  const teamModels = aiModels.filter(
+    (s) => s.value && s.value.enabled !== false && s.source === "admin",
+  );
   populateCustomModelSelect("admin-model-select", teamModels, "admin");
 
   // 프로젝트 모델
-  const projectModels = aiModels.filter(s => s.value && s.value.enabled !== false && s.source === 'project');
+  const projectModels = aiModels.filter(
+    (s) => s.value && s.value.enabled !== false && s.source === "project",
+  );
   populateCustomModelSelect("project-model-select", projectModels, "project");
 
   // 선택된 모델의 공용 API 키 상태 표시
@@ -418,10 +483,15 @@ function populateAdminModelsInDropdown() {
     if (!select || !status) return;
     const selected = select.options[select.selectedIndex];
     if (!selected) return;
-    if (selected.dataset.hasApiKey === 'true') {
-      showStatus(status, '공용 API 키가 설정되어 있습니다. 별도 키 입력 없이 사용 가능합니다.', 'success', 0);
+    if (selected.dataset.hasApiKey === "true") {
+      showStatus(
+        status,
+        "공용 API 키가 설정되어 있습니다. 별도 키 입력 없이 사용 가능합니다.",
+        "success",
+        0,
+      );
     } else {
-      status.textContent = '';
+      status.textContent = "";
     }
   }
 
@@ -435,60 +505,65 @@ function populateAdminModelsInDropdown() {
  */
 function populateRoutingModelOptions() {
   const routingSelects = [
-    document.getElementById('compactor-model-type-select'),
-    document.getElementById('command-model-type-select'),
-    document.getElementById('intent-model-type-select'),
-    document.getElementById('completion-model-type-select'),
-    document.getElementById('error-fallback-model-type-select'),
-    document.getElementById('subagent-model-type-select'),
+    document.getElementById("compactor-model-type-select"),
+    document.getElementById("command-model-type-select"),
+    document.getElementById("intent-model-type-select"),
+    document.getElementById("completion-model-type-select"),
+    document.getElementById("error-fallback-model-type-select"),
+    document.getElementById("subagent-model-type-select"),
   ];
 
-  const aiModels = cachedServerSettings['ai_model'] || [];
+  const aiModels = cachedServerSettings["ai_model"] || [];
 
   // 지원 모델 그룹
-  const supportedModels = aiModels.filter(s => s.source === 'preset');
+  const supportedModels = aiModels.filter((s) => s.source === "preset");
   const groups = {};
   for (const s of supportedModels) {
-    const g = s.group || 'default';
+    const g = s.group || "default";
     if (!groups[g]) groups[g] = [];
     groups[g].push(s);
   }
 
   // 팀 기본 커스텀 모델
-  const teamModels = aiModels.filter(s => s.source === 'admin' && s.value?.enabled !== false);
+  const teamModels = aiModels.filter(
+    (s) => s.source === "admin" && s.value?.enabled !== false,
+  );
   // 프로젝트 커스텀 모델
-  const projectModels = aiModels.filter(s => s.source === 'project' && s.value?.enabled !== false);
+  const projectModels = aiModels.filter(
+    (s) => s.source === "project" && s.value?.enabled !== false,
+  );
 
   for (const select of routingSelects) {
     if (!select) continue;
 
     // 기존 동적 옵션 제거
-    select.querySelectorAll('option[data-dynamic]').forEach(o => o.remove());
+    select.querySelectorAll("option[data-dynamic]").forEach((o) => o.remove());
 
     // 지원 모델 그룹 추가
     for (const groupName of Object.keys(groups)) {
-      const option = document.createElement('option');
+      const option = document.createElement("option");
       option.value = `group:${groupName}`;
-      option.textContent = groupName.charAt(0).toUpperCase() + groupName.slice(1);
-      option.setAttribute('data-dynamic', 'true');
+      option.textContent =
+        groupName.charAt(0).toUpperCase() + groupName.slice(1);
+      option.setAttribute("data-dynamic", "true");
       select.appendChild(option);
     }
 
     // 팀 기본 커스텀 모델
     if (teamModels.length > 0) {
-      const teamOpt = document.createElement('option');
-      teamOpt.value = 'admin';
-      teamOpt.textContent = '팀 기본';
-      teamOpt.setAttribute('data-dynamic', 'true');
+      const teamOpt = document.createElement("option");
+      teamOpt.value = "admin";
+      teamOpt.textContent = "팀 기본";
+      teamOpt.setAttribute("data-dynamic", "true");
       select.appendChild(teamOpt);
     }
 
     // 프로젝트 커스텀 모델
     if (projectModels.length > 0) {
-      const projOpt = document.createElement('option');
-      projOpt.value = 'project';
-      projOpt.textContent = '프로젝트';
-      projOpt.setAttribute('data-dynamic', 'true');
+      const projOpt = document.createElement("option");
+      projOpt.value = "project";
+      projOpt.textContent = "프로젝트";
+      projOpt.setAttribute("data-dynamic", "true");
       select.appendChild(projOpt);
     }
   }
@@ -499,79 +574,85 @@ function populateRoutingModelOptions() {
  */
 function restoreRoutingModelUI(prefix, modelType, modelName) {
   const typeSelect = document.getElementById(`${prefix}-model-type-select`);
-  const submodelContainer = document.getElementById(`${prefix}-submodel-container`);
+  const submodelContainer = document.getElementById(
+    `${prefix}-submodel-container`,
+  );
   const apikeyContainer = document.getElementById(`${prefix}-apikey-container`);
   const submodelSelect = document.getElementById(`${prefix}-submodel-select`);
   const modelStatus = document.getElementById(`${prefix}-model-status`);
 
-  if (typeSelect) typeSelect.value = modelType || '';
+  if (typeSelect) typeSelect.value = modelType || "";
 
   if (!modelType) {
-    if (submodelContainer) submodelContainer.style.display = 'none';
-    if (apikeyContainer) apikeyContainer.style.display = 'none';
+    if (submodelContainer) submodelContainer.style.display = "none";
+    if (apikeyContainer) apikeyContainer.style.display = "none";
     if (modelStatus) {
-      modelStatus.textContent = '';
+      modelStatus.textContent = "";
     }
     return;
   }
 
-  if (submodelContainer) submodelContainer.style.display = 'block';
-  if (apikeyContainer) apikeyContainer.style.display = 'none';
+  if (submodelContainer) submodelContainer.style.display = "block";
+  if (apikeyContainer) apikeyContainer.style.display = "none";
 
   // 서브 모델 목록 채우기
   if (submodelSelect) {
-    submodelSelect.innerHTML = '';
-    const aiModels = cachedServerSettings['ai_model'] || [];
+    submodelSelect.innerHTML = "";
+    const aiModels = cachedServerSettings["ai_model"] || [];
 
-    if (modelType === 'ollama') {
+    if (modelType === "ollama") {
       const cache = window.routingOllamaModelsCache || [];
       if (cache.length > 0) {
-        cache.forEach(name => {
-          const opt = document.createElement('option');
+        cache.forEach((name) => {
+          const opt = document.createElement("option");
           opt.value = name;
           opt.textContent = name;
           submodelSelect.appendChild(opt);
         });
       } else {
-        vscode.postMessage({ command: 'getRoutingOllamaModels' });
+        vscode.postMessage({ command: "getRoutingOllamaModels" });
         if (modelName) {
-          const opt = document.createElement('option');
+          const opt = document.createElement("option");
           opt.value = modelName;
           opt.textContent = modelName;
           submodelSelect.appendChild(opt);
         } else {
-          const opt = document.createElement('option');
-          opt.value = '';
-          opt.textContent = '모델 로딩 중...';
+          const opt = document.createElement("option");
+          opt.value = "";
+          opt.textContent = "모델 로딩 중...";
           submodelSelect.appendChild(opt);
         }
       }
-    } else if (modelType.startsWith('group:')) {
-      const groupName = modelType.substring('group:'.length);
-      const groupModels = aiModels.filter(s =>
-        s.source === 'preset' && (s.group || 'default') === groupName
+    } else if (modelType.startsWith("group:")) {
+      const groupName = modelType.substring("group:".length);
+      const groupModels = aiModels.filter(
+        (s) => s.source === "preset" && (s.group || "default") === groupName,
       );
-      groupModels.forEach(s => {
-        const opt = document.createElement('option');
+      groupModels.forEach((s) => {
+        const opt = document.createElement("option");
         opt.value = s.key;
         opt.textContent = s.value?.name || s.key;
         submodelSelect.appendChild(opt);
       });
-    } else if (modelType === 'admin') {
-      const teamModels = aiModels.filter(s => s.source === 'admin' && s.value?.enabled !== false);
-      teamModels.forEach(s => {
+    } else if (modelType === "admin") {
+      const teamModels = aiModels.filter(
+        (s) => s.source === "admin" && s.value?.enabled !== false,
+      );
+      teamModels.forEach((s) => {
         const v = s.value || {};
-        const opt = document.createElement('option');
+        const opt = document.createElement("option");
         opt.value = s.key;
-        const badge = s.enforcement === 'required' ? ' 🔒' : '';
+        const badge = s.enforcement === "required" ? " 🔒" : "";
         opt.textContent = `${v.model || v.model_name || v.name || s.key}${badge}`;
         submodelSelect.appendChild(opt);
       });
-    } else if (modelType === 'project') {
-      const projModels = aiModels.filter(s => s.source === 'project' && s.value?.enabled !== false);
-      projModels.forEach(s => {
+    } else if (modelType === "project") {
+      const projModels = aiModels.filter(
+        (s) => s.source === "project" && s.value?.enabled !== false,
+      );
+      projModels.forEach((s) => {
         const v = s.value || {};
-        const opt = document.createElement('option');
+        const opt = document.createElement("option");
         opt.value = s.key;
         opt.textContent = `${v.model || v.model_name || v.name || s.key}`;
         submodelSelect.appendChild(opt);
@@ -580,11 +661,13 @@ function restoreRoutingModelUI(prefix, modelType, modelName) {
 
     // 저장된 모델명 선택
     if (modelName) {
-      const exists = Array.from(submodelSelect.options).some(o => o.value === modelName);
+      const exists = Array.from(submodelSelect.options).some(
+        (o) => o.value === modelName,
+      );
       if (!exists) {
-        const opt = document.createElement('option');
+        const opt = document.createElement("option");
         opt.value = modelName;
-        opt.textContent = modelName + ' (저장됨)';
+        opt.textContent = modelName + " (저장됨)";
         submodelSelect.appendChild(opt);
       }
       submodelSelect.value = modelName;
@@ -594,15 +677,15 @@ function restoreRoutingModelUI(prefix, modelType, modelName) {
   // 상태 표시
   if (modelStatus) {
     let typeLabel = modelType;
-    if (modelType === 'ollama') typeLabel = 'Ollama';
-    else if (modelType === 'admin') typeLabel = '관리자';
-    else if (modelType.startsWith('group:')) {
-      const g = modelType.substring('group:'.length);
+    if (modelType === "ollama") typeLabel = "Ollama";
+    else if (modelType === "admin") typeLabel = "관리자";
+    else if (modelType.startsWith("group:")) {
+      const g = modelType.substring("group:".length);
       typeLabel = g.charAt(0).toUpperCase() + g.slice(1);
     }
-    const modelInfo = modelName ? ` (${modelName})` : '';
+    const modelInfo = modelName ? ` (${modelName})` : "";
     modelStatus.textContent = `현재: ${typeLabel}${modelInfo}`;
-    modelStatus.className = 'info-message success-message';
+    modelStatus.className = "info-message success-message";
   }
 }
 
@@ -614,22 +697,24 @@ function restoreRoutingModelUI(prefix, modelType, modelName) {
 function showSupportedModelSettings(groupName, selectedKey) {
   if (!supportedModelSection) return;
 
-  const aiModels = cachedServerSettings['ai_model'] || [];
-  const groupModels = aiModels.filter(s =>
-    s.source === 'preset' && (s.group || 'default') === groupName
+  const aiModels = cachedServerSettings["ai_model"] || [];
+  const groupModels = aiModels.filter(
+    (s) => s.source === "preset" && (s.group || "default") === groupName,
   );
   if (groupModels.length === 0) return;
 
   // pending key가 있으면 우선 사용
-  const pendingKey = supportedModelSubselect?.getAttribute('data-pending-supported-key');
+  const pendingKey = supportedModelSubselect?.getAttribute(
+    "data-pending-supported-key",
+  );
   const resolvedKey = selectedKey || pendingKey;
   if (pendingKey && supportedModelSubselect) {
-    supportedModelSubselect.removeAttribute('data-pending-supported-key');
+    supportedModelSubselect.removeAttribute("data-pending-supported-key");
   }
 
   // 선택할 모델 결정 (지정된 key 또는 첫번째)
   const activePreset = resolvedKey
-    ? groupModels.find(s => s.key === resolvedKey) || groupModels[0]
+    ? groupModels.find((s) => s.key === resolvedKey) || groupModels[0]
     : groupModels[0];
   const v = activePreset.value || {};
 
@@ -647,10 +732,10 @@ function showSupportedModelSettings(groupName, selectedKey) {
 
   // 모델 서브 셀렉트 (항상 표시)
   if (supportedModelSubselect && supportedModelSubselectGroup) {
-    supportedModelSubselectGroup.style.display = 'block';
-    supportedModelSubselect.innerHTML = '';
+    supportedModelSubselectGroup.style.display = "block";
+    supportedModelSubselect.innerHTML = "";
     for (const s of groupModels) {
-      const opt = document.createElement('option');
+      const opt = document.createElement("option");
       opt.value = s.key;
       opt.textContent = s.value?.name || s.key;
       if (s.key === activePreset.key) opt.selected = true;
@@ -668,9 +753,10 @@ function showSupportedModelSettings(groupName, selectedKey) {
  * API 키 섹션 업데이트 (모델의 authType 기반)
  */
 function updateSupportedModelApiKeySection(modelValue) {
-  const authType = modelValue.authType || modelValue.auth_type || 'bearer';
+  const authType = modelValue.authType || modelValue.auth_type || "bearer";
   if (supportedModelApikeyGroup) {
-    supportedModelApikeyGroup.style.display = authType === 'none' ? 'none' : 'block';
+    supportedModelApikeyGroup.style.display =
+      authType === "none" ? "none" : "block";
   }
 }
 
@@ -679,19 +765,20 @@ function updateSupportedModelApiKeySection(modelValue) {
  */
 function updateStreamingToggle(modelValue) {
   if (!streamingToggle) return;
-  const supported = modelValue?.streamingSupported ?? modelValue?.streaming_supported;
-  if (supported === false || supported === 'false') {
+  const supported =
+    modelValue?.streamingSupported ?? modelValue?.streaming_supported;
+  if (supported === false || supported === "false") {
     streamingToggle.checked = false;
     streamingToggle.disabled = true;
     if (streamingStatus) {
-      streamingStatus.textContent = '이 모델은 스트리밍을 지원하지 않습니다.';
-      streamingStatus.className = 'info-message';
+      streamingStatus.textContent = "이 모델은 스트리밍을 지원하지 않습니다.";
+      streamingStatus.className = "info-message";
     }
-    vscode.postMessage({ command: 'toggleStreaming', value: false });
+    vscode.postMessage({ command: "toggleStreaming", value: false });
   } else {
     streamingToggle.disabled = false;
     if (streamingStatus) {
-      streamingStatus.textContent = '';
+      streamingStatus.textContent = "";
     }
   }
 }
@@ -702,13 +789,13 @@ function updateStreamingToggle(modelValue) {
 function toggleOrgSetting(category, key) {
   const settings = cachedServerSettings[category];
   if (!settings) return;
-  const setting = settings.find(s => s.key === key);
-  if (!setting || setting.enforcement === 'required') return;
+  const setting = settings.find((s) => s.key === key);
+  if (!setting || setting.enforcement === "required") return;
 
   const newDisabled = !setting.is_disabled;
   if (vscode) {
     vscode.postMessage({
-      command: 'toggleServerSetting',
+      command: "toggleServerSetting",
       category,
       key,
       disabled: newDisabled,
@@ -717,39 +804,43 @@ function toggleOrgSetting(category, key) {
 }
 
 // 조직 설정 항목 클릭 이벤트 위임 (권장 설정 토글)
-document.addEventListener('click', (e) => {
-  const item = e.target.closest('[data-org-toggle-cat]');
+document.addEventListener("click", (e) => {
+  const item = e.target.closest("[data-org-toggle-cat]");
   if (!item) return;
-  const category = item.getAttribute('data-org-toggle-cat');
-  const key = item.getAttribute('data-org-toggle-key');
+  const category = item.getAttribute("data-org-toggle-cat");
+  const key = item.getAttribute("data-org-toggle-key");
   if (category && key) {
     toggleOrgSetting(category, key);
   }
 });
 
 // ===== 사이드바 네비게이션 =====
-document.addEventListener('click', (e) => {
-  const tab = e.target.closest('.settings-nav-item');
+document.addEventListener("click", (e) => {
+  const tab = e.target.closest(".settings-nav-item");
   if (!tab) return;
-  const tabId = tab.getAttribute('data-tab');
+  const tabId = tab.getAttribute("data-tab");
   if (!tabId) return;
 
   // 사이드바 아이템 활성화
-  document.querySelectorAll('.settings-nav-item').forEach(t => t.classList.remove('active'));
-  tab.classList.add('active');
+  document
+    .querySelectorAll(".settings-nav-item")
+    .forEach((t) => t.classList.remove("active"));
+  tab.classList.add("active");
 
   // 탭 패널 표시
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document
+    .querySelectorAll(".tab-panel")
+    .forEach((p) => p.classList.remove("active"));
   const panel = document.getElementById(`tab-${tabId}`);
-  if (panel) panel.classList.add('active');
+  if (panel) panel.classList.add("active");
 
   // 메인 헤더 제목 업데이트
-  const title = document.getElementById('settings-title');
-  const label = tab.querySelector('span');
+  const title = document.getElementById("settings-title");
+  const label = tab.querySelector("span");
   if (title && label) title.textContent = label.textContent;
 
   // 콘텐츠 영역 스크롤 최상단으로
-  const main = document.querySelector('.settings-main');
+  const main = document.querySelector(".settings-main");
   if (main) main.scrollTop = 0;
 });
 
@@ -801,15 +892,25 @@ const autoMcpToolStatus = document.getElementById("auto-mcp-tool-status");
 
 const orchestrationToggle = document.getElementById("orchestration-toggle");
 const orchestrationStatus = document.getElementById("orchestration-status");
-const inlineCompletionToggle = document.getElementById("inline-completion-toggle");
-const inlineCompletionStatus = document.getElementById("inline-completion-status");
-const promptSuggestionToggle = document.getElementById("prompt-suggestion-toggle");
-const promptSuggestionStatus = document.getElementById("prompt-suggestion-status");
+const inlineCompletionToggle = document.getElementById(
+  "inline-completion-toggle",
+);
+const inlineCompletionStatus = document.getElementById(
+  "inline-completion-status",
+);
+const promptSuggestionToggle = document.getElementById(
+  "prompt-suggestion-toggle",
+);
+const promptSuggestionStatus = document.getElementById(
+  "prompt-suggestion-status",
+);
 
 const streamingToggle = document.getElementById("streaming-toggle");
 const streamingStatus = document.getElementById("streaming-status");
 
-const nativeToolCallingToggle = document.getElementById("native-tool-calling-toggle");
+const nativeToolCallingToggle = document.getElementById(
+  "native-tool-calling-toggle",
+);
 const thinkingToggle = document.getElementById("thinking-toggle");
 const thinkingLevelSelect = document.getElementById("thinking-level-select");
 
@@ -824,7 +925,9 @@ const btAddToggleButton = document.getElementById("bt-add-toggle-button");
 const btAddStatus = document.getElementById("bt-add-status");
 const btListEmpty = document.getElementById("bt-list-empty");
 const buildTestAddForm = document.getElementById("build-test-add-form");
-const personalBuildTestList = document.getElementById("personal-build-test-list");
+const personalBuildTestList = document.getElementById(
+  "personal-build-test-list",
+);
 
 // 토글 이벤트 바인딩 (모듈 함수 사용)
 bindToggleEvents({
@@ -854,16 +957,16 @@ bindSpinnerEvents({
 function renderPersonalBuildTestList(settings) {
   if (!personalBuildTestList) return;
   if (!settings || settings.length === 0) {
-    personalBuildTestList.innerHTML = '';
-    if (btListEmpty) btListEmpty.style.display = '';
+    personalBuildTestList.innerHTML = "";
+    if (btListEmpty) btListEmpty.style.display = "";
     return;
   }
-  if (btListEmpty) btListEmpty.style.display = 'none';
-  let html = '';
+  if (btListEmpty) btListEmpty.style.display = "none";
+  let html = "";
   for (const s of settings) {
     const v = s.value || {};
-    const typeLabel = s.key.includes('formatter') ? '포맷터' : '검증';
-    const typeBg = 'background: #2563eb; color: #fff;';
+    const typeLabel = s.key.includes("formatter") ? "포맷터" : "검증";
+    const typeBg = "background: #2563eb; color: #fff;";
     html += `<div class="api-key-section" style="margin-bottom: 10px;">`;
     html += `<div style="display: flex; justify-content: space-between; align-items: center;">`;
     html += `<div style="display: flex; align-items: center; gap: 8px;">`;
@@ -875,33 +978,38 @@ function renderPersonalBuildTestList(settings) {
     html += `</div>`;
     html += `<button data-bt-delete-key="${escapeHtml(s.key)}" title="삭제">삭제</button>`;
     html += `</div>`;
-    html += `<p style="margin-top: 5px; font-size: 0.85em; color: var(--vscode-descriptionForeground); font-family: monospace;">${escapeHtml(v.command || '')}</p>`;
+    html += `<p style="margin-top: 5px; font-size: 0.85em; color: var(--vscode-descriptionForeground); font-family: monospace;">${escapeHtml(v.command || "")}</p>`;
     html += `</div>`;
   }
   personalBuildTestList.innerHTML = html;
 
   // 삭제 버튼 이벤트
-  personalBuildTestList.querySelectorAll('[data-bt-delete-key]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      if (vscode) {
-        vscode.postMessage({ command: 'deleteBuildTestSetting', key: btn.getAttribute('data-bt-delete-key') });
-      }
+  personalBuildTestList
+    .querySelectorAll("[data-bt-delete-key]")
+    .forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (vscode) {
+          vscode.postMessage({
+            command: "deleteBuildTestSetting",
+            key: btn.getAttribute("data-bt-delete-key"),
+          });
+        }
+      });
     });
-  });
 }
 
 function showBuildTestForm() {
-  if (buildTestAddForm) buildTestAddForm.style.display = '';
-  if (btAddToggleButton) btAddToggleButton.style.display = 'none';
+  if (buildTestAddForm) buildTestAddForm.style.display = "";
+  if (btAddToggleButton) btAddToggleButton.style.display = "none";
 }
 function hideBuildTestForm() {
-  if (buildTestAddForm) buildTestAddForm.style.display = 'none';
-  if (btAddToggleButton) btAddToggleButton.style.display = '';
-  if (btCommandInput) btCommandInput.value = '';
-  if (btDescriptionInput) btDescriptionInput.value = '';
+  if (buildTestAddForm) buildTestAddForm.style.display = "none";
+  if (btAddToggleButton) btAddToggleButton.style.display = "";
+  if (btCommandInput) btCommandInput.value = "";
+  if (btDescriptionInput) btDescriptionInput.value = "";
   if (btTypeSelect) btTypeSelect.selectedIndex = 0;
   if (btLanguageSelect) btLanguageSelect.selectedIndex = 0;
-  if (btAddStatus) btAddStatus.textContent = '';
+  if (btAddStatus) btAddStatus.textContent = "";
 }
 
 if (btAddToggleButton) {
@@ -915,27 +1023,50 @@ if (btAddButton && btCommandInput && vscode) {
   btAddButton.addEventListener("click", () => {
     const command = btCommandInput.value.trim();
     if (!command) {
-      if (btAddStatus) { btAddStatus.textContent = '명령어를 입력하세요.'; btAddStatus.style.color = '#e53935'; }
+      if (btAddStatus) {
+        btAddStatus.textContent = "명령어를 입력하세요.";
+        btAddStatus.style.color = "#e53935";
+      }
       return;
     }
-    const type = btTypeSelect ? btTypeSelect.value : 'validation_command';
-    const language = btLanguageSelect ? btLanguageSelect.value : '';
-    const description = btDescriptionInput ? btDescriptionInput.value.trim() : '';
-    vscode.postMessage({ command: 'saveBuildTestSetting', type, language, description, value: command });
+    const type = btTypeSelect ? btTypeSelect.value : "validation_command";
+    const language = btLanguageSelect ? btLanguageSelect.value : "";
+    const description = btDescriptionInput
+      ? btDescriptionInput.value.trim()
+      : "";
+    vscode.postMessage({
+      command: "saveBuildTestSetting",
+      type,
+      language,
+      description,
+      value: command,
+    });
   });
 }
 
 // API 키 관련 요소들
 
 // 지원 모델 관련 요소들 (동적 — 서버 프리셋 기반)
-const supportedModelSection = document.getElementById("supported-model-section");
+const supportedModelSection = document.getElementById(
+  "supported-model-section",
+);
 const supportedModelTitle = document.getElementById("supported-model-title");
 const supportedModelDesc = document.getElementById("supported-model-desc");
-const supportedModelSubselectGroup = document.getElementById("supported-model-subselect-group");
-const supportedModelSubselect = document.getElementById("supported-model-subselect");
-const supportedModelApikeyGroup = document.getElementById("supported-model-apikey-group");
-const supportedModelApiKeyInput = document.getElementById("supported-model-api-key-input");
-const saveSupportedModelApiKeyButton = document.getElementById("save-supported-model-api-key-button");
+const supportedModelSubselectGroup = document.getElementById(
+  "supported-model-subselect-group",
+);
+const supportedModelSubselect = document.getElementById(
+  "supported-model-subselect",
+);
+const supportedModelApikeyGroup = document.getElementById(
+  "supported-model-apikey-group",
+);
+const supportedModelApiKeyInput = document.getElementById(
+  "supported-model-api-key-input",
+);
+const saveSupportedModelApiKeyButton = document.getElementById(
+  "save-supported-model-api-key-button",
+);
 const supportedModelStatus = document.getElementById("supported-model-status");
 
 // 현재 선택된 지원 모델 키 추적
@@ -1215,8 +1346,13 @@ function applyLanguage() {
         text.includes("AIコード生成と分析機能を有効にします"))
     ) {
       // AI 기능 설명
-      if (languageData["geminiApiFunctionDescription"] || languageData["aiFunctionDescription"]) {
-        msg.textContent = languageData["aiFunctionDescription"] || languageData["geminiApiFunctionDescription"];
+      if (
+        languageData["geminiApiFunctionDescription"] ||
+        languageData["aiFunctionDescription"]
+      ) {
+        msg.textContent =
+          languageData["aiFunctionDescription"] ||
+          languageData["geminiApiFunctionDescription"];
       }
     } else if (
       text &&
@@ -1750,8 +1886,12 @@ if (saveRemoteOllamaModelButton) {
 if (aiModelSelect) {
   aiModelSelect.addEventListener("change", () => {
     const selectedModel = aiModelSelect.value;
-    const adminSettingsSection = document.getElementById("admin-settings-section");
-    const projectModelSection = document.getElementById("project-model-settings-section");
+    const adminSettingsSection = document.getElementById(
+      "admin-settings-section",
+    );
+    const projectModelSection = document.getElementById(
+      "project-model-settings-section",
+    );
 
     // 모든 설정 섹션 초기 숨김
     function hideAllModelSections() {
@@ -1820,12 +1960,18 @@ if (aiModelSelect) {
     // 선택 변경 시에도 즉시 저장(자동 저장) - 단, 설정 로드 중이 아닐 때만
     // admin은 서브 드롭다운에서 모델 선택 시 저장
     // group:xxx는 서브 드롭다운에서 모델 선택 시 저장 (첫번째 모델 자동 저장)
-    if (!isLoadingSettings && selectedModel !== "admin" && selectedModel !== "project") {
+    if (
+      !isLoadingSettings &&
+      selectedModel !== "admin" &&
+      selectedModel !== "project"
+    ) {
       try {
         let modelToSave = selectedModel;
         if (selectedModel.startsWith("group:")) {
           // 그룹 선택 → 현재 서브 셀렉트의 첫번째 모델 저장
-          modelToSave = currentSupportedModelKey ? `supported:${currentSupportedModelKey}` : null;
+          modelToSave = currentSupportedModelKey
+            ? `supported:${currentSupportedModelKey}`
+            : null;
         }
         if (modelToSave) {
           if (aiModelStatus) {
@@ -1848,50 +1994,73 @@ function handleCustomModelChange(select, statusEl) {
   const selectedKey = select.value;
   if (!selectedKey) return;
   try {
-    vscode.postMessage({ command: "saveAiModel", model: `admin:${selectedKey}` });
+    vscode.postMessage({
+      command: "saveAiModel",
+      model: `admin:${selectedKey}`,
+    });
   } catch (e) {
     console.warn("Failed to autosave model:", e);
   }
   // 공용 API 키 상태 표시
   if (statusEl) {
     const opt = select.options[select.selectedIndex];
-    if (opt?.dataset.hasApiKey === 'true') {
-      showStatus(statusEl, '공용 API 키가 설정되어 있습니다. 별도 키 입력 없이 사용 가능합니다.', 'success');
+    if (opt?.dataset.hasApiKey === "true") {
+      showStatus(
+        statusEl,
+        "공용 API 키가 설정되어 있습니다. 별도 키 입력 없이 사용 가능합니다.",
+        "success",
+      );
     } else {
-      statusEl.textContent = '';
+      statusEl.textContent = "";
     }
   }
 }
 
 if (adminModelSelect) {
-  adminModelSelect.addEventListener("change", () => handleCustomModelChange(adminModelSelect, adminModelStatus));
+  adminModelSelect.addEventListener("change", () =>
+    handleCustomModelChange(adminModelSelect, adminModelStatus),
+  );
 }
 
 const projectModelSelect = document.getElementById("project-model-select");
 const projectModelStatus = document.getElementById("project-model-status");
 if (projectModelSelect) {
-  projectModelSelect.addEventListener("change", () => handleCustomModelChange(projectModelSelect, projectModelStatus));
+  projectModelSelect.addEventListener("change", () =>
+    handleCustomModelChange(projectModelSelect, projectModelStatus),
+  );
 }
 
 // 커스텀 모델 API 키 저장 버튼
-document.getElementById('save-admin-model-api-key-button')?.addEventListener('click', () => {
-  const input = document.getElementById('admin-model-api-key-input');
-  const key = adminModelSelect?.value;
-  if (input && key) {
-    vscode.postMessage({ command: 'saveCustomModelApiKey', modelKey: key, apiKey: input.value });
-    showStatus(adminModelStatus, 'API 키가 저장되었습니다.', 'success');
-    input.value = '';
-  }
-});
-document.getElementById('save-project-model-api-key-button')?.addEventListener('click', () => {
-  const input = document.getElementById('project-model-api-key-input');
-  const key = projectModelSelect?.value;
-  if (input && key) {
-    vscode.postMessage({ command: 'saveCustomModelApiKey', modelKey: key, apiKey: input.value });
-    showStatus(projectModelStatus, 'API 키가 저장되었습니다.', 'success');
-    input.value = '';
-  }
-});
+document
+  .getElementById("save-admin-model-api-key-button")
+  ?.addEventListener("click", () => {
+    const input = document.getElementById("admin-model-api-key-input");
+    const key = adminModelSelect?.value;
+    if (input && key) {
+      vscode.postMessage({
+        command: "saveCustomModelApiKey",
+        modelKey: key,
+        apiKey: input.value,
+      });
+      showStatus(adminModelStatus, "API 키가 저장되었습니다.", "success");
+      input.value = "";
+    }
+  });
+document
+  .getElementById("save-project-model-api-key-button")
+  ?.addEventListener("click", () => {
+    const input = document.getElementById("project-model-api-key-input");
+    const key = projectModelSelect?.value;
+    if (input && key) {
+      vscode.postMessage({
+        command: "saveCustomModelApiKey",
+        modelKey: key,
+        apiKey: input.value,
+      });
+      showStatus(projectModelStatus, "API 키가 저장되었습니다.", "success");
+      input.value = "";
+    }
+  });
 
 // 지원 모델 서브셀렉트 이벤트 리스너
 if (supportedModelSubselect) {
@@ -1900,14 +2069,17 @@ if (supportedModelSubselect) {
     if (!newKey) return;
     currentSupportedModelKey = newKey;
     // 선택된 모델의 authType에 따라 API 키 섹션 업데이트
-    const aiModels = cachedServerSettings['ai_model'] || [];
-    const preset = aiModels.find(s => s.key === newKey);
+    const aiModels = cachedServerSettings["ai_model"] || [];
+    const preset = aiModels.find((s) => s.key === newKey);
     if (preset) {
       updateSupportedModelApiKeySection(preset.value || {});
       updateStreamingToggle(preset.value || {});
     }
     if (!isLoadingSettings) {
-      vscode.postMessage({ command: "saveAiModel", model: `supported:${newKey}` });
+      vscode.postMessage({
+        command: "saveAiModel",
+        model: `supported:${newKey}`,
+      });
     }
   });
 }
@@ -1915,7 +2087,9 @@ if (supportedModelSubselect) {
 // 지원 모델 API 키 저장
 if (saveSupportedModelApiKeyButton) {
   saveSupportedModelApiKeyButton.addEventListener("click", () => {
-    const apiKey = supportedModelApiKeyInput ? supportedModelApiKeyInput.value.trim() : '';
+    const apiKey = supportedModelApiKeyInput
+      ? supportedModelApiKeyInput.value.trim()
+      : "";
     if (!apiKey) {
       if (supportedModelStatus) {
         supportedModelStatus.textContent = "API 키를 입력해주세요.";
@@ -2069,7 +2243,13 @@ window.addEventListener("message", (event) => {
         window.routingOllamaModelsCache = message.models;
 
         // 현재 ollama가 선택된 모든 라우팅 모델 셀렉트 업데이트
-        const prefixes = ["compactor", "command", "intent", "completion", "error-fallback"];
+        const prefixes = [
+          "compactor",
+          "command",
+          "intent",
+          "completion",
+          "error-fallback",
+        ];
         prefixes.forEach((prefix) => {
           const typeSelect = document.getElementById(
             `${prefix}-model-type-select`,
@@ -2168,8 +2348,11 @@ window.addEventListener("message", (event) => {
         errorRetrySpinner.value = message.errorRetryCount;
       }
       if (typeof message.blockOutsideProjectEnabled === "boolean") {
-        const blockToggle = document.getElementById("block-outside-project-toggle");
-        if (blockToggle) blockToggle.checked = message.blockOutsideProjectEnabled;
+        const blockToggle = document.getElementById(
+          "block-outside-project-toggle",
+        );
+        if (blockToggle)
+          blockToggle.checked = message.blockOutsideProjectEnabled;
       }
       if (
         typeof message.autoExecuteCommandsEnabled === "boolean" &&
@@ -2195,16 +2378,25 @@ window.addEventListener("message", (event) => {
       ) {
         orchestrationToggle.checked = message.orchestrationEnabled;
       }
-      if (typeof message.inlineCompletionEnabled === "boolean" && inlineCompletionToggle) {
+      if (
+        typeof message.inlineCompletionEnabled === "boolean" &&
+        inlineCompletionToggle
+      ) {
         inlineCompletionToggle.checked = message.inlineCompletionEnabled;
       }
-      if (typeof message.promptSuggestionEnabled === "boolean" && promptSuggestionToggle) {
+      if (
+        typeof message.promptSuggestionEnabled === "boolean" &&
+        promptSuggestionToggle
+      ) {
         promptSuggestionToggle.checked = message.promptSuggestionEnabled;
       }
       if (typeof message.streamingEnabled === "boolean" && streamingToggle) {
         streamingToggle.checked = message.streamingEnabled;
       }
-      if (typeof message.nativeToolCallingEnabled === "boolean" && nativeToolCallingToggle) {
+      if (
+        typeof message.nativeToolCallingEnabled === "boolean" &&
+        nativeToolCallingToggle
+      ) {
         nativeToolCallingToggle.checked = message.nativeToolCallingEnabled;
       }
       if (typeof message.thinkingEnabled === "boolean" && thinkingToggle) {
@@ -2252,7 +2444,10 @@ window.addEventListener("message", (event) => {
           if (gn) {
             displayModel = `group:${gn}`;
             if (supportedModelSubselect) {
-              supportedModelSubselect.setAttribute('data-pending-supported-key', sk);
+              supportedModelSubselect.setAttribute(
+                "data-pending-supported-key",
+                sk,
+              );
             }
           }
         }
@@ -2294,9 +2489,9 @@ window.addEventListener("message", (event) => {
         const setText =
           message.ollamaServerType === "remote"
             ? languageData["ollamaServerTypeRemoteSet"] ||
-            "Ollama 서버 타입: 원격 서버"
+              "Ollama 서버 타입: 원격 서버"
             : languageData["ollamaServerTypeLocalSet"] ||
-            "Ollama 서버 타입: 로컬 머신";
+              "Ollama 서버 타입: 로컬 머신";
         showStatus(ollamaServerTypeStatus, setText, "success");
 
         // AI 모델이 'ollama'인 경우에만 섹션 활성화/비활성화
@@ -2333,9 +2528,9 @@ window.addEventListener("message", (event) => {
         localOllamaApiUrlInput.value = message.localOllamaApiUrl || "";
         const txt = message.localOllamaApiUrl
           ? languageData["ollamaApiUrlSet"] ||
-          "Ollama API URL이 설정되어 있습니다."
+            "Ollama API URL이 설정되어 있습니다."
           : languageData["ollamaApiUrlNotSet"] ||
-          "Ollama API URL이 설정되지 않았습니다.";
+            "Ollama API URL이 설정되지 않았습니다.";
         if (localOllamaApiUrlStatus) {
           showStatus(
             localOllamaApiUrlStatus,
@@ -2352,9 +2547,9 @@ window.addEventListener("message", (event) => {
         remoteOllamaApiUrlInput.value = message.remoteOllamaApiUrl || "";
         const txt = message.remoteOllamaApiUrl
           ? languageData["ollamaApiUrlSet"] ||
-          "Ollama API URL이 설정되어 있습니다."
+            "Ollama API URL이 설정되어 있습니다."
           : languageData["ollamaApiUrlNotSet"] ||
-          "Ollama API URL이 설정되지 않았습니다.";
+            "Ollama API URL이 설정되지 않았습니다.";
         if (remoteOllamaApiUrlStatus) {
           showStatus(
             remoteOllamaApiUrlStatus,
@@ -2370,9 +2565,9 @@ window.addEventListener("message", (event) => {
         remoteOllamaModelInput.value = message.remoteOllamaModel || "";
         const txt = message.remoteOllamaModel
           ? languageData["ollamaModelSet"] ||
-          `원격 서버 모델이 설정되어 있습니다: ${message.remoteOllamaModel}`
+            `원격 서버 모델이 설정되어 있습니다: ${message.remoteOllamaModel}`
           : languageData["ollamaModelNotSet"] ||
-          "원격 서버 모델이 설정되지 않았습니다.";
+            "원격 서버 모델이 설정되지 않았습니다.";
         if (remoteOllamaModelStatus) {
           showStatus(
             remoteOllamaModelStatus,
@@ -2386,20 +2581,24 @@ window.addEventListener("message", (event) => {
       if (message.hasOrganization !== undefined) {
         window.userHasOrganization = message.hasOrganization;
         // 프로젝트 섹션 표시 (조직 소속일 때만)
-        const projectSection = document.getElementById('settings-project-section');
+        const projectSection = document.getElementById(
+          "settings-project-section",
+        );
         if (projectSection) {
-          projectSection.style.display = message.hasOrganization ? '' : 'none';
+          projectSection.style.display = message.hasOrganization ? "" : "none";
         }
       }
 
       // 프로젝트 목록 복원
       if (message.projects && Array.isArray(message.projects)) {
-        const projectSelect = document.getElementById('settings-project-select');
+        const projectSelect = document.getElementById(
+          "settings-project-select",
+        );
         if (projectSelect) {
           // 기존 옵션 유지 (첫 번째 "팀 기본 설정")
           while (projectSelect.options.length > 1) projectSelect.remove(1);
-          message.projects.forEach(p => {
-            const opt = document.createElement('option');
+          message.projects.forEach((p) => {
+            const opt = document.createElement("option");
             opt.value = p.id;
             opt.textContent = p.name;
             projectSelect.appendChild(opt);
@@ -2411,40 +2610,70 @@ window.addEventListener("message", (event) => {
       }
 
       // ===== 서버(조직) 설정 렌더링 (모델 라우팅 복원 전에 먼저 실행해야 group 옵션이 채워짐) =====
-      if (message.serverSettings && typeof message.serverSettings === 'object') {
+      if (
+        message.serverSettings &&
+        typeof message.serverSettings === "object"
+      ) {
         cachedServerSettings = message.serverSettings;
         renderAllOrgSettings();
       }
 
       // 모델 라우팅 설정 적용 (populateRoutingModelOptions 이후에 실행해야 group 옵션이 존재함)
-      restoreRoutingModelUI('compactor', message.compactorModelType, message.compactorModelName);
-      restoreRoutingModelUI('command', message.commandModelType, message.commandModelName);
-      restoreRoutingModelUI('intent', message.intentModelType, message.intentModelName);
-      restoreRoutingModelUI('completion', message.completionModelType, message.completionModelName);
-      restoreRoutingModelUI('error-fallback', message.errorFallbackModelType, message.errorFallbackModelName);
-      restoreRoutingModelUI('subagent', message.subagentModelType, message.subagentModelName);
+      restoreRoutingModelUI(
+        "compactor",
+        message.compactorModelType,
+        message.compactorModelName,
+      );
+      restoreRoutingModelUI(
+        "command",
+        message.commandModelType,
+        message.commandModelName,
+      );
+      restoreRoutingModelUI(
+        "intent",
+        message.intentModelType,
+        message.intentModelName,
+      );
+      restoreRoutingModelUI(
+        "completion",
+        message.completionModelType,
+        message.completionModelName,
+      );
+      restoreRoutingModelUI(
+        "error-fallback",
+        message.errorFallbackModelType,
+        message.errorFallbackModelName,
+      );
+      restoreRoutingModelUI(
+        "subagent",
+        message.subagentModelType,
+        message.subagentModelName,
+      );
 
       // ===== AI 모델 드롭박스 설정 (option 동적 추가 후 실행) =====
       if (message.aiModel && aiModelSelect) {
-        if (message.aiModel.startsWith('admin:')) {
-          aiModelSelect.value = 'admin';
+        if (message.aiModel.startsWith("admin:")) {
+          aiModelSelect.value = "admin";
           const adminSubSelect = document.getElementById("admin-model-select");
           if (adminSubSelect) {
-            const adminKey = message.aiModel.substring('admin:'.length);
-            adminSubSelect.setAttribute('data-pending-admin-key', adminKey);
-            const opts = Array.from(adminSubSelect.options).map(o => o.value);
+            const adminKey = message.aiModel.substring("admin:".length);
+            adminSubSelect.setAttribute("data-pending-admin-key", adminKey);
+            const opts = Array.from(adminSubSelect.options).map((o) => o.value);
             if (opts.includes(adminKey)) {
               adminSubSelect.value = adminKey;
-              adminSubSelect.removeAttribute('data-pending-admin-key');
+              adminSubSelect.removeAttribute("data-pending-admin-key");
             }
           }
-        } else if (message.aiModel.startsWith('supported:')) {
-          const supportedKey = message.aiModel.substring('supported:'.length);
+        } else if (message.aiModel.startsWith("supported:")) {
+          const supportedKey = message.aiModel.substring("supported:".length);
           const groupName = findGroupForSupportedKey(supportedKey);
           if (groupName) {
             aiModelSelect.value = `group:${groupName}`;
             if (supportedModelSubselect) {
-              supportedModelSubselect.setAttribute('data-pending-supported-key', supportedKey);
+              supportedModelSubselect.setAttribute(
+                "data-pending-supported-key",
+                supportedKey,
+              );
             }
           }
         } else {
@@ -2602,10 +2831,13 @@ window.addEventListener("message", (event) => {
     case "completionModelCleared":
       {
         const cmStatus = document.getElementById("completion-model-status");
-        const cmTypeSelect = document.getElementById("completion-model-type-select");
+        const cmTypeSelect = document.getElementById(
+          "completion-model-type-select",
+        );
         if (cmTypeSelect) cmTypeSelect.value = "";
         if (cmStatus) {
-          cmStatus.textContent = "자동완성 모델이 초기화되었습니다. 메인 모델이 사용됩니다.";
+          cmStatus.textContent =
+            "자동완성 모델이 초기화되었습니다. 메인 모델이 사용됩니다.";
           cmStatus.className = "info-message success-message";
         }
       }
@@ -2640,10 +2872,13 @@ window.addEventListener("message", (event) => {
     case "subagentModelCleared":
       {
         const saStatus = document.getElementById("subagent-model-status");
-        const saTypeSelect = document.getElementById("subagent-model-type-select");
+        const saTypeSelect = document.getElementById(
+          "subagent-model-type-select",
+        );
         if (saTypeSelect) saTypeSelect.value = "";
         if (saStatus) {
-          saStatus.textContent = "서브에이전트 모델이 초기화되었습니다. 메인 모델이 사용됩니다.";
+          saStatus.textContent =
+            "서브에이전트 모델이 초기화되었습니다. 메인 모델이 사용됩니다.";
           saStatus.className = "info-message success-message";
         }
       }
@@ -2659,17 +2894,19 @@ window.addEventListener("message", (event) => {
       break;
     case "inlineCompletionEnabledSet":
       if (inlineCompletionStatus) {
-        inlineCompletionStatus.textContent = inlineCompletionToggle && inlineCompletionToggle.checked
-          ? "소스코드 자동완성이 활성화되었습니다."
-          : "소스코드 자동완성이 비활성화되었습니다.";
+        inlineCompletionStatus.textContent =
+          inlineCompletionToggle && inlineCompletionToggle.checked
+            ? "소스코드 자동완성이 활성화되었습니다."
+            : "소스코드 자동완성이 비활성화되었습니다.";
         inlineCompletionStatus.className = "info-message success-message";
       }
       break;
     case "promptSuggestionEnabledSet":
       if (promptSuggestionStatus) {
-        promptSuggestionStatus.textContent = promptSuggestionToggle && promptSuggestionToggle.checked
-          ? "다음 작업 제안이 활성화되었습니다."
-          : "다음 작업 제안이 비활성화되었습니다.";
+        promptSuggestionStatus.textContent =
+          promptSuggestionToggle && promptSuggestionToggle.checked
+            ? "다음 작업 제안이 활성화되었습니다."
+            : "다음 작업 제안이 비활성화되었습니다.";
         promptSuggestionStatus.className = "info-message success-message";
       }
       break;
@@ -2694,10 +2931,13 @@ window.addEventListener("message", (event) => {
     case "errorFallbackModelCleared":
       {
         const efStatus = document.getElementById("error-fallback-model-status");
-        const efTypeSelect = document.getElementById("error-fallback-model-type-select");
+        const efTypeSelect = document.getElementById(
+          "error-fallback-model-type-select",
+        );
         if (efTypeSelect) efTypeSelect.value = "";
         if (efStatus) {
-          efStatus.textContent = "에러 폴백 모델이 초기화되었습니다. 메인 모델이 사용됩니다.";
+          efStatus.textContent =
+            "에러 폴백 모델이 초기화되었습니다. 메인 모델이 사용됩니다.";
           efStatus.className = "info-message success-message";
         }
       }
@@ -2744,7 +2984,10 @@ window.addEventListener("message", (event) => {
           if (gn) {
             displayModel = `group:${gn}`;
             if (supportedModelSubselect) {
-              supportedModelSubselect.setAttribute('data-pending-supported-key', sk);
+              supportedModelSubselect.setAttribute(
+                "data-pending-supported-key",
+                sk,
+              );
             }
           }
         } else if (message.model.startsWith("admin:")) {
@@ -2754,7 +2997,10 @@ window.addEventListener("message", (event) => {
           if (agn) {
             displayModel = `group:${agn}`;
             if (supportedModelSubselect) {
-              supportedModelSubselect.setAttribute('data-pending-supported-key', ak);
+              supportedModelSubselect.setAttribute(
+                "data-pending-supported-key",
+                ak,
+              );
             }
           }
         }
@@ -2801,9 +3047,9 @@ window.addEventListener("message", (event) => {
           message.localOllamaApiUrl || "http://localhost:11434";
         const localOllamaApiUrlSetText = message.localOllamaApiUrl
           ? languageData["ollamaApiUrlSet"] ||
-          "로컬 Ollama API URL이 설정되어 있습니다."
+            "로컬 Ollama API URL이 설정되어 있습니다."
           : languageData["ollamaApiUrlNotSet"] ||
-          "로컬 Ollama API URL이 설정되지 않았습니다.";
+            "로컬 Ollama API URL이 설정되지 않았습니다.";
         showStatus(
           localOllamaApiUrlStatus,
           localOllamaApiUrlSetText,
@@ -3166,8 +3412,10 @@ window.addEventListener("message", (event) => {
         hideBuildTestForm();
       } else if (btAddStatus) {
         btAddStatus.textContent = message.error || "";
-        btAddStatus.style.color = '#e53935';
-        setTimeout(() => { if (btAddStatus) btAddStatus.textContent = ''; }, 2000);
+        btAddStatus.style.color = "#e53935";
+        setTimeout(() => {
+          if (btAddStatus) btAddStatus.textContent = "";
+        }, 2000);
       }
       break;
     case "languageSaveError":
@@ -3270,7 +3518,11 @@ window.addEventListener("message", (event) => {
   }
 
   // MCP 관련 메시지는 별도 모듈에서 처리
-  if (message.command && (message.command.startsWith("mcp") || message.command.startsWith("adminMcp"))) {
+  if (
+    message.command &&
+    (message.command.startsWith("mcp") ||
+      message.command.startsWith("adminMcp"))
+  ) {
     handleMcpMessage(message);
   }
 });
@@ -3375,21 +3627,22 @@ document.addEventListener("DOMContentLoaded", () => {
   loadAgentPolicyFiles();
 
   // 타입 선택 토글 초기화
-  document.querySelectorAll('.policy-type-selector').forEach((selector) => {
-    const buttons = selector.querySelectorAll('.policy-type-btn');
-    const descInput = selector.querySelector('.policy-skill-desc');
+  document.querySelectorAll(".policy-type-selector").forEach((selector) => {
+    const buttons = selector.querySelectorAll(".policy-type-btn");
+    const descInput = selector.querySelector(".policy-skill-desc");
     buttons.forEach((btn) => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener("click", () => {
         buttons.forEach((b) => {
-          b.classList.remove('active');
-          b.style.background = 'transparent';
-          b.style.color = 'var(--vscode-foreground)';
+          b.classList.remove("active");
+          b.style.background = "transparent";
+          b.style.color = "var(--vscode-foreground)";
         });
-        btn.classList.add('active');
-        btn.style.background = 'var(--vscode-button-background)';
-        btn.style.color = 'var(--vscode-button-foreground)';
+        btn.classList.add("active");
+        btn.style.background = "var(--vscode-button-background)";
+        btn.style.color = "var(--vscode-button-foreground)";
         if (descInput) {
-          descInput.style.display = btn.dataset.type === 'skill' ? 'block' : 'none';
+          descInput.style.display =
+            btn.dataset.type === "skill" ? "block" : "none";
         }
       });
     });
@@ -3496,14 +3749,14 @@ document.addEventListener("DOMContentLoaded", () => {
     // 지원 모델 그룹 선택 시 해당 그룹 모델 리스트
     if (modelType.startsWith("group:")) {
       const groupName = modelType.substring("group:".length);
-      const aiModels = cachedServerSettings['ai_model'] || [];
-      const groupModels = aiModels.filter(s =>
-        s.source === 'preset' && (s.group || 'default') === groupName
+      const aiModels = cachedServerSettings["ai_model"] || [];
+      const groupModels = aiModels.filter(
+        (s) => s.source === "preset" && (s.group || "default") === groupName,
       );
       if (submodelSelect) {
-        submodelSelect.innerHTML = '';
+        submodelSelect.innerHTML = "";
         for (const s of groupModels) {
-          const opt = document.createElement('option');
+          const opt = document.createElement("option");
           opt.value = s.key;
           opt.textContent = s.value?.name || s.key;
           submodelSelect.appendChild(opt);
@@ -3513,15 +3766,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // 관리자 모델 선택 시 관리자 모델 리스트
     if (modelType === "admin") {
-      const aiModels = cachedServerSettings['ai_model'] || [];
-      const adminModels = aiModels.filter(s => s.source === 'admin' && s.value?.enabled !== false);
+      const aiModels = cachedServerSettings["ai_model"] || [];
+      const adminModels = aiModels.filter(
+        (s) => s.source === "admin" && s.value?.enabled !== false,
+      );
       if (submodelSelect) {
-        submodelSelect.innerHTML = '';
+        submodelSelect.innerHTML = "";
         for (const s of adminModels) {
           const v = s.value || {};
-          const opt = document.createElement('option');
+          const opt = document.createElement("option");
           opt.value = s.key;
-          const badge = s.enforcement === 'required' ? ' 🔒' : '';
+          const badge = s.enforcement === "required" ? " 🔒" : "";
           opt.textContent = `${v.model || v.model_name || v.name || s.key}${badge}`;
           submodelSelect.appendChild(opt);
         }
@@ -3721,7 +3976,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // 에러 폴백 모델 타입 선택 변경 이벤트
-  const errorFallbackTypeSelect = document.getElementById("error-fallback-model-type-select");
+  const errorFallbackTypeSelect = document.getElementById(
+    "error-fallback-model-type-select",
+  );
   if (errorFallbackTypeSelect) {
     errorFallbackTypeSelect.addEventListener("change", (e) => {
       handleModelTypeChange("error-fallback", e.target.value);
@@ -3800,11 +4057,17 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // 에러 폴백 모델 저장 버튼
-  const saveErrorFallbackModelButton = document.getElementById("save-error-fallback-model-button");
+  const saveErrorFallbackModelButton = document.getElementById(
+    "save-error-fallback-model-button",
+  );
   if (saveErrorFallbackModelButton) {
     saveErrorFallbackModelButton.addEventListener("click", () => {
-      const typeSelect = document.getElementById("error-fallback-model-type-select");
-      const submodelSelect = document.getElementById("error-fallback-submodel-select");
+      const typeSelect = document.getElementById(
+        "error-fallback-model-type-select",
+      );
+      const submodelSelect = document.getElementById(
+        "error-fallback-submodel-select",
+      );
       const modelType = typeSelect ? typeSelect.value : "";
       const modelName = submodelSelect ? submodelSelect.value : "";
 
@@ -3817,16 +4080,26 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      vscode.postMessage({ command: "saveErrorFallbackModel", modelType, modelName });
+      vscode.postMessage({
+        command: "saveErrorFallbackModel",
+        modelType,
+        modelName,
+      });
     });
   }
 
   // 에러 폴백 API 키 저장 버튼
-  const saveErrorFallbackApiKeyButton = document.getElementById("save-error-fallback-api-key-button");
+  const saveErrorFallbackApiKeyButton = document.getElementById(
+    "save-error-fallback-api-key-button",
+  );
   if (saveErrorFallbackApiKeyButton) {
     saveErrorFallbackApiKeyButton.addEventListener("click", () => {
-      const typeSelect = document.getElementById("error-fallback-model-type-select");
-      const apiKeyInput = document.getElementById("error-fallback-api-key-input");
+      const typeSelect = document.getElementById(
+        "error-fallback-model-type-select",
+      );
+      const apiKeyInput = document.getElementById(
+        "error-fallback-api-key-input",
+      );
       const modelType = typeSelect ? typeSelect.value : "";
       const apiKey = apiKeyInput ? apiKeyInput.value : "";
 
@@ -3839,13 +4112,19 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      vscode.postMessage({ command: "saveErrorFallbackApiKey", modelType, apiKey });
+      vscode.postMessage({
+        command: "saveErrorFallbackApiKey",
+        modelType,
+        apiKey,
+      });
       if (apiKeyInput) apiKeyInput.value = "";
     });
   }
 
   // 소스코드 자동완성 모델 타입 선택 변경 이벤트
-  const completionTypeSelect = document.getElementById("completion-model-type-select");
+  const completionTypeSelect = document.getElementById(
+    "completion-model-type-select",
+  );
   if (completionTypeSelect) {
     completionTypeSelect.addEventListener("change", (e) => {
       handleModelTypeChange("completion", e.target.value);
@@ -3853,11 +4132,17 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // 소스코드 자동완성 모델 저장 버튼
-  const saveCompletionModelButton = document.getElementById("save-completion-model-button");
+  const saveCompletionModelButton = document.getElementById(
+    "save-completion-model-button",
+  );
   if (saveCompletionModelButton) {
     saveCompletionModelButton.addEventListener("click", () => {
-      const typeSelect = document.getElementById("completion-model-type-select");
-      const submodelSelect = document.getElementById("completion-submodel-select");
+      const typeSelect = document.getElementById(
+        "completion-model-type-select",
+      );
+      const submodelSelect = document.getElementById(
+        "completion-submodel-select",
+      );
       const modelType = typeSelect ? typeSelect.value : "";
       const modelName = submodelSelect ? submodelSelect.value : "";
 
@@ -3870,15 +4155,23 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      vscode.postMessage({ command: "saveCompletionModel", modelType, modelName });
+      vscode.postMessage({
+        command: "saveCompletionModel",
+        modelType,
+        modelName,
+      });
     });
   }
 
   // 소스코드 자동완성 API 키 저장 버튼
-  const saveCompletionApiKeyButton = document.getElementById("save-completion-api-key-button");
+  const saveCompletionApiKeyButton = document.getElementById(
+    "save-completion-api-key-button",
+  );
   if (saveCompletionApiKeyButton) {
     saveCompletionApiKeyButton.addEventListener("click", () => {
-      const typeSelect = document.getElementById("completion-model-type-select");
+      const typeSelect = document.getElementById(
+        "completion-model-type-select",
+      );
       const apiKeyInput = document.getElementById("completion-api-key-input");
       const modelType = typeSelect ? typeSelect.value : "";
       const apiKey = apiKeyInput ? apiKeyInput.value : "";
@@ -3892,13 +4185,19 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      vscode.postMessage({ command: "saveCompletionApiKey", modelType, apiKey });
+      vscode.postMessage({
+        command: "saveCompletionApiKey",
+        modelType,
+        apiKey,
+      });
       if (apiKeyInput) apiKeyInput.value = "";
     });
   }
 
   // 서브에이전트 모델 타입 선택 변경 이벤트
-  const subagentTypeSelect = document.getElementById("subagent-model-type-select");
+  const subagentTypeSelect = document.getElementById(
+    "subagent-model-type-select",
+  );
   if (subagentTypeSelect) {
     subagentTypeSelect.addEventListener("change", (e) => {
       handleModelTypeChange("subagent", e.target.value);
@@ -3906,11 +4205,15 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // 서브에이전트 모델 저장 버튼
-  const saveSubagentModelButton = document.getElementById("save-subagent-model-button");
+  const saveSubagentModelButton = document.getElementById(
+    "save-subagent-model-button",
+  );
   if (saveSubagentModelButton) {
     saveSubagentModelButton.addEventListener("click", () => {
       const typeSelect = document.getElementById("subagent-model-type-select");
-      const submodelSelect = document.getElementById("subagent-submodel-select");
+      const submodelSelect = document.getElementById(
+        "subagent-submodel-select",
+      );
       const modelType = typeSelect ? typeSelect.value : "";
       const modelName = submodelSelect ? submodelSelect.value : "";
 
@@ -3923,12 +4226,18 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      vscode.postMessage({ command: "saveSubagentModel", modelType, modelName });
+      vscode.postMessage({
+        command: "saveSubagentModel",
+        modelType,
+        modelName,
+      });
     });
   }
 
   // 서브에이전트 API 키 저장 버튼
-  const saveSubagentApiKeyButton = document.getElementById("save-subagent-api-key-button");
+  const saveSubagentApiKeyButton = document.getElementById(
+    "save-subagent-api-key-button",
+  );
   if (saveSubagentApiKeyButton) {
     saveSubagentApiKeyButton.addEventListener("click", () => {
       const typeSelect = document.getElementById("subagent-model-type-select");
@@ -3995,15 +4304,16 @@ function renderPolicyFileList(category, files, fileTypes, fileDescriptions) {
   files.forEach((fileName) => {
     const isLegacy = fileName.includes("(레거시)");
     const displayName = fileName.replace(" (레거시)", "");
-    const skillType = types[fileName] || 'rule';
-    const isSkill = skillType === 'skill';
+    const skillType = types[fileName] || "rule";
+    const isSkill = skillType === "skill";
 
     const item = document.createElement("div");
     item.className = "policy-file-item";
 
     // 상단 행: 이름 + 뱃지 + 삭제 버튼
     const topRow = document.createElement("div");
-    topRow.style.cssText = "display:flex;align-items:center;justify-content:space-between;width:100%;";
+    topRow.style.cssText =
+      "display:flex;align-items:center;justify-content:space-between;width:100%;";
 
     const nameGroup = document.createElement("div");
     nameGroup.style.cssText = "display:flex;align-items:center;";
@@ -4121,58 +4431,85 @@ function setupAgentPolicyFileUpload(
     uploadButton.disabled = false;
   });
 
-  // 저장 버튼 클릭 (다중 파일 업로드)
+  // 저장 버튼 클릭 (다중 파일 업로드 — 각 파일마다 미리보기 모달 표시)
   uploadButton.addEventListener("click", async () => {
-    if (selectedFiles.length === 0) {
-      return;
-    }
+    if (selectedFiles.length === 0) return;
 
-    showStatus(statusElement, "저장 중...", "info");
+    const typeSelector = document.querySelector(
+      `.policy-type-selector[data-category="${category}"]`,
+    );
+    const activeTypeBtn = typeSelector
+      ? typeSelector.querySelector(".policy-type-btn.active")
+      : null;
+    const policyType = activeTypeBtn ? activeTypeBtn.dataset.type : "rule";
+    const skillDescInput = typeSelector
+      ? typeSelector.querySelector(".policy-skill-desc")
+      : null;
+    const skillDescription =
+      policyType === "skill" && skillDescInput
+        ? skillDescInput.value.trim()
+        : "";
+
     uploadButton.disabled = true;
-
-    let successCount = 0;
+    let savedCount = 0;
     let errorCount = 0;
+    let cancelledCount = 0;
+    const filesToProcess = selectedFiles.slice();
 
-    // 타입 선택 정보 가져오기
-    const typeSelector = document.querySelector(`.policy-type-selector[data-category="${category}"]`);
-    const activeTypeBtn = typeSelector ? typeSelector.querySelector('.policy-type-btn.active') : null;
-    const policyType = activeTypeBtn ? activeTypeBtn.dataset.type : 'rule';
-    const skillDescInput = typeSelector ? typeSelector.querySelector('.policy-skill-desc') : null;
-    const skillDescription = (policyType === 'skill' && skillDescInput) ? skillDescInput.value.trim() : '';
-
-    for (const file of selectedFiles) {
+    for (const file of filesToProcess) {
+      let content;
       try {
-        const content = await readFileAsText(file);
-        vscode.postMessage({
-          command: "addAgentPolicyFile",
-          category: category,
-          fileName: file.name,
-          content: content,
-          policyType: policyType,
-          skillDescription: skillDescription,
-        });
-        successCount++;
+        content = await readFileAsText(file);
       } catch (error) {
         errorCount++;
         console.error(`Failed to read file ${file.name}:`, error);
+        continue;
       }
+      const hash = await _computeSha256Short(content);
+      const suspicious = _detectSuspiciousClient(content);
+      const confirmed = await new Promise((resolve) => {
+        _showSkillPreviewModal(
+          {
+            originUrl: `로컬 파일: ${file.name}`,
+            filename: file.name,
+            size: content.length,
+            hash,
+            suspicious,
+            content,
+          },
+          () => resolve(true),
+          () => resolve(false),
+        );
+      });
+      if (!confirmed) {
+        cancelledCount++;
+        continue;
+      }
+      vscode.postMessage({
+        command: "addAgentPolicyFile",
+        category: category,
+        fileName: file.name,
+        content: content,
+        policyType: policyType,
+        skillDescription: skillDescription,
+      });
+      savedCount++;
     }
 
-    // 파일 입력 초기화
     fileInput.value = "";
     selectedFiles = [];
-    if (fileNameElement) {
-      fileNameElement.textContent = "";
-    }
-    // 스킬 설명 입력 초기화
-    if (skillDescInput) {
-      skillDescInput.value = "";
-    }
+    if (fileNameElement) fileNameElement.textContent = "";
+    if (skillDescInput) skillDescInput.value = "";
+    uploadButton.disabled = false;
 
-    if (errorCount > 0) {
+    if (savedCount > 0 || cancelledCount > 0 || errorCount > 0) {
+      const parts = [];
+      if (savedCount > 0) parts.push(`${savedCount}개 저장 요청됨`);
+      if (cancelledCount > 0) parts.push(`${cancelledCount}개 취소됨`);
+      if (errorCount > 0) parts.push(`${errorCount}개 실패`);
       showStatus(
         statusElement,
-        `${successCount}개 저장됨, ${errorCount}개 실패`,
+        parts.join(", "),
         errorCount > 0 ? "error" : "success",
       );
     }
@@ -4196,6 +4533,7 @@ function loadAgentPolicyFiles() {
 
 // 카테고리별 상태 요소 ID 매핑
 const categoryStatusMap = {
+  "global-rules": "global-rules-status",
   "stable-version": "stable-version-status",
   "coding-style": "coding-style-status",
   "project-architecture": "project-architecture-status",
@@ -4203,52 +4541,7 @@ const categoryStatusMap = {
   "db-policy": "db-policy-status",
 };
 
-// AgentPolicy 파일 업로드 설정 (다중 파일 지원)
-setupAgentPolicyFileUpload(
-  "agent-policy-stable-version-input",
-  "select-stable-version-button",
-  "upload-stable-version-button",
-  "stable-version-status",
-  "stable-version-file-name",
-  "stable-version",
-);
-
-setupAgentPolicyFileUpload(
-  "agent-policy-coding-style-input",
-  "select-coding-style-button",
-  "upload-coding-style-button",
-  "coding-style-status",
-  "coding-style-file-name",
-  "coding-style",
-);
-
-setupAgentPolicyFileUpload(
-  "agent-policy-project-architecture-input",
-  "select-project-architecture-button",
-  "upload-project-architecture-button",
-  "project-architecture-status",
-  "project-architecture-file-name",
-  "project-architecture",
-);
-
-setupAgentPolicyFileUpload(
-  "agent-policy-dependency-policy-input",
-  "select-dependency-policy-button",
-  "upload-dependency-policy-button",
-  "dependency-policy-status",
-  "dependency-policy-file-name",
-  "dependency-policy",
-);
-
-setupAgentPolicyFileUpload(
-  "agent-policy-db-policy-input",
-  "select-db-policy-button",
-  "upload-db-policy-button",
-  "db-policy-status",
-  "db-policy-file-name",
-  "db-policy",
-);
-
+// 파일 업로드/경로/URL setup 호출 제거 — 통합 모달로 대체
 // AgentPolicy 경로 입력 설정
 function setupAgentPolicyPathInput(category, pathInputId, buttonId, statusId) {
   const pathInput = document.getElementById(pathInputId);
@@ -4259,26 +4552,43 @@ function setupAgentPolicyPathInput(category, pathInputId, buttonId, statusId) {
   addButton.addEventListener("click", () => {
     const filePath = pathInput.value.trim();
     if (!filePath) {
-      if (statusElement) showStatus(statusElement, "파일 경로를 입력하세요.", "error");
+      if (statusElement)
+        showStatus(statusElement, "파일 경로를 입력하세요.", "error");
       return;
     }
     if (!filePath.endsWith(".md") && !filePath.endsWith(".markdown")) {
-      if (statusElement) showStatus(statusElement, "Markdown 파일(.md)만 추가할 수 있습니다.", "error");
+      if (statusElement)
+        showStatus(
+          statusElement,
+          "Markdown 파일(.md)만 추가할 수 있습니다.",
+          "error",
+        );
       return;
     }
-    if (statusElement) showStatus(statusElement, "추가 중...", "info");
+    if (statusElement) showStatus(statusElement, "미리보기 중...", "info");
     addButton.disabled = true;
-    // 타입 선택 정보 가져오기
-    const typeSelector = document.querySelector(`.policy-type-selector[data-category="${category}"]`);
-    const activeTypeBtn = typeSelector ? typeSelector.querySelector('.policy-type-btn.active') : null;
-    const policyType = activeTypeBtn ? activeTypeBtn.dataset.type : 'rule';
-    const skillDescInput = typeSelector ? typeSelector.querySelector('.policy-skill-desc') : null;
-    const skillDescription = (policyType === 'skill' && skillDescInput) ? skillDescInput.value.trim() : '';
-    vscode.postMessage({ command: "addPathAgentPolicy", category, filePath, policyType, skillDescription });
-    // 스킬 설명 입력 초기화
-    if (skillDescInput) {
-      skillDescInput.value = "";
-    }
+    const typeSelector = document.querySelector(
+      `.policy-type-selector[data-category="${category}"]`,
+    );
+    const activeTypeBtn = typeSelector
+      ? typeSelector.querySelector(".policy-type-btn.active")
+      : null;
+    const policyType = activeTypeBtn ? activeTypeBtn.dataset.type : "rule";
+    const skillDescInput = typeSelector
+      ? typeSelector.querySelector(".policy-skill-desc")
+      : null;
+    const skillDescription =
+      policyType === "skill" && skillDescInput
+        ? skillDescInput.value.trim()
+        : "";
+    // 백엔드에 미리보기 요청 — 응답은 agentPolicyPathPreview 핸들러에서 모달 표시 후 addPathAgentPolicy 전송
+    vscode.postMessage({
+      command: "previewAgentPolicyPath",
+      category,
+      filePath,
+      policyType,
+      skillDescription,
+    });
   });
 
   pathInput.addEventListener("keydown", (e) => {
@@ -4286,11 +4596,592 @@ function setupAgentPolicyPathInput(category, pathInputId, buttonId, statusId) {
   });
 }
 
-setupAgentPolicyPathInput("stable-version", "path-stable-version-input", "add-path-stable-version-button", "stable-version-status");
-setupAgentPolicyPathInput("coding-style", "path-coding-style-input", "add-path-coding-style-button", "coding-style-status");
-setupAgentPolicyPathInput("project-architecture", "path-project-architecture-input", "add-path-project-architecture-button", "project-architecture-status");
-setupAgentPolicyPathInput("dependency-policy", "path-dependency-policy-input", "add-path-dependency-policy-button", "dependency-policy-status");
-setupAgentPolicyPathInput("db-policy", "path-db-policy-input", "add-path-db-policy-button", "db-policy-status");
+// ─────────────────────────────────────────────────────────────
+// URL 다운로드로 Skill/Rule 추가 (경로 입력 그룹 뒤에 주입)
+// ─────────────────────────────────────────────────────────────
+function setupAgentPolicyUrlDownload(category) {
+  const pathInput = document.getElementById(`path-${category}-input`);
+  if (!pathInput) return;
+  const pathGroup = pathInput.closest(".api-key-input-group");
+  if (!pathGroup) return;
+  if (document.getElementById(`url-${category}-input`)) return;
+
+  const urlGroup = document.createElement("div");
+  urlGroup.className = "api-key-input-group";
+  urlGroup.style.marginTop = "6px";
+  const urlInput = document.createElement("input");
+  urlInput.type = "text";
+  urlInput.id = `url-${category}-input`;
+  urlInput.className = "api-key-input";
+  urlInput.placeholder = "URL에서 .md 다운로드 (https://...)";
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.id = `download-${category}-button`;
+  btn.textContent = "URL 다운로드";
+  urlGroup.appendChild(urlInput);
+  urlGroup.appendChild(btn);
+  pathGroup.insertAdjacentElement("afterend", urlGroup);
+
+  const statusElement = document.getElementById(`${category}-status`);
+  const doDownload = () => {
+    const url = urlInput.value.trim();
+    if (!url) {
+      if (statusElement)
+        showStatus(statusElement, "URL을 입력하세요.", "error");
+      return;
+    }
+    if (statusElement) showStatus(statusElement, "다운로드 중...", "info");
+    btn.disabled = true;
+    const typeSelector = document.querySelector(
+      `.policy-type-selector[data-category="${category}"]`,
+    );
+    const activeTypeBtn = typeSelector
+      ? typeSelector.querySelector(".policy-type-btn.active")
+      : null;
+    const policyType = activeTypeBtn ? activeTypeBtn.dataset.type : "rule";
+    const skillDescInput = typeSelector
+      ? typeSelector.querySelector(".policy-skill-desc")
+      : null;
+    const skillDescription =
+      policyType === "skill" && skillDescInput
+        ? skillDescInput.value.trim()
+        : "";
+    vscode.postMessage({
+      command: "downloadSkillFromUrl",
+      url,
+      category,
+      policyType,
+      skillDescription,
+    });
+  };
+  btn.addEventListener("click", doDownload);
+  urlInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") doDownload();
+  });
+}
+
+function _showSkillPreviewModal(data, onConfirm, onCancel) {
+  const existing = document.getElementById("skill-preview-modal");
+  if (existing) existing.remove();
+
+  const isLight =
+    document.body.getAttribute("data-theme") === "light" ||
+    document.body.classList.contains("vscode-light") ||
+    document.documentElement.getAttribute("data-theme") === "light";
+
+  {
+    const prev = document.getElementById("md-preview-modal-style");
+    if (prev) prev.remove();
+    const style = document.createElement("style");
+    style.id = "md-preview-modal-style";
+    const scrollbarCss = isLight
+      ? `
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar { width: 8px !important; height: 8px !important; }
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar-track { background: #f3f4f6 !important; }
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar-thumb { background: #9ca3af !important; border-radius: 4px !important; }
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar-thumb:hover { background: #6b7280 !important; }
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar-corner { background: #f3f4f6 !important; }`
+      : `
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar { width: 8px !important; height: 8px !important; }
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar-track { background: transparent !important; }
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2) !important; border-radius: 4px !important; }
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.35) !important; }`;
+    style.textContent = `
+      #skill-preview-modal .md-preview-meta b { color: inherit; font-weight: 600; margin-right: 4px; }
+      #skill-preview-modal .md-preview-meta code {
+        background: transparent !important;
+        padding: 0 !important;
+        color: inherit !important;
+        font-family: var(--vscode-editor-font-family, "SFMono-Regular", Consolas, "Courier New", monospace);
+        font-size: inherit !important;
+        word-break: break-all;
+      }
+      ${scrollbarCss}
+    `;
+    document.head.appendChild(style);
+  }
+
+  const overlay = document.createElement("div");
+  overlay.id = "skill-preview-modal";
+  overlay.style.cssText =
+    "position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10000;display:flex;align-items:center;justify-content:center;";
+
+  const boxBg = isLight ? "#ffffff" : "var(--vscode-editor-background,#1e1e1e)";
+  const boxBorder = isLight ? "#e5e7eb" : "var(--vscode-input-border,#444)";
+  const boxFg = isLight ? "#111827" : "var(--vscode-foreground,#ccc)";
+  const metaFg = isLight
+    ? "#4b5563"
+    : "var(--vscode-descriptionForeground,#888)";
+  const preBg = isLight
+    ? "#f3f4f6"
+    : "var(--vscode-textCodeBlock-background,#2a2a2a)";
+  const preFg = isLight ? "#1f2937" : "var(--vscode-foreground,#d4d4d4)";
+
+  const box = document.createElement("div");
+  box.style.cssText = `background:${boxBg};color:${boxFg};border:1px solid ${boxBorder};border-radius:6px;width:80%;max-width:820px;max-height:80vh;padding:16px;display:flex;flex-direction:column;gap:8px;font-family:var(--vscode-font-family);`;
+
+  const title = document.createElement("h3");
+  title.style.cssText = `margin:0 0 4px 0;font-size:1em;color:${boxFg};`;
+  title.textContent = "MD 미리보기";
+  box.appendChild(title);
+
+  const metaRoot = document.createElement("div");
+  metaRoot.className = "md-preview-meta";
+  metaRoot.style.cssText = `font-size:0.82em;color:${metaFg};line-height:1.6;`;
+  const addMetaRow = (label, value) => {
+    if (value == null || value === "") return;
+    const row = document.createElement("div");
+    const b = document.createElement("b");
+    b.textContent = `${label} `;
+    row.appendChild(b);
+    const code = document.createElement("code");
+    code.textContent = String(value);
+    row.appendChild(code);
+    metaRoot.appendChild(row);
+  };
+  addMetaRow("출처:", data.originUrl);
+  addMetaRow(
+    "크기:",
+    `${data.size} bytes${data.hash ? ` · SHA256(16): ${data.hash}` : ""}`,
+  );
+  addMetaRow("파일명:", data.filename);
+  box.appendChild(metaRoot);
+
+  if (Array.isArray(data.suspicious) && data.suspicious.length > 0) {
+    const warn = document.createElement("div");
+    warn.style.cssText =
+      "background:rgba(245,158,11,0.18);border-left:3px solid #f59e0b;padding:8px;font-size:0.85em;color:" +
+      (isLight ? "#92400e" : "#fbbf24") +
+      ";";
+    const head = document.createElement("div");
+    head.textContent = "⚠️ 의심 패턴 감지:";
+    warn.appendChild(head);
+    data.suspicious.forEach((s) => {
+      const line = document.createElement("div");
+      line.textContent = `• ${String(s)}`;
+      warn.appendChild(line);
+    });
+    box.appendChild(warn);
+  }
+
+  const pre = document.createElement("pre");
+  pre.className = "md-preview-pre";
+  pre.style.cssText = `flex:1;overflow:auto;background:${preBg};color:${preFg};padding:8px;margin:0;font-size:0.78em;max-height:45vh;border-radius:4px;white-space:pre;border:1px solid ${boxBorder};`;
+  pre.textContent = String(data.content || "");
+  box.appendChild(pre);
+
+  const actions = document.createElement("div");
+  actions.style.cssText =
+    "display:flex;gap:8px;justify-content:flex-end;margin-top:4px;";
+  const btnStyle = isLight
+    ? "padding:6px 14px;background:transparent;color:#4b5563;border:1px solid #9ca3af;border-radius:3px;cursor:pointer;font-size:12px;"
+    : "padding:6px 14px;background:transparent;color:var(--vscode-foreground);border:1px solid rgba(255,255,255,0.35);border-radius:3px;cursor:pointer;font-size:12px;";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.textContent = "취소";
+  cancelBtn.style.cssText = btnStyle;
+  const saveBtn = document.createElement("button");
+  saveBtn.type = "button";
+  saveBtn.textContent = "저장";
+  saveBtn.style.cssText = btnStyle;
+  actions.appendChild(cancelBtn);
+  actions.appendChild(saveBtn);
+  box.appendChild(actions);
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  cancelBtn.addEventListener("click", () => {
+    overlay.remove();
+    if (onCancel) onCancel();
+  });
+  saveBtn.addEventListener("click", () => {
+    overlay.remove();
+    if (onConfirm) onConfirm();
+  });
+}
+
+async function _computeSha256Short(content) {
+  try {
+    const data = new TextEncoder().encode(String(content || ""));
+    const buf = await crypto.subtle.digest("SHA-256", data);
+    return Array.from(new Uint8Array(buf))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("")
+      .slice(0, 16);
+  } catch {
+    return "";
+  }
+}
+
+function _detectSuspiciousClient(content) {
+  const matches = [];
+  const patterns = [
+    [
+      /ignore\s+(previous|all|above)\s+(instructions|rules|directives)/i,
+      "이전 지시 무시 유도 문구",
+    ],
+    [/disregard\s+(previous|all|above)/i, "이전 지시 무시 유도 문구"],
+    [/^\s*(system|assistant)\s*:\s*/im, "역할 태그 흉내 (system:/assistant:)"],
+    [/[A-Za-z0-9+/=]{200,}/, "매우 긴 base64/hex 블록"],
+    [/\bcurl\s+[^\s]+|\bwget\s+[^\s]+/i, "외부 커맨드 호출 (curl/wget)"],
+    [/<!--\s*prompt\s*injection\s*-->/i, "prompt injection 마커"],
+    [/(new\s+)?function\s*\(|eval\s*\(|require\s*\(/i, "JS 코드 실행 패턴"],
+  ];
+  for (const [re, label] of patterns) {
+    if (re.test(content) && !matches.includes(label)) matches.push(label);
+  }
+  return matches;
+}
+
+// ────────────────────────────────────────────────────────────
+// Skills/Rules 추가 — 통합 모달 (타입 + 방법 드롭다운)
+// ────────────────────────────────────────────────────────────
+
+function _showAddPolicyModal(category, onSubmit) {
+  const existing = document.getElementById("add-policy-modal");
+  if (existing) existing.remove();
+
+  const isLight =
+    document.body.getAttribute("data-theme") === "light" ||
+    document.body.classList.contains("vscode-light") ||
+    document.documentElement.getAttribute("data-theme") === "light";
+
+  const boxBg = isLight ? "#ffffff" : "var(--vscode-editor-background,#1e1e1e)";
+  const boxBorder = isLight ? "#e5e7eb" : "var(--vscode-input-border,#444)";
+  const boxFg = isLight ? "#111827" : "var(--vscode-foreground,#ccc)";
+  const labelFg = isLight
+    ? "#4b5563"
+    : "var(--vscode-descriptionForeground,#aaa)";
+  const inputBg = isLight
+    ? "#ffffff"
+    : "var(--vscode-input-background,#3c3c3c)";
+  const inputBorder = isLight ? "#d1d5db" : "var(--vscode-input-border,#555)";
+  const inputFg = isLight ? "#111827" : "var(--vscode-input-foreground,#ccc)";
+  const btnOutline = isLight
+    ? "background:transparent;color:#4b5563;border:1px solid #9ca3af;"
+    : "background:transparent;color:var(--vscode-foreground);border:1px solid rgba(255,255,255,0.35);";
+  const btnPrimary =
+    "background:#2563eb;color:#ffffff;border:1px solid #2563eb;";
+
+  const overlay = document.createElement("div");
+  overlay.id = "add-policy-modal";
+  overlay.style.cssText =
+    "position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10000;display:flex;align-items:center;justify-content:center;";
+
+  const box = document.createElement("div");
+  box.style.cssText = `background:${boxBg};color:${boxFg};border:1px solid ${boxBorder};border-radius:6px;width:80%;max-width:560px;padding:16px;display:flex;flex-direction:column;gap:12px;font-family:var(--vscode-font-family);`;
+
+  const title = document.createElement("h3");
+  title.style.cssText = `margin:0;font-size:1em;color:${boxFg};`;
+  title.textContent = "Skill/Rule 추가";
+  box.appendChild(title);
+
+  const typeRow = document.createElement("div");
+  typeRow.style.cssText = "display:flex;flex-direction:column;gap:4px;";
+  const typeLabel = document.createElement("label");
+  typeLabel.textContent = "타입";
+  typeLabel.style.cssText = `font-size:0.85em;color:${labelFg};`;
+  typeRow.appendChild(typeLabel);
+  const typeGroup = document.createElement("div");
+  typeGroup.style.cssText = `display:flex;border:1px solid ${inputBorder};border-radius:4px;overflow:hidden;width:fit-content;`;
+  let currentType = "rule";
+  // 클래스 `.policy-type-btn` 사용 — 전역 라이트 :not(.policy-type-btn) override 회피 + .active 시 파란색 규칙 적용
+  const ruleBtn = document.createElement("button");
+  ruleBtn.type = "button";
+  ruleBtn.className = "policy-type-btn active";
+  ruleBtn.dataset.type = "rule";
+  ruleBtn.textContent = "규칙";
+  ruleBtn.style.cssText =
+    "padding:6px 14px;font-size:0.85em;border:none;cursor:pointer;";
+  const skillBtn = document.createElement("button");
+  skillBtn.type = "button";
+  skillBtn.className = "policy-type-btn";
+  skillBtn.dataset.type = "skill";
+  skillBtn.textContent = "스킬";
+  skillBtn.style.cssText = `padding:6px 14px;font-size:0.85em;border:none;border-left:1px solid ${inputBorder};cursor:pointer;`;
+  typeGroup.appendChild(ruleBtn);
+  typeGroup.appendChild(skillBtn);
+  typeRow.appendChild(typeGroup);
+
+  const skillDescInput = document.createElement("input");
+  skillDescInput.type = "text";
+  skillDescInput.placeholder = "이 스킬이 필요한 상황을 설명하세요";
+  skillDescInput.style.cssText = `display:none;padding:6px 8px;font-size:0.85em;background:${inputBg};color:${inputFg};border:1px solid ${inputBorder};border-radius:3px;margin-top:4px;`;
+  typeRow.appendChild(skillDescInput);
+
+  const setType = (t) => {
+    currentType = t;
+    if (t === "skill") {
+      skillBtn.classList.add("active");
+      ruleBtn.classList.remove("active");
+      skillDescInput.style.display = "";
+    } else {
+      ruleBtn.classList.add("active");
+      skillBtn.classList.remove("active");
+      skillDescInput.style.display = "none";
+    }
+  };
+  ruleBtn.addEventListener("click", () => setType("rule"));
+  skillBtn.addEventListener("click", () => setType("skill"));
+  box.appendChild(typeRow);
+
+  const methodRow = document.createElement("div");
+  methodRow.style.cssText = "display:flex;flex-direction:column;gap:4px;";
+  const methodLabel = document.createElement("label");
+  methodLabel.textContent = "추가 방법";
+  methodLabel.style.cssText = `font-size:0.85em;color:${labelFg};`;
+  methodRow.appendChild(methodLabel);
+  const methodSelect = document.createElement("select");
+  methodSelect.style.cssText = `padding:6px 8px;font-size:0.9em;background:${inputBg};color:${inputFg};border:1px solid ${inputBorder};border-radius:3px;`;
+  [
+    ["file", "파일 업로드"],
+    ["path", "경로 추가"],
+    ["url", "URL 다운로드"],
+  ].forEach(([v, label]) => {
+    const opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = label;
+    methodSelect.appendChild(opt);
+  });
+  methodRow.appendChild(methodSelect);
+  box.appendChild(methodRow);
+
+  const inputArea = document.createElement("div");
+  inputArea.style.cssText = "display:flex;flex-direction:column;gap:4px;";
+  box.appendChild(inputArea);
+
+  const statusEl = document.createElement("p");
+  statusEl.style.cssText = `font-size:0.8em;margin:0;min-height:1.2em;color:${labelFg};`;
+  box.appendChild(statusEl);
+
+  let selectedFiles = [];
+  let pathValue = "";
+  let urlValue = "";
+  const clearInputArea = () => {
+    while (inputArea.firstChild) inputArea.removeChild(inputArea.firstChild);
+  };
+  const renderInput = () => {
+    clearInputArea();
+    statusEl.textContent = "";
+    const m = methodSelect.value;
+    if (m === "file") {
+      const fileLabel = document.createElement("label");
+      fileLabel.textContent = "Markdown 파일 (.md)";
+      fileLabel.style.cssText = `font-size:0.85em;color:${labelFg};`;
+      const fileBtn = document.createElement("button");
+      fileBtn.type = "button";
+      fileBtn.textContent = "파일 선택";
+      fileBtn.style.cssText = `padding:6px 14px;font-size:0.85em;${btnOutline}border-radius:3px;cursor:pointer;width:fit-content;`;
+      const fileInput = document.createElement("input");
+      fileInput.type = "file";
+      fileInput.accept = ".md,.markdown,text/markdown";
+      fileInput.multiple = true;
+      fileInput.style.display = "none";
+      const fileNameEl = document.createElement("p");
+      fileNameEl.style.cssText = `font-size:0.8em;margin:0;color:${labelFg};`;
+      fileBtn.addEventListener("click", () => fileInput.click());
+      fileInput.addEventListener("change", (e) => {
+        selectedFiles = Array.from(e.target.files || []).filter(
+          (f) => f.name.endsWith(".md") || f.name.endsWith(".markdown"),
+        );
+        fileNameEl.textContent = selectedFiles.length
+          ? `선택: ${selectedFiles.map((f) => f.name).join(", ")}`
+          : "";
+      });
+      inputArea.appendChild(fileLabel);
+      inputArea.appendChild(fileBtn);
+      inputArea.appendChild(fileInput);
+      inputArea.appendChild(fileNameEl);
+    } else if (m === "path") {
+      const pathLabel = document.createElement("label");
+      pathLabel.textContent = "파일 경로 (절대 경로)";
+      pathLabel.style.cssText = `font-size:0.85em;color:${labelFg};`;
+      const pathInput = document.createElement("input");
+      pathInput.type = "text";
+      pathInput.placeholder = "/path/to/file.md";
+      pathInput.value = pathValue;
+      pathInput.style.cssText = `padding:6px 8px;font-size:0.85em;background:${inputBg};color:${inputFg};border:1px solid ${inputBorder};border-radius:3px;`;
+      pathInput.addEventListener("input", (e) => {
+        pathValue = e.target.value;
+      });
+      inputArea.appendChild(pathLabel);
+      inputArea.appendChild(pathInput);
+    } else if (m === "url") {
+      const urlLabel = document.createElement("label");
+      urlLabel.textContent = "URL (https://...)";
+      urlLabel.style.cssText = `font-size:0.85em;color:${labelFg};`;
+      const urlInput = document.createElement("input");
+      urlInput.type = "text";
+      urlInput.placeholder = "https://example.com/file.md";
+      urlInput.value = urlValue;
+      urlInput.style.cssText = `padding:6px 8px;font-size:0.85em;background:${inputBg};color:${inputFg};border:1px solid ${inputBorder};border-radius:3px;`;
+      urlInput.addEventListener("input", (e) => {
+        urlValue = e.target.value;
+      });
+      inputArea.appendChild(urlLabel);
+      inputArea.appendChild(urlInput);
+    }
+  };
+  methodSelect.addEventListener("change", renderInput);
+  renderInput();
+
+  const actions = document.createElement("div");
+  actions.style.cssText =
+    "display:flex;gap:8px;justify-content:flex-end;margin-top:4px;";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.textContent = "취소";
+  cancelBtn.style.cssText = `padding:6px 14px;font-size:0.85em;${btnOutline}border-radius:3px;cursor:pointer;`;
+  const nextBtn = document.createElement("button");
+  nextBtn.type = "button";
+  nextBtn.textContent = "다음";
+  nextBtn.style.cssText = `padding:6px 14px;font-size:0.85em;${btnPrimary}border-radius:3px;cursor:pointer;`;
+  actions.appendChild(cancelBtn);
+  actions.appendChild(nextBtn);
+  box.appendChild(actions);
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  cancelBtn.addEventListener("click", () => overlay.remove());
+  nextBtn.addEventListener("click", () => {
+    const m = methodSelect.value;
+    const skillDescription =
+      currentType === "skill" ? skillDescInput.value.trim() : "";
+    if (currentType === "skill" && !skillDescription) {
+      statusEl.textContent = "스킬 설명을 입력하세요.";
+      statusEl.style.color = "#ef4444";
+      return;
+    }
+    if (m === "file") {
+      if (selectedFiles.length === 0) {
+        statusEl.textContent = "파일을 선택하세요.";
+        statusEl.style.color = "#ef4444";
+        return;
+      }
+    } else if (m === "path") {
+      if (!pathValue.trim()) {
+        statusEl.textContent = "파일 경로를 입력하세요.";
+        statusEl.style.color = "#ef4444";
+        return;
+      }
+      const p = pathValue.trim();
+      if (!p.endsWith(".md") && !p.endsWith(".markdown")) {
+        statusEl.textContent = "Markdown 파일(.md)만 추가할 수 있습니다.";
+        statusEl.style.color = "#ef4444";
+        return;
+      }
+    } else if (m === "url") {
+      if (!urlValue.trim()) {
+        statusEl.textContent = "URL을 입력하세요.";
+        statusEl.style.color = "#ef4444";
+        return;
+      }
+    }
+    overlay.remove();
+    onSubmit({
+      policyType: currentType,
+      skillDescription,
+      method: m,
+      files: m === "file" ? selectedFiles : [],
+      filePath: m === "path" ? pathValue.trim() : "",
+      url: m === "url" ? urlValue.trim() : "",
+    });
+  });
+}
+
+async function openAddPolicyFlow(category) {
+  const statusEl = document.getElementById(`${category}-status`);
+  // 이전 상태 메시지 초기화 — Add 플로우 시작 시
+  if (statusEl) {
+    statusEl.textContent = "";
+    statusEl.className = "info-message";
+  }
+  _showAddPolicyModal(category, async (data) => {
+    const { policyType, skillDescription, method, files, filePath, url } = data;
+    if (method === "file") {
+      let savedCount = 0;
+      let cancelledCount = 0;
+      for (const file of files) {
+        let content;
+        try {
+          content = await readFileAsText(file);
+        } catch {
+          if (statusEl)
+            showStatus(statusEl, `파일 읽기 실패: ${file.name}`, "error");
+          continue;
+        }
+        const hash = await _computeSha256Short(content);
+        const suspicious = _detectSuspiciousClient(content);
+        const confirmed = await new Promise((resolve) => {
+          _showSkillPreviewModal(
+            {
+              originUrl: `로컬 파일: ${file.name}`,
+              filename: file.name,
+              size: content.length,
+              hash,
+              suspicious,
+              content,
+            },
+            () => resolve(true),
+            () => resolve(false),
+          );
+        });
+        if (!confirmed) {
+          cancelledCount++;
+          continue;
+        }
+        vscode.postMessage({
+          command: "addAgentPolicyFile",
+          category,
+          fileName: file.name,
+          content,
+          policyType,
+          skillDescription,
+        });
+        savedCount++;
+      }
+      if (statusEl) {
+        if (savedCount > 0) showStatus(statusEl, "저장 중...", "info");
+        else if (cancelledCount > 0) showStatus(statusEl, "취소됨", "info");
+      }
+    } else if (method === "path") {
+      if (statusEl) showStatus(statusEl, "미리보기 중...", "info");
+      vscode.postMessage({
+        command: "previewAgentPolicyPath",
+        category,
+        filePath,
+        policyType,
+        skillDescription,
+      });
+    } else if (method === "url") {
+      if (statusEl) showStatus(statusEl, "다운로드 중...", "info");
+      vscode.postMessage({
+        command: "downloadSkillFromUrl",
+        url,
+        category,
+        policyType,
+        skillDescription,
+      });
+    }
+  });
+}
+
+// + 추가 버튼 바인딩 (6개 카테고리)
+[
+  "global-rules",
+  "stable-version",
+  "coding-style",
+  "project-architecture",
+  "dependency-policy",
+  "db-policy",
+].forEach((cat) => {
+  const btn = document.getElementById(`add-${cat}-button`);
+  if (btn) btn.addEventListener("click", () => openAddPolicyFlow(cat));
+});
+
+
 
 // AgentPolicy 관련 메시지 핸들러 (다중 파일 지원)
 window.addEventListener("message", (event) => {
@@ -4303,7 +5194,12 @@ window.addEventListener("message", (event) => {
         const fileTypes = message.fileTypes || {};
         const fileDescs = message.fileDescriptions || {};
         for (const category of Object.keys(message.files)) {
-          renderPolicyFileList(category, message.files[category], fileTypes[category], fileDescs[category]);
+          renderPolicyFileList(
+            category,
+            message.files[category],
+            fileTypes[category],
+            fileDescs[category],
+          );
         }
       }
       break;
@@ -4325,8 +5221,12 @@ window.addEventListener("message", (event) => {
           );
         }
         // 경로 입력 초기화 및 버튼 활성화
-        const addPathBtn = document.getElementById(`add-path-${message.category}-button`);
-        const pathInput = document.getElementById(`path-${message.category}-input`);
+        const addPathBtn = document.getElementById(
+          `add-path-${message.category}-button`,
+        );
+        const pathInput = document.getElementById(
+          `path-${message.category}-input`,
+        );
         if (addPathBtn) addPathBtn.disabled = false;
         if (pathInput) pathInput.value = "";
         // 파일 목록 새로고침
@@ -4348,11 +5248,107 @@ window.addEventListener("message", (event) => {
           const uploadBtnId = `upload-${message.category}-button`;
           const uploadBtn = document.getElementById(uploadBtnId);
           if (uploadBtn) uploadBtn.disabled = false;
-          const addPathBtn = document.getElementById(`add-path-${message.category}-button`);
+          const addPathBtn = document.getElementById(
+            `add-path-${message.category}-button`,
+          );
           if (addPathBtn) addPathBtn.disabled = false;
         }
       }
       break;
+
+    // URL 다운로드 미리보기 — 모달 표시 후 승인 시 기존 저장 경로 재사용
+    case "skillUrlDownloadPreview": {
+      const previewStatusEl = document.getElementById(
+        `${message.category}-status`,
+      );
+      const previewBtn = document.getElementById(
+        `download-${message.category}-button`,
+      );
+      if (previewBtn) previewBtn.disabled = false;
+      _showSkillPreviewModal(
+        message,
+        () => {
+          vscode.postMessage({
+            command: "addAgentPolicyFile",
+            category: message.category,
+            fileName: message.filename,
+            content: message.content,
+            policyType: message.policyType,
+            skillDescription: message.skillDescription,
+          });
+          if (previewStatusEl)
+            showStatus(previewStatusEl, "저장 중...", "info");
+          const urlInputEl = document.getElementById(
+            `url-${message.category}-input`,
+          );
+          if (urlInputEl) urlInputEl.value = "";
+        },
+        () => {
+          if (previewStatusEl) showStatus(previewStatusEl, "취소됨", "info");
+        },
+      );
+      break;
+    }
+
+    // 경로 추가 미리보기 응답 — 승인 시 addPathAgentPolicy 로 저장
+    case "agentPolicyPathPreview": {
+      const previewStatusEl = document.getElementById(
+        `${message.category}-status`,
+      );
+      const previewBtn = document.getElementById(
+        `add-path-${message.category}-button`,
+      );
+      if (previewBtn) previewBtn.disabled = false;
+      _showSkillPreviewModal(
+        message,
+        () => {
+          vscode.postMessage({
+            command: "addPathAgentPolicy",
+            category: message.category,
+            filePath: message.filePath,
+            policyType: message.policyType,
+            skillDescription: message.skillDescription,
+          });
+          if (previewStatusEl)
+            showStatus(previewStatusEl, "저장 중...", "info");
+          const pathInputEl = document.getElementById(
+            `path-${message.category}-input`,
+          );
+          if (pathInputEl) pathInputEl.value = "";
+          const typeSelector = document.querySelector(
+            `.policy-type-selector[data-category="${message.category}"]`,
+          );
+          const skillDescInput = typeSelector
+            ? typeSelector.querySelector(".policy-skill-desc")
+            : null;
+          if (skillDescInput) skillDescInput.value = "";
+        },
+        () => {
+          if (previewStatusEl) showStatus(previewStatusEl, "취소됨", "info");
+        },
+      );
+      break;
+    }
+    case "agentPolicyPathPreviewError": {
+      const errStatusEl = document.getElementById(`${message.category}-status`);
+      const errBtn = document.getElementById(
+        `add-path-${message.category}-button`,
+      );
+      if (errBtn) errBtn.disabled = false;
+      if (errStatusEl)
+        showStatus(errStatusEl, `미리보기 실패: ${message.error}`, "error");
+      break;
+    }
+    case "skillUrlDownloadError": {
+      const errStatusEl = document.getElementById(`${message.category}-status`);
+      const errBtn = document.getElementById(
+        `download-${message.category}-button`,
+      );
+      if (errBtn) errBtn.disabled = false;
+      if (errStatusEl)
+        showStatus(errStatusEl, `다운로드 실패: ${message.error}`, "error");
+      break;
+    }
 
     // Skills 전체 초기화 완료
     case "allSkillsReset":
@@ -4361,11 +5357,16 @@ window.addEventListener("message", (event) => {
         el.innerHTML = "";
       });
       // 상태 메시지 초기화
-      ["stable-version-status", "coding-style-status", "project-architecture-status",
-        "dependency-policy-status", "db-policy-status"].forEach((id) => {
-          const el = document.getElementById(id);
-          if (el) showStatus(el, "초기화 완료", "success");
-        });
+      [
+        "stable-version-status",
+        "coding-style-status",
+        "project-architecture-status",
+        "dependency-policy-status",
+        "db-policy-status",
+      ].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) showStatus(el, "초기화 완료", "success");
+      });
       break;
 
     // 파일 삭제 완료
@@ -4547,10 +5548,16 @@ function clearHotLoadForm() {
   if (descriptionInput) descriptionInput.value = "";
   if (commandInput) commandInput.value = "";
   if (conditionType) conditionType.value = "none";
-  if (conditionValue) { conditionValue.value = ""; conditionValue.style.display = "none"; }
+  if (conditionValue) {
+    conditionValue.value = "";
+    conditionValue.style.display = "none";
+  }
   if (maxRetries) maxRetries.value = "0";
   if (onFailure) onFailure.value = "stop";
-  if (addButton) { addButton.textContent = "저장"; delete addButton.dataset.editId; }
+  if (addButton) {
+    addButton.textContent = "저장";
+    delete addButton.dataset.editId;
+  }
   if (formTitle) formTitle.textContent = "Hot Load 추가";
 }
 
@@ -4581,7 +5588,9 @@ function renderHotLoadList(hotLoads) {
   }
 
   // 관리자 항목(immutable/fromServer)은 org-settings-hotload에서 별도 표시 → 개인 목록에서 제외
-  const personalHotLoads = (hotLoads || []).filter(h => !h.immutable && !h.fromServer);
+  const personalHotLoads = (hotLoads || []).filter(
+    (h) => !h.immutable && !h.fromServer,
+  );
 
   if (personalHotLoads.length === 0) {
     listContainer.innerHTML = "";
@@ -4940,7 +5949,9 @@ function hideContextExclusionForm() {
 
 function initializeContextExclusion() {
   const addButton = document.getElementById("add-context-exclusion-button");
-  const cancelButton = document.getElementById("cancel-context-exclusion-button");
+  const cancelButton = document.getElementById(
+    "cancel-context-exclusion-button",
+  );
   const toggleButton = document.getElementById("add-context-exclusion-toggle");
   const input = document.getElementById("context-exclusion-input");
 
@@ -4983,21 +5994,30 @@ initializeContextExclusion();
 // ========== 도구 실행 보안 규칙 관련 함수 ==========
 
 const SECURITY_TYPE_LABELS = {
-  blocked_command: '차단 명령어',
-  protected_file: '보호 파일',
-  hidden_file: '파일 은닉',
+  blocked_command: "차단 명령어",
+  protected_file: "보호 파일",
+  hidden_file: "파일 은닉",
 };
 
 const SECURITY_TYPE_BADGE_COLORS = {
-  blocked_command: 'background:#2563eb;color:#fff;',
-  protected_file: 'background:#2563eb;color:#fff;',
-  hidden_file: 'background:#2563eb;color:#fff;',
+  blocked_command: "background:#2563eb;color:#fff;",
+  protected_file: "background:#2563eb;color:#fff;",
+  hidden_file: "background:#2563eb;color:#fff;",
 };
 
 const SECURITY_TYPE_PLACEHOLDERS = {
-  blocked_command: { label: '명령어 패턴', placeholder: '예: docker rm, kubectl delete' },
-  protected_file: { label: '파일 패턴', placeholder: '예: config/production.json, *.secret' },
-  hidden_file: { label: '파일 패턴', placeholder: '예: .env*, credentials.json' },
+  blocked_command: {
+    label: "명령어 패턴",
+    placeholder: "예: docker rm, kubectl delete",
+  },
+  protected_file: {
+    label: "파일 패턴",
+    placeholder: "예: config/production.json, *.secret",
+  },
+  hidden_file: {
+    label: "파일 패턴",
+    placeholder: "예: .env*, credentials.json",
+  },
 };
 
 /**
@@ -5021,13 +6041,19 @@ function renderSecurityRulesLists(
 
   const allCustomRules = [];
   if (customBlockedCommands) {
-    customBlockedCommands.forEach((p) => allCustomRules.push({ pattern: p, type: 'blocked_command' }));
+    customBlockedCommands.forEach((p) =>
+      allCustomRules.push({ pattern: p, type: "blocked_command" }),
+    );
   }
   if (customProtectedFiles) {
-    customProtectedFiles.forEach((p) => allCustomRules.push({ pattern: p, type: 'protected_file' }));
+    customProtectedFiles.forEach((p) =>
+      allCustomRules.push({ pattern: p, type: "protected_file" }),
+    );
   }
   if (customHiddenFiles) {
-    customHiddenFiles.forEach((p) => allCustomRules.push({ pattern: p, type: 'hidden_file' }));
+    customHiddenFiles.forEach((p) =>
+      allCustomRules.push({ pattern: p, type: "hidden_file" }),
+    );
   }
 
   if (customList) {
@@ -5037,35 +6063,53 @@ function renderSecurityRulesLists(
     } else {
       if (customEmpty) customEmpty.style.display = "none";
       customList.innerHTML = allCustomRules
-        .map((rule) => `
+        .map(
+          (rule) => `
         <div class="api-key-section" style="margin-bottom: 8px; padding: 10px 15px;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <div style="display: flex; align-items: center; gap: 8px;">
               <code style="font-size: 0.9em;">${escapeHtml(rule.pattern)}</code>
-              <span style="${SECURITY_TYPE_BADGE_COLORS[rule.type] || SECURITY_TYPE_BADGE_COLORS.blocked_command}padding:1px 6px;border-radius:4px;font-size:0.75em;font-weight:500;">${SECURITY_TYPE_LABELS[rule.type] || '차단 명령어'}</span>
+              <span style="${SECURITY_TYPE_BADGE_COLORS[rule.type] || SECURITY_TYPE_BADGE_COLORS.blocked_command}padding:1px 6px;border-radius:4px;font-size:0.75em;font-weight:500;">${SECURITY_TYPE_LABELS[rule.type] || "차단 명령어"}</span>
             </div>
             <button class="delete-security-rule-btn" data-pattern="${escapeHtml(rule.pattern)}" data-type="${rule.type}">삭제</button>
           </div>
         </div>
-      `)
+      `,
+        )
         .join("");
 
       // 삭제 버튼 이벤트 바인딩
-      customList.querySelectorAll(".delete-security-rule-btn").forEach((btn) => {
-        btn.addEventListener("click", (e) => {
-          const pattern = e.currentTarget.dataset.pattern;
-          const type = e.currentTarget.dataset.type;
-          vscode.postMessage({ command: "deleteSecurityRule", pattern, type });
+      customList
+        .querySelectorAll(".delete-security-rule-btn")
+        .forEach((btn) => {
+          btn.addEventListener("click", (e) => {
+            const pattern = e.currentTarget.dataset.pattern;
+            const type = e.currentTarget.dataset.type;
+            vscode.postMessage({
+              command: "deleteSecurityRule",
+              pattern,
+              type,
+            });
+          });
         });
-      });
     }
   }
 
   // 기본 차단 명령어 목록 (읽기 전용)
-  const defaultCmdSection = document.getElementById("default-blocked-cmd-section");
-  const defaultCmdList = document.getElementById("blocked-command-default-list");
-  if (defaultCmdSection) defaultCmdSection.style.display = (defaultBlockedCommands && defaultBlockedCommands.length > 0) ? '' : 'none';
-  if (defaultCmdList && defaultBlockedCommands && defaultBlockedCommands.length > 0) {
+  const defaultCmdSection = document.getElementById(
+    "default-blocked-cmd-section",
+  );
+  const defaultCmdList = document.getElementById(
+    "blocked-command-default-list",
+  );
+  if (defaultCmdSection)
+    defaultCmdSection.style.display =
+      defaultBlockedCommands && defaultBlockedCommands.length > 0 ? "" : "none";
+  if (
+    defaultCmdList &&
+    defaultBlockedCommands &&
+    defaultBlockedCommands.length > 0
+  ) {
     defaultCmdList.innerHTML = defaultBlockedCommands
       .map((rule) => {
         return `<div style="display: flex; align-items: center; justify-content: space-between; margin: 4px 0; padding: 6px 10px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); border-radius: 4px; font-size: 0.85em; user-select: none;"><span>${escapeHtml(rule.description)}</span><code style="font-size: 0.8em; opacity: 0.7; margin-left: 8px; white-space: nowrap;">${escapeHtml(rule.pattern)}</code></div>`;
@@ -5074,15 +6118,29 @@ function renderSecurityRulesLists(
   }
 
   // 기본 보호 파일 목록 (토글 가능)
-  const defaultFileSection = document.getElementById("default-protected-file-section");
-  const defaultFileList = document.getElementById("protected-file-default-list");
-  if (defaultFileSection) defaultFileSection.style.display = (defaultProtectedFiles && defaultProtectedFiles.length > 0) ? '' : 'none';
-  if (defaultFileList && defaultProtectedFiles && defaultProtectedFiles.length > 0) {
+  const defaultFileSection = document.getElementById(
+    "default-protected-file-section",
+  );
+  const defaultFileList = document.getElementById(
+    "protected-file-default-list",
+  );
+  if (defaultFileSection)
+    defaultFileSection.style.display =
+      defaultProtectedFiles && defaultProtectedFiles.length > 0 ? "" : "none";
+  if (
+    defaultFileList &&
+    defaultProtectedFiles &&
+    defaultProtectedFiles.length > 0
+  ) {
     defaultFileList.innerHTML = defaultProtectedFiles
       .map((rule) => {
         const isDisabled = disabledFiles.includes(rule.id);
-        const bg = isDisabled ? "rgba(127,127,127,0.1)" : "var(--vscode-badge-background)";
-        const color = isDisabled ? "var(--vscode-disabledForeground, #888)" : "var(--vscode-badge-foreground)";
+        const bg = isDisabled
+          ? "rgba(127,127,127,0.1)"
+          : "var(--vscode-badge-background)";
+        const color = isDisabled
+          ? "var(--vscode-disabledForeground, #888)"
+          : "var(--vscode-badge-foreground)";
         const textDecoration = isDisabled ? "line-through" : "none";
         const opacity = isDisabled ? "0.5" : "1";
         const title = isDisabled ? "클릭하여 다시 활성화" : "클릭하여 비활성화";
@@ -5090,17 +6148,19 @@ function renderSecurityRulesLists(
       })
       .join("");
 
-    defaultFileList.querySelectorAll(".default-protected-file-tag").forEach((tag) => {
-      tag.addEventListener("click", (e) => {
-        const id = e.currentTarget.dataset.id;
-        const isDisabled = e.currentTarget.dataset.disabled === "true";
-        if (isDisabled) {
-          vscode.postMessage({ command: "enableProtectedFile", id: id });
-        } else {
-          vscode.postMessage({ command: "disableProtectedFile", id: id });
-        }
+    defaultFileList
+      .querySelectorAll(".default-protected-file-tag")
+      .forEach((tag) => {
+        tag.addEventListener("click", (e) => {
+          const id = e.currentTarget.dataset.id;
+          const isDisabled = e.currentTarget.dataset.disabled === "true";
+          if (isDisabled) {
+            vscode.postMessage({ command: "enableProtectedFile", id: id });
+          } else {
+            vscode.postMessage({ command: "disableProtectedFile", id: id });
+          }
+        });
       });
-    });
   }
 }
 
@@ -5131,7 +6191,9 @@ function updateSecurityRuleFormLabels() {
   const input = document.getElementById("security-rule-input");
   if (!typeSelect) return;
   const type = typeSelect.value;
-  const info = SECURITY_TYPE_PLACEHOLDERS[type] || SECURITY_TYPE_PLACEHOLDERS.blocked_command;
+  const info =
+    SECURITY_TYPE_PLACEHOLDERS[type] ||
+    SECURITY_TYPE_PLACEHOLDERS.blocked_command;
   if (label) label.textContent = info.label;
   if (input) input.placeholder = info.placeholder;
 }
@@ -5145,7 +6207,8 @@ function initializeSecurityRules() {
 
   // 유형 변경 시 라벨/플레이스홀더 업데이트
   const typeSelect = document.getElementById("security-rule-type");
-  if (typeSelect) typeSelect.addEventListener("change", updateSecurityRuleFormLabels);
+  if (typeSelect)
+    typeSelect.addEventListener("change", updateSecurityRuleFormLabels);
 
   // 추가
   const addBtn = document.getElementById("add-security-rule-button");
@@ -5162,7 +6225,9 @@ function initializeSecurityRules() {
         );
         return;
       }
-      const type = (document.getElementById("security-rule-type") || {}).value || "blocked_command";
+      const type =
+        (document.getElementById("security-rule-type") || {}).value ||
+        "blocked_command";
       vscode.postMessage({ command: "addSecurityRule", pattern, type });
     });
 
@@ -5219,7 +6284,8 @@ function updateUsageMetricsUI(metrics, toolStats) {
 
   if (memCurrent) memCurrent.textContent = metrics.memoryUsage || 0;
   if (memPeak) memPeak.textContent = metrics.peakMemory || 0;
-  if (sessionDuration) sessionDuration.textContent = formatDuration(metrics.sessionDuration || 0);
+  if (sessionDuration)
+    sessionDuration.textContent = formatDuration(metrics.sessionDuration || 0);
 
   // LLM 호출 통계
   const llmCalls = document.getElementById("metrics-llm-calls");
@@ -5228,8 +6294,10 @@ function updateUsageMetricsUI(metrics, toolStats) {
   const llmErrors = document.getElementById("metrics-llm-errors");
 
   if (llmCalls) llmCalls.textContent = formatNumber(metrics.llmCallCount || 0);
-  if (llmTokens) llmTokens.textContent = formatNumber(metrics.llmTotalTokens || 0);
-  if (llmAvgTime) llmAvgTime.textContent = formatNumber(metrics.llmAvgResponseTime || 0);
+  if (llmTokens)
+    llmTokens.textContent = formatNumber(metrics.llmTotalTokens || 0);
+  if (llmAvgTime)
+    llmAvgTime.textContent = formatNumber(metrics.llmAvgResponseTime || 0);
   if (llmErrors) llmErrors.textContent = formatNumber(metrics.llmErrors || 0);
 
   // 도구 실행 통계
@@ -5238,10 +6306,14 @@ function updateUsageMetricsUI(metrics, toolStats) {
   const toolFailure = document.getElementById("metrics-tool-failure");
   const toolAvgTime = document.getElementById("metrics-tool-avg-time");
 
-  if (toolTotal) toolTotal.textContent = formatNumber(metrics.toolExecutionCount || 0);
-  if (toolSuccess) toolSuccess.textContent = formatNumber(metrics.toolSuccessCount || 0);
-  if (toolFailure) toolFailure.textContent = formatNumber(metrics.toolFailureCount || 0);
-  if (toolAvgTime) toolAvgTime.textContent = formatNumber(metrics.toolAvgExecutionTime || 0);
+  if (toolTotal)
+    toolTotal.textContent = formatNumber(metrics.toolExecutionCount || 0);
+  if (toolSuccess)
+    toolSuccess.textContent = formatNumber(metrics.toolSuccessCount || 0);
+  if (toolFailure)
+    toolFailure.textContent = formatNumber(metrics.toolFailureCount || 0);
+  if (toolAvgTime)
+    toolAvgTime.textContent = formatNumber(metrics.toolAvgExecutionTime || 0);
 
   // 파일 작업 및 컨텍스트
   const filesCreated = document.getElementById("metrics-files-created");
@@ -5249,10 +6321,16 @@ function updateUsageMetricsUI(metrics, toolStats) {
   const compactionCount = document.getElementById("metrics-compaction-count");
   const tokensSaved = document.getElementById("metrics-tokens-saved");
 
-  if (filesCreated) filesCreated.textContent = formatNumber(metrics.filesCreated || 0);
-  if (filesModified) filesModified.textContent = formatNumber(metrics.filesModified || 0);
-  if (compactionCount) compactionCount.textContent = formatNumber(metrics.contextCompactionCount || 0);
-  if (tokensSaved) tokensSaved.textContent = formatNumber(metrics.tokensSaved || 0);
+  if (filesCreated)
+    filesCreated.textContent = formatNumber(metrics.filesCreated || 0);
+  if (filesModified)
+    filesModified.textContent = formatNumber(metrics.filesModified || 0);
+  if (compactionCount)
+    compactionCount.textContent = formatNumber(
+      metrics.contextCompactionCount || 0,
+    );
+  if (tokensSaved)
+    tokensSaved.textContent = formatNumber(metrics.tokensSaved || 0);
 
   console.log("[Settings] Usage metrics UI updated");
 }
@@ -5282,7 +6360,11 @@ initializeUsageMetrics();
 const resetSkillsButton = document.getElementById("reset-skills-button");
 if (resetSkillsButton) {
   resetSkillsButton.addEventListener("click", () => {
-    if (confirm("모든 Skills 파일을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.")) {
+    if (
+      confirm(
+        "모든 Skills 파일을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.",
+      )
+    ) {
       vscode.postMessage({ command: "resetAllSkills" });
     }
   });
@@ -5291,7 +6373,10 @@ if (resetSkillsButton) {
 // ===== 서버(조직) 설정 메시지 핸들러 =====
 window.addEventListener("message", (event) => {
   const message = event.data;
-  if (message.command === "serverSettingsLoaded" || message.command === "updateServerSettings") {
+  if (
+    message.command === "serverSettingsLoaded" ||
+    message.command === "updateServerSettings"
+  ) {
     const newSettings = message.settings || message.serverSettings;
     if (newSettings && typeof newSettings === "object") {
       cachedServerSettings = newSettings;
@@ -5315,19 +6400,25 @@ window.addEventListener("message", (event) => {
       syncBtn.classList.remove("syncing");
     }
     if (syncLabel) {
-      const count = Object.values(cachedServerSettings).reduce((s, arr) => s + arr.length, 0);
+      const count = Object.values(cachedServerSettings).reduce(
+        (s, arr) => s + arr.length,
+        0,
+      );
       syncLabel.textContent = count > 0 ? `${count}개 설정` : "";
     }
   }
 
   // 동기화 시 프로젝트 목록 갱신
-  if (message.command === "projectListUpdated" && Array.isArray(message.projects)) {
-    const projectSelect = document.getElementById('settings-project-select');
+  if (
+    message.command === "projectListUpdated" &&
+    Array.isArray(message.projects)
+  ) {
+    const projectSelect = document.getElementById("settings-project-select");
     if (projectSelect) {
       const currentVal = projectSelect.value;
       while (projectSelect.options.length > 1) projectSelect.remove(1);
-      message.projects.forEach(p => {
-        const opt = document.createElement('option');
+      message.projects.forEach((p) => {
+        const opt = document.createElement("option");
         opt.value = p.id;
         opt.textContent = p.name;
         projectSelect.appendChild(opt);

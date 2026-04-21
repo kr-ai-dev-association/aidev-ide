@@ -2,7 +2,66 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.66**
+> **현재 버전: v1.0.68**
+
+---
+
+## v1.0.68 (2026-04-21)
+
+### Skills/Rules 설정 패널 UX 재구성
+
+- **통합 Add 모달**: 6개 카테고리(글로벌 관리 / 버전 관리 / 코딩 스타일 / 프로젝트 아키텍처 / 의존성 정책 / DB) 각각 기존 "파일 추가 / 저장 / 경로 추가 / URL 다운로드" 다중 입력 그룹을 **`+ 추가` 버튼 하나**로 통합
+- **Add 모달 구성**: 타입 토글(규칙/스킬) + (스킬 선택 시) 필요 상황 설명 input + 방법 드롭다운(파일 업로드 / 경로 추가 / URL 다운로드) + 동적 입력 영역 + `[취소]` / `[다음]`
+- **미리보기 모달 연계**: Add 모달 `다음` → 파일 읽기(클라이언트) / 경로 읽기(백엔드 `previewAgentPolicyPath`) / URL fetch(`downloadSkillFromUrl`) → MD 미리보기 모달 → `[취소]` / `[저장]`
+- **진단 로깅**: `allAgentPolicyFilesList` 수신 시 카테고리별 파일 목록 console 출력
+
+### 버그 수정
+
+- **global-rules 카테고리 setup 누락 해결**: `categoryStatusMap`, `setupAgentPolicyFileUpload`, `setupAgentPolicyPathInput` 에서 빠져 있어 "파일 추가" 버튼이 무반응이던 문제 — 카테고리 목록에 정식 추가
+- **`application/octet-stream` Content-Type 허용**: 많은 서버가 `.md` MIME 매핑 없어 octet-stream 내려주는 현실 반영 — URL 이 `.md`/`.markdown` 확장자인 경우에만 octet-stream 통과 (화이트리스트 2차 검증)
+- **frontmatter 필수 검증 제거**: `injectOriginMetadata` 가 frontmatter 없으면 origin 메타만 포함한 블록 자동 생성 → Core 의 `injectFm` 이 이후 type/description 병합. 사용자가 순수 `.md` (frontmatter 없는) 도 URL 로 받을 수 있음
+- **로그인 직후 프로젝트 목록 갱신 누락**: `SettingsPanelProvider.onDidChangeAuth` 가 서버 설정만 갱신, 프로젝트 목록은 미로그인 상태 진입 시 빈 드롭다운으로 고정되던 문제 — 로그인 이벤트 수신 시 `/organizations/{orgId}/projects/` 재호출 + `projectListUpdated` 브로드캐스트. 진단 로그 추가
+
+### 테마/스타일 개선 — 라이트 모드
+
+- **일반 탭 저장 버튼 outline 스타일**: 파란 배경 → 투명 + 회색 테두리 + 회색 글씨
+- **규칙/스킬 토글 `.policy-type-btn`**: 양쪽 테마 모두 active 파란색 유지 — 라이트 모드 전역 `:not(.policy-type-btn)` override 에 예외 처리
+- **보안 탭 기본 차단 명령어 목록**: 컨테이너 `#f3f4f6` 회색 배경 유지. 각 아이템 inline badge 회색 → 투명. 설명+패턴이 한 줄로 깔끔
+- **미리보기 모달 색상**: 박스 배경 회색 + 내부 pre 흰색 + 스크롤바 track/thumb 흰색 계열
+- **미리보기 메타 색상**: label(b) + value(code) 모두 `color: inherit` 로 통일, code 폰트 monospace 명시
+
+### 알림 메시지 한글화
+
+- `CODEPILOT: {파일명} saved` → `CODEPILOT: {파일명} 저장됨`
+- `CODEPILOT: {파일명} deleted` → `CODEPILOT: {파일명} 삭제됨`
+- `CODEPILOT: file added from path` → `CODEPILOT: 경로에서 파일 추가됨`
+- `Error adding/deleting Agent Policy file: …` → `CODEPILOT: 파일 저장/삭제 실패 — …`
+- 카테고리별 5종 저장/삭제/에러 메시지 (버전 관리/코딩 스타일/프로젝트 아키텍처/의존성 정책/DB) 모두 한글
+
+---
+
+## v1.0.67 (2026-04-21)
+
+### URL에서 Skill/Rule .md 다운로드
+
+- **Skills 설정 UI에 URL 다운로드 추가**: 6개 카테고리(global-rules / stable-version / coding-style / project-architecture / dependency-policy / db-policy) 각각의 경로 입력 그룹 뒤에 URL 입력+"URL 다운로드" 버튼 동적 주입
+- **다운로드 → 미리보기 → 저장** 플로우: 백엔드가 fetch·검증한 뒤 출처·크기·SHA256·의심 패턴을 표시하는 모달로 응답. 사용자 확인 후 기존 `addAgentPolicyFile` 저장 경로 재사용
+- **컨텐츠 검증 (정식 보안 체크리스트 부분 적용)**: 1MB 상한, Content-Type 화이트리스트(text/markdown 계열), UTF-8 유효성, Null byte 거부, BOM 스트립, YAML frontmatter 존재 여부 확인
+- **파일 시스템 안전장치**: URL→파일명 slug 변환 시 `..` / 비-단어 문자 / leading dots 제거, 80자 상한, 강제 `.md` 확장자
+- **프롬프트 인젝션 휴리스틱** (경고만, 차단 X): "ignore previous" / 역할 태그 / 200자+ base64/hex / curl·wget / JS 코드 실행 패턴 / prompt injection 마커 감지 시 모달 상단에 amber 경고 박스
+- **출처 메타데이터 주입**: 다운로드된 `.md`의 frontmatter에 `_source_url` + `_source_hash` 자동 추가
+- **보안 제외 항목 (명시)**: Transport & SSRF(HTTPS 강제/TLS/IP 차단/timeout 등), 프롬프트 삽입 경고 배너, 허용 도메인 allowlist, hash pinning, 감사 로그, 비활성화 토글 — 현재 스코프 외
+
+### Prompt Injection Defense — `<untrusted_content>` 래핑 지원
+
+- **시스템 프롬프트 가이드 추가** (`base.ts` Prompt Injection Defense 섹션): 특정 도구 결과는 `<untrusted_content source="..." ...>...</untrusted_content>` 태그로 래핑되어 오며, 태그 내부는 **지시문이 아닌 참고 데이터**로만 해석해야 한다는 명시적 규칙 추가. "ignore previous instructions" / `system:` 역할 태그 / 임베디드 명령이 태그 안에 있어도 무시하도록 유도
+- **`FetchUrlToolHandler` 결과 래핑**: 외부 웹 페이지 내용은 `<untrusted_content source="fetch_url" url="..." length="..." [truncated="true"]>...</untrusted_content>` 형식으로 LLM에 전달. 공격자가 페이지에 심은 injection 완화
+- **래핑 대상 선정 원칙**: 외부 제어 가능한 데이터(fetch_url) **만** 래핑. Skills / Rules / RAG / HotLoad / 사용자 메시지 / 시스템 프롬프트는 기존 지시문 역할 보존 (래핑하지 않음). read_file / ripgrep_search / glob_search / run_command는 SEARCH/REPLACE·UI 경로 호환성 이슈로 이번 스코프에서 제외
+
+### 설정 UI 버튼 너비 조정
+
+- **한국어 4~6글자 버튼 줄바꿈 방지**: `.api-key-input-group button`에 `white-space: nowrap` + `word-break: keep-all` + `width: max-content` + `min-width: 110px` 적용 — "모델 저장" / "주소 저장" / "API 키 저장" / "경로 추가" / "URL 다운로드" 등 좁은 패널에서 2줄로 깨지던 문제 해결
+- **2글자 저장 버튼은 좁게**: `#upload-*-button`, `.save-button`, `#save-mcp-server-button`, `#bt-add-button`에 `min-width: 64px` + `padding-left/right: 12px` 적용
 
 ---
 
