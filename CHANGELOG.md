@@ -2,7 +2,19 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.69**
+> **현재 버전: v1.0.70**
+
+---
+
+## v1.0.70 (2026-04-22)
+
+### 스킬 저장·삭제·리스팅이 워크스페이스 없이도 동작
+
+- **문제**: 워크스페이스(폴더) 미오픈 상태에서 글로벌 규칙 외 카테고리(stable-version / coding-style / project-architecture / dependency-policy / db-policy)의 스킬·룰 저장·삭제·리스팅 시 `"저장 실패: 워크스페이스가 열려있지 않습니다."` 에러 발생
+- **수정**: `AgentPolicyHandler.ts` 의 `addAgentPolicyFile` / `addPathAgentPolicy` / `deleteAgentPolicyFile` / `listAllAgentPolicyFiles` 4개 핸들러에서 `context.storageUri!` non-null 단언과 워크스페이스 체크 throw 제거 → `(context.storageUri || context.globalStorageUri).fsPath` 폴백 적용
+- **설계 유지**: `global-rules` 는 여전히 `globalStorageUri` (기기 전역), 나머지 5개는 워크스페이스 있으면 `storageUri` (프로젝트 전용), 없으면 `globalStorageUri` 폴백
+- **Legacy 단일 파일 업로드 핸들러**(`uploadAgentPolicyStableVersion` 등)는 건드리지 않음
+- standalone v1.0.70 / agentgocoder v1.1.6 과 동일 패치
 
 ---
 
