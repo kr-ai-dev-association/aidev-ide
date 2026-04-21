@@ -21,6 +21,17 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 - **대상**: `.api-key-input-group` 내부 select/text/password/number, `.settings-section select`, `#user-model-form` 내부 select/text/password/number/textarea
 - **포커스 링**: 동일 셀렉터에 `var(--vscode-focusBorder, #007acc)` 보완
 
+### 라이트 모드 — 기본 차단 명령어 리스트 가독성 (follow-up)
+
+- **아이템이 컨테이너와 구분 안 되던 문제 수정**: `#blocked-command-default-list > div`에 강제 적용되던 `background: transparent !important`로 인해 컨테이너(`#f3f4f6`)와 아이템이 동색으로 보이던 문제 해결 — 흰색(`#ffffff`) 배경 + `#e5e7eb` 엷은 테두리 + `#374151` 글자로 다크 모드와 유사한 구분감 확보
+- **검은 OS 스크롤바 → 흰색 계열 스크롤바**: WebKit 의사 요소(`::-webkit-scrollbar`, `-track`, `-thumb`)로 라이트 테마 전용 흰색 계열 강제 — 트랙 `#f3f4f6`, thumb `#d1d5db` (hover `#9ca3af`), width 10px
+
+### 사용자 정의 모델 UI 마무리 (follow-up)
+
+- **리스트 아이템 양쪽 여백 정렬**: `border:1px solid` + `border-radius:4px` 제거 → `border-bottom:1px solid var(--vscode-panel-border)`로 변경. 섹션 내 다른 입력 그룹(모델 라우팅 설정 등)과 시각적 여백 일치
+- **"(표시용)" 문구 제거**: `<label for="user-model-name">` 텍스트를 "모델 이름 (표시용)" → "모델 이름"으로 단축
+- **삭제 버튼 빨강 제거**: 인라인 `background-color:#ef4444` 삭제 — 기본 파란 버튼 스타일 사용
+
 ---
 
 ## v1.0.68 (2026-04-21)

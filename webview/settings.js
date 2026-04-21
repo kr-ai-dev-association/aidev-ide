@@ -5208,8 +5208,6 @@ async function openAddPolicyFlow(category) {
   if (btn) btn.addEventListener("click", () => openAddPolicyFlow(cat));
 });
 
-
-
 // AgentPolicy 관련 메시지 핸들러 (다중 파일 지원)
 window.addEventListener("message", (event) => {
   const message = event.data;
@@ -6431,7 +6429,6 @@ window.addEventListener("message", (event) => {
   });
 })();
 
-
 /* ========================================================================= *
  *  사용자 정의 AI 모델 (User-Defined Models)
  *  - 로컬 저장(globalState + SecretStorage)
@@ -6669,7 +6666,7 @@ window.addEventListener("message", (event) => {
       const isActive = m.key === activeKey;
       const row = makeEl("div", {
         cls: "policy-file-item",
-        style: `display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--vscode-input-border);border-radius:4px;margin-bottom:6px;${isActive ? "background:rgba(16,185,129,0.08);" : ""}`,
+        style: `display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--vscode-panel-border);${isActive ? "background:rgba(16,185,129,0.08);" : ""}`,
         attrs: { "data-key": m.key },
       });
 
@@ -6724,7 +6721,7 @@ window.addEventListener("message", (event) => {
 
       const deleteBtn = makeEl("button", {
         text: "삭제",
-        style: "padding:4px 10px;background-color:#ef4444;",
+        style: "padding:4px 10px;",
         attrs: {
           type: "button",
           "data-user-model-delete": m.key,
