@@ -876,6 +876,8 @@ export class AgentPolicyHandler {
             command: "agentPolicyFileAdded",
             category,
             fileName: safeFileName,
+            policyType: fileType || "rule",
+            skillDescription: fileType === "skill" ? fileSkillDesc || "" : "",
           });
           notificationService.showInfoMessage(
             `CODEPILOT-STANDALONE: ${safeFileName} saved to skills/${category}/`,
@@ -977,6 +979,9 @@ export class AgentPolicyHandler {
             command: "agentPolicyFileAdded",
             category,
             fileName: safeFileName,
+            policyType: pathPolicyType || "rule",
+            skillDescription:
+              pathPolicyType === "skill" ? pathSkillDesc || "" : "",
           });
           notificationService.showInfoMessage(
             `CODEPILOT-STANDALONE: ${safeFileName} saved to skills/${category}/`,

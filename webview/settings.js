@@ -5254,7 +5254,30 @@ window.addEventListener("message", (event) => {
         );
         if (addPathBtn) addPathBtn.disabled = false;
         if (pathInput) pathInput.value = "";
-        // 파일 목록 새로고침
+
+        // Optimistic UI — 캐시에 즉시 추가하고 리스트 렌더
+        // (백엔드 listAllAgentPolicyFiles 응답을 기다리지 않고 즉시 반영)
+        const cat = message.category;
+        const existingList = Array.isArray(agentPolicyFilesCache[cat])
+          ? agentPolicyFilesCache[cat].slice()
+          : [];
+        if (!existingList.includes(message.fileName)) {
+          existingList.push(message.fileName);
+          agentPolicyFilesCache[cat] = existingList;
+          const typesMap = agentPolicyFileTypesCache[cat] || {};
+          const descsMap = agentPolicyFileDescsCache[cat] || {};
+          if (message.policyType) {
+            typesMap[message.fileName] = message.policyType;
+            agentPolicyFileTypesCache[cat] = typesMap;
+          }
+          if (message.skillDescription) {
+            descsMap[message.fileName] = message.skillDescription;
+            agentPolicyFileDescsCache[cat] = descsMap;
+          }
+          renderPolicyFileList(cat, existingList, typesMap, descsMap);
+        }
+
+        // 백엔드 전체 목록 재조회 — frontmatter type/desc 동기화
         vscode.postMessage({ command: "listAllAgentPolicyFiles" });
       }
       break;
