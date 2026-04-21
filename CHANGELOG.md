@@ -2,8 +2,18 @@
 
 VS Code용 AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.1.5**  
+> **현재 버전: v1.1.6**  
 > **브랜치:** `agentgocoder`
+
+---
+
+## v1.1.6 (2026-04-21)
+
+### 라이트 모드 — 기본 차단 명령어 리스트 가독성
+
+- **아이템이 컨테이너와 구분 안 되던 문제 수정**: `#blocked-command-default-list > div` 에 강제로 적용되던 `background: transparent !important`로 인해 컨테이너(`#f3f4f6`)와 아이템이 동색으로 보이던 문제 해결 — **흰색(`#ffffff`) 배경 + `#e5e7eb` 엷은 테두리 + `#374151` 글자**로 다크 모드와 유사한 구분감 확보
+- **검은 OS 스크롤바 → 흰색 계열 스크롤바**: WebKit 의사 요소(`::-webkit-scrollbar`, `-track`, `-thumb`)로 라이트 테마 전용 흰색 계열 강제 — 트랙 `#f3f4f6`, thumb `#d1d5db` (hover `#9ca3af`), width 10px
+- **적용 범위**: `#blocked-command-default-list` 만 (tab-security의 기본 차단 명령어 리스트)
 
 ---
 
