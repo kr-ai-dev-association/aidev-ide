@@ -140,7 +140,7 @@ class ErrorReportingService {
         }
         const batch = this.queue.splice(0, this.MAX_QUEUE);
         try {
-            const { CodePilotApiClient } = await __webpack_require__.e(/*! import() */ "src_services_api_CodePilotApiClient_ts").then(__webpack_require__.bind(__webpack_require__, /*! ../api/CodePilotApiClient */ "./src/services/api/CodePilotApiClient.ts"));
+            const { CodePilotApiClient } = await Promise.all(/*! import() */[__webpack_require__.e("vendors-node_modules_undici_index_js"), __webpack_require__.e("src_services_api_CodePilotApiClient_ts")]).then(__webpack_require__.bind(__webpack_require__, /*! ../api/CodePilotApiClient */ "./src/services/api/CodePilotApiClient.ts"));
             const { AuthService } = await Promise.resolve(/*! import() */).then(__webpack_require__.bind(__webpack_require__, /*! ../auth/AuthService */ "./src/services/auth/AuthService.ts"));
             const auth = AuthService.getInstance();
             if (!auth.isLoggedIn())

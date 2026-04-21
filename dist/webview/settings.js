@@ -12,7 +12,10 @@ return /******/ (() => { // webpackBootstrap
 /******/ 	"use strict";
 /******/ 	var __webpack_modules__ = ({
 
-/***/ 158:
+/***/ "./webview/settings/api-keys.js":
+/*!**************************************!*\
+  !*** ./webview/settings/api-keys.js ***!
+  \**************************************/
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -183,310 +186,10 @@ function bindBanyaApiKeyEvents(elements, languageData) {
 
 /***/ }),
 
-/***/ 159:
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   bindSpinnerEvents: () => (/* binding */ bindSpinnerEvents),
-/* harmony export */   bindToggleEvents: () => (/* binding */ bindToggleEvents),
-/* harmony export */   updateSpinnerValue: () => (/* binding */ updateSpinnerValue),
-/* harmony export */   updateToggleState: () => (/* binding */ updateToggleState)
-/* harmony export */ });
-/**
- * Toggles Module
- * 토글 스위치 관련 기능 (자동 업데이트, 스트리밍 등)
- */
-
-/**
- * 토글 이벤트 바인딩
- * @param {Object} elements - DOM 요소들
- */
-function bindToggleEvents(elements) {
-  const {
-    autoUpdateToggle,
-    autoDeleteToggle,
-    streamingToggle,
-    nativeToolCallingToggle,
-    thinkingToggle,
-    autoTestRetryToggle,
-    autoCorrectionToggle,
-    autoExecuteToggle,
-    autoToolToggle,
-    autoMcpToolToggle,
-    orchestrationToggle,
-    inlineCompletionToggle,
-    vscode
-  } = elements;
-
-  // 자동 파일 업데이트 토글
-  if (autoUpdateToggle) {
-    autoUpdateToggle.addEventListener("change", () => {
-      const enabled = autoUpdateToggle.checked;
-      if (vscode) {
-        vscode.postMessage({
-          command: "setAutoUpdateEnabled",
-          enabled
-        });
-      }
-    });
-  }
-
-  // 자동 파일 삭제 토글
-  if (autoDeleteToggle) {
-    autoDeleteToggle.addEventListener("change", () => {
-      const enabled = autoDeleteToggle.checked;
-      if (vscode) {
-        vscode.postMessage({
-          command: "setAutoDeleteFilesEnabled",
-          enabled
-        });
-      }
-    });
-  }
-
-  // 도구 자동 실행 토글
-  if (autoToolToggle) {
-    autoToolToggle.addEventListener("change", () => {
-      const enabled = autoToolToggle.checked;
-      if (vscode) {
-        vscode.postMessage({
-          command: "setAutoToolExecutionEnabled",
-          enabled
-        });
-      }
-    });
-  }
-
-  // 스트리밍 토글
-  if (streamingToggle) {
-    streamingToggle.addEventListener("change", () => {
-      const enabled = streamingToggle.checked;
-      if (vscode) {
-        vscode.postMessage({
-          command: "setStreamingEnabled",
-          enabled
-        });
-      }
-    });
-  }
-
-  // 네이티브 툴 콜링 토글
-  if (nativeToolCallingToggle) {
-    nativeToolCallingToggle.addEventListener("change", () => {
-      const enabled = nativeToolCallingToggle.checked;
-      if (vscode) {
-        vscode.postMessage({
-          command: "setNativeToolCallingEnabled",
-          enabled
-        });
-      }
-    });
-  }
-
-  // Thinking(추론) 토글
-  if (thinkingToggle) {
-    thinkingToggle.addEventListener("change", () => {
-      const enabled = thinkingToggle.checked;
-      if (vscode) {
-        vscode.postMessage({
-          command: "setThinkingEnabled",
-          enabled
-        });
-      }
-    });
-  }
-
-  // Thinking 레벨 선택
-  const thinkingLevelSelect = document.getElementById("thinking-level-select");
-  if (thinkingLevelSelect) {
-    thinkingLevelSelect.addEventListener("change", () => {
-      if (vscode) {
-        vscode.postMessage({
-          command: "setThinkingLevel",
-          level: thinkingLevelSelect.value
-        });
-      }
-    });
-  }
-
-  // 자동 테스트 재시도 토글
-  if (autoTestRetryToggle) {
-    autoTestRetryToggle.addEventListener("change", () => {
-      const enabled = autoTestRetryToggle.checked;
-      if (vscode) {
-        vscode.postMessage({
-          command: "setAutoTestRetryEnabled",
-          enabled
-        });
-      }
-    });
-  }
-
-  // 자동 오류 수정 토글
-  if (autoCorrectionToggle) {
-    autoCorrectionToggle.addEventListener("change", () => {
-      const enabled = autoCorrectionToggle.checked;
-      if (vscode) {
-        vscode.postMessage({
-          command: "setAutoCorrectionEnabled",
-          enabled
-        });
-      }
-    });
-  }
-
-  // MCP 도구 자동 실행 토글
-  if (autoMcpToolToggle) {
-    autoMcpToolToggle.addEventListener("change", () => {
-      const enabled = autoMcpToolToggle.checked;
-      if (vscode) {
-        vscode.postMessage({
-          command: "setAutoMcpToolExecutionEnabled",
-          enabled
-        });
-      }
-    });
-  }
-
-  // 오케스트레이션 토글
-  if (orchestrationToggle) {
-    orchestrationToggle.addEventListener("change", () => {
-      const enabled = orchestrationToggle.checked;
-      if (vscode) {
-        vscode.postMessage({
-          command: "setOrchestrationEnabled",
-          enabled
-        });
-      }
-    });
-  }
-
-  // 명령어 자동 실행 토글
-  if (autoExecuteToggle) {
-    autoExecuteToggle.addEventListener("change", () => {
-      const enabled = autoExecuteToggle.checked;
-      if (vscode) {
-        vscode.postMessage({
-          command: "setAutoExecuteCommandsEnabled",
-          enabled
-        });
-      }
-    });
-  }
-  const blockOutsideProjectToggle = document.getElementById("block-outside-project-toggle");
-  if (blockOutsideProjectToggle) {
-    blockOutsideProjectToggle.addEventListener("change", () => {
-      const enabled = blockOutsideProjectToggle.checked;
-      if (vscode) {
-        vscode.postMessage({
-          command: "setBlockOutsideProjectEnabled",
-          enabled
-        });
-      }
-    });
-  }
-
-  // 소스코드 자동완성 토글
-  if (inlineCompletionToggle) {
-    inlineCompletionToggle.addEventListener("change", () => {
-      const enabled = inlineCompletionToggle.checked;
-      if (vscode) {
-        vscode.postMessage({
-          command: "setInlineCompletionEnabled",
-          enabled
-        });
-      }
-    });
-  }
-
-  // 다음 작업 제안 토글
-  const promptSuggestionToggle = document.getElementById("prompt-suggestion-toggle");
-  if (promptSuggestionToggle) {
-    promptSuggestionToggle.addEventListener("change", () => {
-      const enabled = promptSuggestionToggle.checked;
-      if (vscode) {
-        vscode.postMessage({
-          command: "setPromptSuggestionEnabled",
-          enabled
-        });
-      }
-    });
-  }
-}
-
-/**
- * 토글 상태 업데이트
- * @param {HTMLElement} toggleElement - 토글 요소
- * @param {HTMLElement} statusElement - 상태 표시 요소
- * @param {boolean} enabled - 활성화 여부
- * @param {Object} languageData - 언어 데이터
- * @param {string} enabledKey - 활성화 텍스트 키
- * @param {string} disabledKey - 비활성화 텍스트 키
- */
-function updateToggleState(toggleElement, statusElement, enabled, languageData, enabledKey, disabledKey) {
-  if (toggleElement) {
-    toggleElement.checked = enabled;
-  }
-  if (statusElement) {
-    const text = enabled ? languageData[enabledKey] || "활성화됨" : languageData[disabledKey] || "비활성화됨";
-    statusElement.textContent = text;
-    statusElement.className = enabled ? "success-message" : "info-message";
-  }
-}
-
-/**
- * 스피너 값 이벤트 바인딩
- * @param {Object} elements - DOM 요소들
- */
-function bindSpinnerEvents(elements) {
-  const {
-    testRetrySpinner,
-    errorRetrySpinner,
-    vscode
-  } = elements;
-
-  // 테스트 재시도 횟수 스피너
-  if (testRetrySpinner) {
-    testRetrySpinner.addEventListener("change", () => {
-      const count = parseInt(testRetrySpinner.value, 10);
-      if (!isNaN(count) && count >= 1 && count <= 10 && vscode) {
-        vscode.postMessage({
-          command: "setTestRetryCount",
-          count
-        });
-      }
-    });
-  }
-
-  // 오류 수정 재시도 횟수 스피너
-  if (errorRetrySpinner) {
-    errorRetrySpinner.addEventListener("change", () => {
-      const count = parseInt(errorRetrySpinner.value, 10);
-      if (!isNaN(count) && count >= 1 && count <= 10 && vscode) {
-        vscode.postMessage({
-          command: "setErrorRetryCount",
-          count
-        });
-      }
-    });
-  }
-}
-
-/**
- * 스피너 값 업데이트
- * @param {HTMLElement} spinnerElement - 스피너 요소
- * @param {number} value - 값
- */
-function updateSpinnerValue(spinnerElement, value) {
-  if (spinnerElement && typeof value === "number") {
-    spinnerElement.value = value;
-  }
-}
-
-/***/ }),
-
-/***/ 160:
+/***/ "./webview/settings/mcp-settings.js":
+/*!******************************************!*\
+  !*** ./webview/settings/mcp-settings.js ***!
+  \******************************************/
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -496,7 +199,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   updateMcpServerStatus: () => (/* binding */ updateMcpServerStatus),
 /* harmony export */   updateMcpServers: () => (/* binding */ updateMcpServers)
 /* harmony export */ });
-/* harmony import */ var _api_keys_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(158);
+/* harmony import */ var _api_keys_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./api-keys.js */ "./webview/settings/api-keys.js");
 /**
  * MCP Settings Module
  * MCP 서버 설정 관련 기능
@@ -1323,6 +1026,312 @@ function handleMcpMessage(data) {
   }
 }
 
+/***/ }),
+
+/***/ "./webview/settings/toggles.js":
+/*!*************************************!*\
+  !*** ./webview/settings/toggles.js ***!
+  \*************************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   bindSpinnerEvents: () => (/* binding */ bindSpinnerEvents),
+/* harmony export */   bindToggleEvents: () => (/* binding */ bindToggleEvents),
+/* harmony export */   updateSpinnerValue: () => (/* binding */ updateSpinnerValue),
+/* harmony export */   updateToggleState: () => (/* binding */ updateToggleState)
+/* harmony export */ });
+/**
+ * Toggles Module
+ * 토글 스위치 관련 기능 (자동 업데이트, 스트리밍 등)
+ */
+
+/**
+ * 토글 이벤트 바인딩
+ * @param {Object} elements - DOM 요소들
+ */
+function bindToggleEvents(elements) {
+  const {
+    autoUpdateToggle,
+    autoDeleteToggle,
+    streamingToggle,
+    nativeToolCallingToggle,
+    thinkingToggle,
+    autoTestRetryToggle,
+    autoCorrectionToggle,
+    autoExecuteToggle,
+    autoToolToggle,
+    autoMcpToolToggle,
+    orchestrationToggle,
+    inlineCompletionToggle,
+    vscode
+  } = elements;
+
+  // 자동 파일 업데이트 토글
+  if (autoUpdateToggle) {
+    autoUpdateToggle.addEventListener("change", () => {
+      const enabled = autoUpdateToggle.checked;
+      if (vscode) {
+        vscode.postMessage({
+          command: "setAutoUpdateEnabled",
+          enabled
+        });
+      }
+    });
+  }
+
+  // 자동 파일 삭제 토글
+  if (autoDeleteToggle) {
+    autoDeleteToggle.addEventListener("change", () => {
+      const enabled = autoDeleteToggle.checked;
+      if (vscode) {
+        vscode.postMessage({
+          command: "setAutoDeleteFilesEnabled",
+          enabled
+        });
+      }
+    });
+  }
+
+  // 도구 자동 실행 토글
+  if (autoToolToggle) {
+    autoToolToggle.addEventListener("change", () => {
+      const enabled = autoToolToggle.checked;
+      if (vscode) {
+        vscode.postMessage({
+          command: "setAutoToolExecutionEnabled",
+          enabled
+        });
+      }
+    });
+  }
+
+  // 스트리밍 토글
+  if (streamingToggle) {
+    streamingToggle.addEventListener("change", () => {
+      const enabled = streamingToggle.checked;
+      if (vscode) {
+        vscode.postMessage({
+          command: "setStreamingEnabled",
+          enabled
+        });
+      }
+    });
+  }
+
+  // 네이티브 툴 콜링 토글
+  if (nativeToolCallingToggle) {
+    nativeToolCallingToggle.addEventListener("change", () => {
+      const enabled = nativeToolCallingToggle.checked;
+      if (vscode) {
+        vscode.postMessage({
+          command: "setNativeToolCallingEnabled",
+          enabled
+        });
+      }
+    });
+  }
+
+  // Thinking(추론) 토글
+  if (thinkingToggle) {
+    thinkingToggle.addEventListener("change", () => {
+      const enabled = thinkingToggle.checked;
+      if (vscode) {
+        vscode.postMessage({
+          command: "setThinkingEnabled",
+          enabled
+        });
+      }
+    });
+  }
+
+  // Thinking 레벨 선택
+  const thinkingLevelSelect = document.getElementById("thinking-level-select");
+  if (thinkingLevelSelect) {
+    thinkingLevelSelect.addEventListener("change", () => {
+      if (vscode) {
+        vscode.postMessage({
+          command: "setThinkingLevel",
+          level: thinkingLevelSelect.value
+        });
+      }
+    });
+  }
+
+  // 자동 테스트 재시도 토글
+  if (autoTestRetryToggle) {
+    autoTestRetryToggle.addEventListener("change", () => {
+      const enabled = autoTestRetryToggle.checked;
+      if (vscode) {
+        vscode.postMessage({
+          command: "setAutoTestRetryEnabled",
+          enabled
+        });
+      }
+    });
+  }
+
+  // 자동 오류 수정 토글
+  if (autoCorrectionToggle) {
+    autoCorrectionToggle.addEventListener("change", () => {
+      const enabled = autoCorrectionToggle.checked;
+      if (vscode) {
+        vscode.postMessage({
+          command: "setAutoCorrectionEnabled",
+          enabled
+        });
+      }
+    });
+  }
+
+  // MCP 도구 자동 실행 토글
+  if (autoMcpToolToggle) {
+    autoMcpToolToggle.addEventListener("change", () => {
+      const enabled = autoMcpToolToggle.checked;
+      if (vscode) {
+        vscode.postMessage({
+          command: "setAutoMcpToolExecutionEnabled",
+          enabled
+        });
+      }
+    });
+  }
+
+  // 오케스트레이션 토글
+  if (orchestrationToggle) {
+    orchestrationToggle.addEventListener("change", () => {
+      const enabled = orchestrationToggle.checked;
+      if (vscode) {
+        vscode.postMessage({
+          command: "setOrchestrationEnabled",
+          enabled
+        });
+      }
+    });
+  }
+
+  // 명령어 자동 실행 토글
+  if (autoExecuteToggle) {
+    autoExecuteToggle.addEventListener("change", () => {
+      const enabled = autoExecuteToggle.checked;
+      if (vscode) {
+        vscode.postMessage({
+          command: "setAutoExecuteCommandsEnabled",
+          enabled
+        });
+      }
+    });
+  }
+  const blockOutsideProjectToggle = document.getElementById("block-outside-project-toggle");
+  if (blockOutsideProjectToggle) {
+    blockOutsideProjectToggle.addEventListener("change", () => {
+      const enabled = blockOutsideProjectToggle.checked;
+      if (vscode) {
+        vscode.postMessage({
+          command: "setBlockOutsideProjectEnabled",
+          enabled
+        });
+      }
+    });
+  }
+
+  // 소스코드 자동완성 토글
+  if (inlineCompletionToggle) {
+    inlineCompletionToggle.addEventListener("change", () => {
+      const enabled = inlineCompletionToggle.checked;
+      if (vscode) {
+        vscode.postMessage({
+          command: "setInlineCompletionEnabled",
+          enabled
+        });
+      }
+    });
+  }
+
+  // 다음 작업 제안 토글
+  const promptSuggestionToggle = document.getElementById("prompt-suggestion-toggle");
+  if (promptSuggestionToggle) {
+    promptSuggestionToggle.addEventListener("change", () => {
+      const enabled = promptSuggestionToggle.checked;
+      if (vscode) {
+        vscode.postMessage({
+          command: "setPromptSuggestionEnabled",
+          enabled
+        });
+      }
+    });
+  }
+}
+
+/**
+ * 토글 상태 업데이트
+ * @param {HTMLElement} toggleElement - 토글 요소
+ * @param {HTMLElement} statusElement - 상태 표시 요소
+ * @param {boolean} enabled - 활성화 여부
+ * @param {Object} languageData - 언어 데이터
+ * @param {string} enabledKey - 활성화 텍스트 키
+ * @param {string} disabledKey - 비활성화 텍스트 키
+ */
+function updateToggleState(toggleElement, statusElement, enabled, languageData, enabledKey, disabledKey) {
+  if (toggleElement) {
+    toggleElement.checked = enabled;
+  }
+  if (statusElement) {
+    const text = enabled ? languageData[enabledKey] || "활성화됨" : languageData[disabledKey] || "비활성화됨";
+    statusElement.textContent = text;
+    statusElement.className = enabled ? "success-message" : "info-message";
+  }
+}
+
+/**
+ * 스피너 값 이벤트 바인딩
+ * @param {Object} elements - DOM 요소들
+ */
+function bindSpinnerEvents(elements) {
+  const {
+    testRetrySpinner,
+    errorRetrySpinner,
+    vscode
+  } = elements;
+
+  // 테스트 재시도 횟수 스피너
+  if (testRetrySpinner) {
+    testRetrySpinner.addEventListener("change", () => {
+      const count = parseInt(testRetrySpinner.value, 10);
+      if (!isNaN(count) && count >= 1 && count <= 10 && vscode) {
+        vscode.postMessage({
+          command: "setTestRetryCount",
+          count
+        });
+      }
+    });
+  }
+
+  // 오류 수정 재시도 횟수 스피너
+  if (errorRetrySpinner) {
+    errorRetrySpinner.addEventListener("change", () => {
+      const count = parseInt(errorRetrySpinner.value, 10);
+      if (!isNaN(count) && count >= 1 && count <= 10 && vscode) {
+        vscode.postMessage({
+          command: "setErrorRetryCount",
+          count
+        });
+      }
+    });
+  }
+}
+
+/**
+ * 스피너 값 업데이트
+ * @param {HTMLElement} spinnerElement - 스피너 요소
+ * @param {number} value - 값
+ */
+function updateSpinnerValue(spinnerElement, value) {
+  if (spinnerElement && typeof value === "number") {
+    spinnerElement.value = value;
+  }
+}
+
 /***/ })
 
 /******/ 	});
@@ -1384,10 +1393,13 @@ function handleMcpMessage(data) {
 var __webpack_exports__ = {};
 // This entry needs to be wrapped in an IIFE because it needs to be isolated against other modules in the chunk.
 (() => {
+/*!*****************************!*\
+  !*** ./webview/settings.js ***!
+  \*****************************/
 __webpack_require__.r(__webpack_exports__);
-/* harmony import */ var _settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(158);
-/* harmony import */ var _settings_toggles_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(159);
-/* harmony import */ var _settings_mcp_settings_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(160);
+/* harmony import */ var _settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./settings/api-keys.js */ "./webview/settings/api-keys.js");
+/* harmony import */ var _settings_toggles_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./settings/toggles.js */ "./webview/settings/toggles.js");
+/* harmony import */ var _settings_mcp_settings_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ./settings/mcp-settings.js */ "./webview/settings/mcp-settings.js");
 // settings.js
 
 
@@ -5017,6 +5029,7 @@ function loadAgentPolicyFiles() {
 
 // 카테고리별 상태 요소 ID 매핑
 const categoryStatusMap = {
+  "global-rules": "global-rules-status",
   "stable-version": "stable-version-status",
   "coding-style": "coding-style-status",
   "project-architecture": "project-architecture-status",
@@ -5024,13 +5037,7 @@ const categoryStatusMap = {
   "db-policy": "db-policy-status"
 };
 
-// AgentPolicy 파일 업로드 설정 (다중 파일 지원)
-setupAgentPolicyFileUpload("agent-policy-stable-version-input", "select-stable-version-button", "upload-stable-version-button", "stable-version-status", "stable-version-file-name", "stable-version");
-setupAgentPolicyFileUpload("agent-policy-coding-style-input", "select-coding-style-button", "upload-coding-style-button", "coding-style-status", "coding-style-file-name", "coding-style");
-setupAgentPolicyFileUpload("agent-policy-project-architecture-input", "select-project-architecture-button", "upload-project-architecture-button", "project-architecture-status", "project-architecture-file-name", "project-architecture");
-setupAgentPolicyFileUpload("agent-policy-dependency-policy-input", "select-dependency-policy-button", "upload-dependency-policy-button", "dependency-policy-status", "dependency-policy-file-name", "dependency-policy");
-setupAgentPolicyFileUpload("agent-policy-db-policy-input", "select-db-policy-button", "upload-db-policy-button", "db-policy-status", "db-policy-file-name", "db-policy");
-
+// 파일 업로드/경로/URL setup 호출 제거 — 통합 모달로 대체
 // AgentPolicy 경로 입력 설정
 function setupAgentPolicyPathInput(category, pathInputId, buttonId, statusId) {
   const pathInput = document.getElementById(pathInputId);
@@ -5067,11 +5074,6 @@ function setupAgentPolicyPathInput(category, pathInputId, buttonId, statusId) {
     if (e.key === "Enter") addButton.click();
   });
 }
-setupAgentPolicyPathInput("stable-version", "path-stable-version-input", "add-path-stable-version-button", "stable-version-status");
-setupAgentPolicyPathInput("coding-style", "path-coding-style-input", "add-path-coding-style-button", "coding-style-status");
-setupAgentPolicyPathInput("project-architecture", "path-project-architecture-input", "add-path-project-architecture-button", "project-architecture-status");
-setupAgentPolicyPathInput("dependency-policy", "path-dependency-policy-input", "add-path-dependency-policy-button", "dependency-policy-status");
-setupAgentPolicyPathInput("db-policy", "path-db-policy-input", "add-path-db-policy-button", "db-policy-status");
 
 // ─────────────────────────────────────────────────────────────
 // URL 다운로드로 Skill/Rule 추가 (경로 입력 그룹 뒤에 주입)
@@ -5124,14 +5126,25 @@ function setupAgentPolicyUrlDownload(category) {
     if (e.key === "Enter") doDownload();
   });
 }
-["global-rules", "stable-version", "coding-style", "project-architecture", "dependency-policy", "db-policy"].forEach(c => setupAgentPolicyUrlDownload(c));
 function _showSkillPreviewModal(data, onConfirm, onCancel) {
   const existing = document.getElementById("skill-preview-modal");
   if (existing) existing.remove();
   const isLight = document.body.getAttribute("data-theme") === "light" || document.body.classList.contains("vscode-light") || document.documentElement.getAttribute("data-theme") === "light";
-  if (!document.getElementById("md-preview-modal-style")) {
+  {
+    const prev = document.getElementById("md-preview-modal-style");
+    if (prev) prev.remove();
     const style = document.createElement("style");
     style.id = "md-preview-modal-style";
+    const scrollbarCss = isLight ? `
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar { width: 8px !important; height: 8px !important; }
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar-track { background: #f3f4f6 !important; }
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar-thumb { background: #9ca3af !important; border-radius: 4px !important; }
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar-thumb:hover { background: #6b7280 !important; }
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar-corner { background: #f3f4f6 !important; }` : `
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar { width: 8px !important; height: 8px !important; }
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar-track { background: transparent !important; }
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2) !important; border-radius: 4px !important; }
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.35) !important; }`;
     style.textContent = `
       #skill-preview-modal .md-preview-meta b { color: inherit; font-weight: 600; margin-right: 4px; }
       #skill-preview-modal .md-preview-meta code {
@@ -5142,19 +5155,7 @@ function _showSkillPreviewModal(data, onConfirm, onCancel) {
         font-size: inherit !important;
         word-break: break-all;
       }
-      #skill-preview-modal .md-preview-pre::-webkit-scrollbar { width: 8px; height: 8px; }
-      #skill-preview-modal .md-preview-pre::-webkit-scrollbar-track { background: transparent; }
-      #skill-preview-modal .md-preview-pre::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.35); border-radius: 4px; }
-      #skill-preview-modal .md-preview-pre::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.55); }
-      body[data-theme="light"] #skill-preview-modal .md-preview-pre::-webkit-scrollbar-track,
-      body.vscode-light #skill-preview-modal .md-preview-pre::-webkit-scrollbar-track,
-      html[data-theme="light"] #skill-preview-modal .md-preview-pre::-webkit-scrollbar-track { background: #f3f4f6; }
-      body[data-theme="light"] #skill-preview-modal .md-preview-pre::-webkit-scrollbar-thumb,
-      body.vscode-light #skill-preview-modal .md-preview-pre::-webkit-scrollbar-thumb,
-      html[data-theme="light"] #skill-preview-modal .md-preview-pre::-webkit-scrollbar-thumb { background: #9ca3af; }
-      body[data-theme="light"] #skill-preview-modal .md-preview-pre::-webkit-scrollbar-thumb:hover,
-      body.vscode-light #skill-preview-modal .md-preview-pre::-webkit-scrollbar-thumb:hover,
-      html[data-theme="light"] #skill-preview-modal .md-preview-pre::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+      ${scrollbarCss}
     `;
     document.head.appendChild(style);
   }
@@ -5251,6 +5252,309 @@ function _detectSuspiciousClient(content) {
   }
   return matches;
 }
+
+// ────────────────────────────────────────────────────────────
+// Skills/Rules 추가 — 통합 모달 (타입 + 방법 드롭다운)
+// ────────────────────────────────────────────────────────────
+
+function _showAddPolicyModal(category, onSubmit) {
+  const existing = document.getElementById("add-policy-modal");
+  if (existing) existing.remove();
+  const isLight = document.body.getAttribute("data-theme") === "light" || document.body.classList.contains("vscode-light") || document.documentElement.getAttribute("data-theme") === "light";
+  const boxBg = isLight ? "#ffffff" : "var(--vscode-editor-background,#1e1e1e)";
+  const boxBorder = isLight ? "#e5e7eb" : "var(--vscode-input-border,#444)";
+  const boxFg = isLight ? "#111827" : "var(--vscode-foreground,#ccc)";
+  const labelFg = isLight ? "#4b5563" : "var(--vscode-descriptionForeground,#aaa)";
+  const inputBg = isLight ? "#ffffff" : "var(--vscode-input-background,#3c3c3c)";
+  const inputBorder = isLight ? "#d1d5db" : "var(--vscode-input-border,#555)";
+  const inputFg = isLight ? "#111827" : "var(--vscode-input-foreground,#ccc)";
+  const btnOutline = isLight ? "background:transparent;color:#4b5563;border:1px solid #9ca3af;" : "background:transparent;color:var(--vscode-foreground);border:1px solid rgba(255,255,255,0.35);";
+  const btnPrimary = "background:#2563eb;color:#ffffff;border:1px solid #2563eb;";
+  const overlay = document.createElement("div");
+  overlay.id = "add-policy-modal";
+  overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10000;display:flex;align-items:center;justify-content:center;";
+  const box = document.createElement("div");
+  box.style.cssText = `background:${boxBg};color:${boxFg};border:1px solid ${boxBorder};border-radius:6px;width:80%;max-width:560px;padding:16px;display:flex;flex-direction:column;gap:12px;font-family:var(--vscode-font-family);`;
+  const title = document.createElement("h3");
+  title.style.cssText = `margin:0;font-size:1em;color:${boxFg};`;
+  title.textContent = "Skill/Rule 추가";
+  box.appendChild(title);
+  const typeRow = document.createElement("div");
+  typeRow.style.cssText = "display:flex;flex-direction:column;gap:4px;";
+  const typeLabel = document.createElement("label");
+  typeLabel.textContent = "타입";
+  typeLabel.style.cssText = `font-size:0.85em;color:${labelFg};`;
+  typeRow.appendChild(typeLabel);
+  const typeGroup = document.createElement("div");
+  typeGroup.style.cssText = `display:flex;border:1px solid ${inputBorder};border-radius:4px;overflow:hidden;width:fit-content;`;
+  let currentType = "rule";
+  // 클래스 `.policy-type-btn` 사용 — 전역 라이트 :not(.policy-type-btn) override 회피 + .active 시 파란색 규칙 적용
+  const ruleBtn = document.createElement("button");
+  ruleBtn.type = "button";
+  ruleBtn.className = "policy-type-btn active";
+  ruleBtn.dataset.type = "rule";
+  ruleBtn.textContent = "규칙";
+  ruleBtn.style.cssText = "padding:6px 14px;font-size:0.85em;border:none;cursor:pointer;";
+  const skillBtn = document.createElement("button");
+  skillBtn.type = "button";
+  skillBtn.className = "policy-type-btn";
+  skillBtn.dataset.type = "skill";
+  skillBtn.textContent = "스킬";
+  skillBtn.style.cssText = `padding:6px 14px;font-size:0.85em;border:none;border-left:1px solid ${inputBorder};cursor:pointer;`;
+  typeGroup.appendChild(ruleBtn);
+  typeGroup.appendChild(skillBtn);
+  typeRow.appendChild(typeGroup);
+  const skillDescInput = document.createElement("input");
+  skillDescInput.type = "text";
+  skillDescInput.placeholder = "이 스킬이 필요한 상황을 설명하세요";
+  skillDescInput.style.cssText = `display:none;padding:6px 8px;font-size:0.85em;background:${inputBg};color:${inputFg};border:1px solid ${inputBorder};border-radius:3px;margin-top:4px;`;
+  typeRow.appendChild(skillDescInput);
+  const setType = t => {
+    currentType = t;
+    if (t === "skill") {
+      skillBtn.classList.add("active");
+      ruleBtn.classList.remove("active");
+      skillDescInput.style.display = "";
+    } else {
+      ruleBtn.classList.add("active");
+      skillBtn.classList.remove("active");
+      skillDescInput.style.display = "none";
+    }
+  };
+  ruleBtn.addEventListener("click", () => setType("rule"));
+  skillBtn.addEventListener("click", () => setType("skill"));
+  box.appendChild(typeRow);
+  const methodRow = document.createElement("div");
+  methodRow.style.cssText = "display:flex;flex-direction:column;gap:4px;";
+  const methodLabel = document.createElement("label");
+  methodLabel.textContent = "추가 방법";
+  methodLabel.style.cssText = `font-size:0.85em;color:${labelFg};`;
+  methodRow.appendChild(methodLabel);
+  const methodSelect = document.createElement("select");
+  methodSelect.style.cssText = `padding:6px 8px;font-size:0.9em;background:${inputBg};color:${inputFg};border:1px solid ${inputBorder};border-radius:3px;`;
+  [["file", "파일 업로드"], ["path", "경로 추가"], ["url", "URL 다운로드"]].forEach(([v, label]) => {
+    const opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = label;
+    methodSelect.appendChild(opt);
+  });
+  methodRow.appendChild(methodSelect);
+  box.appendChild(methodRow);
+  const inputArea = document.createElement("div");
+  inputArea.style.cssText = "display:flex;flex-direction:column;gap:4px;";
+  box.appendChild(inputArea);
+  const statusEl = document.createElement("p");
+  statusEl.style.cssText = `font-size:0.8em;margin:0;min-height:1.2em;color:${labelFg};`;
+  box.appendChild(statusEl);
+  let selectedFiles = [];
+  let pathValue = "";
+  let urlValue = "";
+  const clearInputArea = () => {
+    while (inputArea.firstChild) inputArea.removeChild(inputArea.firstChild);
+  };
+  const renderInput = () => {
+    clearInputArea();
+    statusEl.textContent = "";
+    const m = methodSelect.value;
+    if (m === "file") {
+      const fileLabel = document.createElement("label");
+      fileLabel.textContent = "Markdown 파일 (.md)";
+      fileLabel.style.cssText = `font-size:0.85em;color:${labelFg};`;
+      const fileBtn = document.createElement("button");
+      fileBtn.type = "button";
+      fileBtn.textContent = "파일 선택";
+      fileBtn.style.cssText = `padding:6px 14px;font-size:0.85em;${btnOutline}border-radius:3px;cursor:pointer;width:fit-content;`;
+      const fileInput = document.createElement("input");
+      fileInput.type = "file";
+      fileInput.accept = ".md,.markdown,text/markdown";
+      fileInput.multiple = true;
+      fileInput.style.display = "none";
+      const fileNameEl = document.createElement("p");
+      fileNameEl.style.cssText = `font-size:0.8em;margin:0;color:${labelFg};`;
+      fileBtn.addEventListener("click", () => fileInput.click());
+      fileInput.addEventListener("change", e => {
+        selectedFiles = Array.from(e.target.files || []).filter(f => f.name.endsWith(".md") || f.name.endsWith(".markdown"));
+        fileNameEl.textContent = selectedFiles.length ? `선택: ${selectedFiles.map(f => f.name).join(", ")}` : "";
+      });
+      inputArea.appendChild(fileLabel);
+      inputArea.appendChild(fileBtn);
+      inputArea.appendChild(fileInput);
+      inputArea.appendChild(fileNameEl);
+    } else if (m === "path") {
+      const pathLabel = document.createElement("label");
+      pathLabel.textContent = "파일 경로 (절대 경로)";
+      pathLabel.style.cssText = `font-size:0.85em;color:${labelFg};`;
+      const pathInput = document.createElement("input");
+      pathInput.type = "text";
+      pathInput.placeholder = "/path/to/file.md";
+      pathInput.value = pathValue;
+      pathInput.style.cssText = `padding:6px 8px;font-size:0.85em;background:${inputBg};color:${inputFg};border:1px solid ${inputBorder};border-radius:3px;`;
+      pathInput.addEventListener("input", e => {
+        pathValue = e.target.value;
+      });
+      inputArea.appendChild(pathLabel);
+      inputArea.appendChild(pathInput);
+    } else if (m === "url") {
+      const urlLabel = document.createElement("label");
+      urlLabel.textContent = "URL (https://...)";
+      urlLabel.style.cssText = `font-size:0.85em;color:${labelFg};`;
+      const urlInput = document.createElement("input");
+      urlInput.type = "text";
+      urlInput.placeholder = "https://example.com/file.md";
+      urlInput.value = urlValue;
+      urlInput.style.cssText = `padding:6px 8px;font-size:0.85em;background:${inputBg};color:${inputFg};border:1px solid ${inputBorder};border-radius:3px;`;
+      urlInput.addEventListener("input", e => {
+        urlValue = e.target.value;
+      });
+      inputArea.appendChild(urlLabel);
+      inputArea.appendChild(urlInput);
+    }
+  };
+  methodSelect.addEventListener("change", renderInput);
+  renderInput();
+  const actions = document.createElement("div");
+  actions.style.cssText = "display:flex;gap:8px;justify-content:flex-end;margin-top:4px;";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.textContent = "취소";
+  cancelBtn.style.cssText = `padding:6px 14px;font-size:0.85em;${btnOutline}border-radius:3px;cursor:pointer;`;
+  const nextBtn = document.createElement("button");
+  nextBtn.type = "button";
+  nextBtn.textContent = "다음";
+  nextBtn.style.cssText = `padding:6px 14px;font-size:0.85em;${btnPrimary}border-radius:3px;cursor:pointer;`;
+  actions.appendChild(cancelBtn);
+  actions.appendChild(nextBtn);
+  box.appendChild(actions);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  cancelBtn.addEventListener("click", () => overlay.remove());
+  nextBtn.addEventListener("click", () => {
+    const m = methodSelect.value;
+    const skillDescription = currentType === "skill" ? skillDescInput.value.trim() : "";
+    if (currentType === "skill" && !skillDescription) {
+      statusEl.textContent = "스킬 설명을 입력하세요.";
+      statusEl.style.color = "#ef4444";
+      return;
+    }
+    if (m === "file") {
+      if (selectedFiles.length === 0) {
+        statusEl.textContent = "파일을 선택하세요.";
+        statusEl.style.color = "#ef4444";
+        return;
+      }
+    } else if (m === "path") {
+      if (!pathValue.trim()) {
+        statusEl.textContent = "파일 경로를 입력하세요.";
+        statusEl.style.color = "#ef4444";
+        return;
+      }
+      const p = pathValue.trim();
+      if (!p.endsWith(".md") && !p.endsWith(".markdown")) {
+        statusEl.textContent = "Markdown 파일(.md)만 추가할 수 있습니다.";
+        statusEl.style.color = "#ef4444";
+        return;
+      }
+    } else if (m === "url") {
+      if (!urlValue.trim()) {
+        statusEl.textContent = "URL을 입력하세요.";
+        statusEl.style.color = "#ef4444";
+        return;
+      }
+    }
+    overlay.remove();
+    onSubmit({
+      policyType: currentType,
+      skillDescription,
+      method: m,
+      files: m === "file" ? selectedFiles : [],
+      filePath: m === "path" ? pathValue.trim() : "",
+      url: m === "url" ? urlValue.trim() : ""
+    });
+  });
+}
+async function openAddPolicyFlow(category) {
+  const statusEl = document.getElementById(`${category}-status`);
+  // 이전 상태 메시지 초기화 — Add 플로우 시작 시
+  if (statusEl) {
+    statusEl.textContent = "";
+    statusEl.className = "info-message";
+  }
+  _showAddPolicyModal(category, async data => {
+    const {
+      policyType,
+      skillDescription,
+      method,
+      files,
+      filePath,
+      url
+    } = data;
+    if (method === "file") {
+      let savedCount = 0;
+      let cancelledCount = 0;
+      for (const file of files) {
+        let content;
+        try {
+          content = await readFileAsText(file);
+        } catch {
+          if (statusEl) (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(statusEl, `파일 읽기 실패: ${file.name}`, "error");
+          continue;
+        }
+        const hash = await _computeSha256Short(content);
+        const suspicious = _detectSuspiciousClient(content);
+        const confirmed = await new Promise(resolve => {
+          _showSkillPreviewModal({
+            originUrl: `로컬 파일: ${file.name}`,
+            filename: file.name,
+            size: content.length,
+            hash,
+            suspicious,
+            content
+          }, () => resolve(true), () => resolve(false));
+        });
+        if (!confirmed) {
+          cancelledCount++;
+          continue;
+        }
+        vscode.postMessage({
+          command: "addAgentPolicyFile",
+          category,
+          fileName: file.name,
+          content,
+          policyType,
+          skillDescription
+        });
+        savedCount++;
+      }
+      if (statusEl) {
+        if (savedCount > 0) (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(statusEl, "저장 중...", "info");else if (cancelledCount > 0) (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(statusEl, "취소됨", "info");
+      }
+    } else if (method === "path") {
+      if (statusEl) (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(statusEl, "미리보기 중...", "info");
+      vscode.postMessage({
+        command: "previewAgentPolicyPath",
+        category,
+        filePath,
+        policyType,
+        skillDescription
+      });
+    } else if (method === "url") {
+      if (statusEl) (0,_settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__.showStatus)(statusEl, "다운로드 중...", "info");
+      vscode.postMessage({
+        command: "downloadSkillFromUrl",
+        url,
+        category,
+        policyType,
+        skillDescription
+      });
+    }
+  });
+}
+
+// + 추가 버튼 바인딩 (6개 카테고리)
+["global-rules", "stable-version", "coding-style", "project-architecture", "dependency-policy", "db-policy"].forEach(cat => {
+  const btn = document.getElementById(`add-${cat}-button`);
+  if (btn) btn.addEventListener("click", () => openAddPolicyFlow(cat));
+});
 
 // AgentPolicy 관련 메시지 핸들러 (다중 파일 지원)
 window.addEventListener("message", event => {

@@ -24,7 +24,7 @@ class CodePilotApiClient {
         // vscode import를 지연로딩
         const vscode = __webpack_require__(/*! vscode */ "vscode");
         const config = vscode.workspace.getConfiguration("codepilot");
-        this.baseUrl = config.get("backendUrl") || "https://api-codepilot.banya.ai/api/v1";
+        this.baseUrl = config.get("backendUrl");
     }
     static getInstance() {
         if (!CodePilotApiClient.instance) {
@@ -78,10 +78,12 @@ class CodePilotApiClient {
     /**
      * 전체 유효 설정 조회
      */
-    async getAllEffectiveSettings(orgId) {
+    async getAllEffectiveSettings(orgId, projectId) {
         const params = {};
         if (orgId)
             params.org_id = orgId;
+        if (projectId)
+            params.project_id = projectId;
         return this.get("/settings/effective/all/", params);
     }
     /**
@@ -93,10 +95,12 @@ class CodePilotApiClient {
     /**
      * RAG 검색
      */
-    async searchRag(query, orgId, sourceIds, topK = 5) {
+    async searchRag(query, orgId, sourceIds, topK = 5, projectId) {
         const body = { query, top_k: topK };
         if (orgId)
             body.org_id = orgId;
+        if (projectId)
+            body.project_id = projectId;
         if (sourceIds)
             body.source_ids = sourceIds;
         return this.post("/rag/search/", body);
@@ -104,10 +108,12 @@ class CodePilotApiClient {
     /**
      * RAG 소스 목록 조회 (조직 또는 개인)
      */
-    async getRagSources(orgId) {
+    async getRagSources(orgId, projectId) {
         const params = {};
         if (orgId)
             params.org_id = orgId;
+        if (projectId)
+            params.project_id = projectId;
         return this.get("/rag/sources/", params);
     }
     /**
@@ -134,7 +140,23 @@ class CodePilotApiClient {
         });
     }
     // ── 내부 메서드 ──────────────────────────────────────────
-    static TIMEOUT_MS = 15_000;
+    static TIMEOUT_MS = 30_000;
+    /** undici Agent (TCP connect timeout 확장용, 싱글턴) */
+    static _agent = null;
+    static getAgent() {
+        if (!CodePilotApiClient._agent) {
+            try {
+                const { Agent } = __webpack_require__(/*! undici */ "./node_modules/undici/index.js");
+                CodePilotApiClient._agent = new Agent({
+                    connect: { timeout: CodePilotApiClient.TIMEOUT_MS },
+                });
+            }
+            catch {
+                // undici를 로드할 수 없는 환경에서는 null (기본 fetch 사용)
+            }
+        }
+        return CodePilotApiClient._agent;
+    }
     async request(url, options) {
         const headers = {
             ...options.headers,
@@ -184,9 +206,16 @@ class CodePilotApiClient {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), CodePilotApiClient.TIMEOUT_MS);
         try {
-            return await fetch(url, { ...options, signal: controller.signal });
+            const fetchOptions = { ...options, signal: controller.signal };
+            // undici의 TCP connect timeout(기본 10초)을 늘리기 위해 dispatcher 설정
+            const agent = CodePilotApiClient.getAgent();
+            if (agent) {
+                fetchOptions.dispatcher = agent;
+            }
+            return await fetch(url, fetchOptions);
         }
         catch (e) {
+            console.error(`[CodePilotApiClient] fetch 실패: ${url}`, e?.message, e?.cause);
             if (e?.name === "AbortError") {
                 throw new Error(`요청 시간 초과 (${CodePilotApiClient.TIMEOUT_MS / 1000}초)`);
             }

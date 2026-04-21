@@ -136,6 +136,68 @@
       color: #374151 !important;
     }
 
+    /* 다크 테마 — select / text / password / number / textarea 테두리 가시성
+       (VS Code 다크 테마는 --vscode-input-border가 투명인 경우가 많아 라운드선이 안 보임) */
+    body:not([data-theme="light"]) .api-key-input-group select,
+    body:not([data-theme="light"]) .api-key-input-group input[type="text"],
+    body:not([data-theme="light"]) .api-key-input-group input[type="password"],
+    body:not([data-theme="light"]) .api-key-input-group input[type="number"],
+    body:not([data-theme="light"]) .settings-section select,
+    body:not([data-theme="light"]) .settings-section input[type="text"],
+    body:not([data-theme="light"]) .settings-section input[type="password"],
+    body:not([data-theme="light"]) .settings-section input[type="number"] {
+      border-color: rgba(255, 255, 255, 0.18) !important;
+    }
+    body:not([data-theme="light"]) .api-key-input-group select:focus,
+    body:not([data-theme="light"]) .api-key-input-group input[type="text"]:focus,
+    body:not([data-theme="light"]) .api-key-input-group input[type="password"]:focus,
+    body:not([data-theme="light"]) .api-key-input-group input[type="number"]:focus,
+    body:not([data-theme="light"]) .settings-section select:focus,
+    body:not([data-theme="light"]) .settings-section input[type="text"]:focus,
+    body:not([data-theme="light"]) .settings-section input[type="password"]:focus,
+    body:not([data-theme="light"]) .settings-section input[type="number"]:focus {
+      border-color: var(--vscode-focusBorder, #007acc) !important;
+    }
+
+    /* ═══ 계정 섹션 — 라이트 모드 미세 조정 ═══ */
+    /* 로그아웃·계정 탈퇴 버튼의 기본 회색 라운드 테두리 제거 */
+    body[data-theme="light"] .account-logout-link,
+    body[data-theme="light"] #settings-delete-account-btn {
+      border: none !important;
+      outline: none !important;
+    }
+
+    /* 계정 탈퇴 — 원래의 강한 빨강(`--vscode-errorForeground`) 대신 부드러운 톤 */
+    body[data-theme="light"] #settings-delete-account-btn {
+      color: #c85050 !important;
+      opacity: 0.8 !important;
+    }
+    body[data-theme="light"] #settings-delete-account-btn:hover {
+      color: #b04343 !important;
+      opacity: 1 !important;
+    }
+
+    /* 조직 연결 — 탈퇴 버튼도 같은 부드러운 빨강 계열로 */
+    body[data-theme="light"] #settings-clear-apikey-btn {
+      background-color: #fde2e2 !important;
+      color: #b04343 !important;
+      border: 1px solid #f0b8b8 !important;
+    }
+    body[data-theme="light"] #settings-clear-apikey-btn:hover {
+      background-color: #fbcfcf !important;
+      color: #933636 !important;
+    }
+
+    /* 조직 연결 "미설정" 회색 배경 — 좀 더 진하게 + 글자 진하게 */
+    body[data-theme="light"] #settings-apikey-display {
+      background-color: #d6dae0 !important;
+      color: #1f2937 !important;
+    }
+    /* 조직 연결 설명 문구 — 기본 회색보다 한 단계 진하게 */
+    body[data-theme="light"] #settings-apikey-desc {
+      color: #4b5563 !important;
+    }
+
     body[data-theme="light"] .toggle-switch-container label {
       background: #9ca3af !important;
     }
