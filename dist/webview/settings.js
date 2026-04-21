@@ -6990,6 +6990,24 @@ window.addEventListener("message", event => {
       }
     });
   }
+
+  // 메인 AI 모델 드롭다운(#ai-model-select)에 사용자 모델 옵션 직접 주입 (그룹 없이)
+  function refreshUserModelsInMainDropdown() {
+    const mainSelect = document.getElementById("ai-model-select");
+    if (!mainSelect) return;
+    mainSelect.querySelectorAll("optgroup[data-user-group]").forEach(og => og.remove());
+    mainSelect.querySelectorAll("option[data-user-option]").forEach(o => o.remove());
+    const models = window.__userModels || [];
+    if (models.length === 0) return;
+    for (const m of models) {
+      const opt = document.createElement("option");
+      opt.value = `user:${m.key}`;
+      opt.textContent = m.name;
+      opt.setAttribute("data-user-option", "true");
+      mainSelect.appendChild(opt);
+    }
+  }
+  window.refreshUserModelsInMainDropdown = refreshUserModelsInMainDropdown;
   window.addEventListener("message", event => {
     const message = event.data || {};
     switch (message.command) {
@@ -6997,6 +7015,7 @@ window.addEventListener("message", event => {
         {
           window.__userModels = Array.isArray(message.models) ? message.models : [];
           renderList(window.__userModels);
+          refreshUserModelsInMainDropdown();
           break;
         }
       case "userModelSaved":
@@ -7005,6 +7024,7 @@ window.addEventListener("message", event => {
           renderList(window.__userModels);
           hideForm();
           setStatus("저장되었습니다.", false);
+          refreshUserModelsInMainDropdown();
           break;
         }
       case "userModelDeleted":
@@ -7012,6 +7032,7 @@ window.addEventListener("message", event => {
           window.__userModels = Array.isArray(message.models) ? message.models : window.__userModels;
           renderList(window.__userModels);
           setStatus("삭제되었습니다.", false);
+          refreshUserModelsInMainDropdown();
           break;
         }
       case "userModelSaveError":
