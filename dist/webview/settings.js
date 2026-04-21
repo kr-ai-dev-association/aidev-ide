@@ -5907,7 +5907,7 @@ window.addEventListener("message", event => {
   function clearChildren(node) {
     while (node.firstChild) node.removeChild(node.firstChild);
   }
-  function renderList(models, activeKey) {
+  function renderList(models) {
     if (!listEl) return;
     clearChildren(listEl);
     if (!Array.isArray(models) || models.length === 0) {
@@ -5919,24 +5919,13 @@ window.addEventListener("message", event => {
       return;
     }
     for (const m of models) {
-      const isActive = m.key === activeKey;
       const row = makeEl("div", {
         cls: "policy-file-item",
-        style: `display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--vscode-panel-border);${isActive ? "background:rgba(16,185,129,0.08);" : ""}`,
+        style: `display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--vscode-panel-border);`,
         attrs: {
           "data-key": m.key
         }
       });
-      const radio = makeEl("input", {
-        attrs: {
-          type: "radio",
-          name: "user-model-active",
-          value: m.key,
-          "data-user-model-radio": "1"
-        }
-      });
-      if (isActive) radio.checked = true;
-      row.appendChild(radio);
       const info = makeEl("div", {
         style: "flex:1;min-width:0;"
       });
@@ -5944,11 +5933,6 @@ window.addEventListener("message", event => {
         style: "font-weight:600;"
       });
       title.textContent = m.name;
-      const providerSpan = makeEl("span", {
-        style: "font-weight:400;color:var(--vscode-descriptionForeground);font-size:0.85em;margin-left:6px;",
-        text: `(${m.provider})`
-      });
-      title.appendChild(providerSpan);
       info.appendChild(title);
       const detail = makeEl("div", {
         style: "font-family:monospace;font-size:0.8em;color:var(--vscode-descriptionForeground);",
@@ -5957,7 +5941,7 @@ window.addEventListener("message", event => {
       info.appendChild(detail);
       const keyLine = makeEl("div", {
         style: m.hasApiKey ? "font-size:0.75em;color:#10b981;" : "font-size:0.75em;color:#f59e0b;",
-        text: m.hasApiKey ? "🔑 API 키 저장됨" : "⚠ API 키 없음"
+        text: m.hasApiKey ? "API 키 저장됨" : "API 키 없음"
       });
       info.appendChild(keyLine);
       row.appendChild(info);
@@ -6095,16 +6079,6 @@ window.addEventListener("message", event => {
         }
       }
     });
-    listEl.addEventListener("change", e => {
-      const t = e.target;
-      if (!(t instanceof HTMLInputElement)) return;
-      if (t.getAttribute("data-user-model-radio") && t.checked) {
-        vscode.postMessage({
-          command: "selectUserModel",
-          key: t.value
-        });
-      }
-    });
   }
   window.addEventListener("message", event => {
     const message = event.data || {};
@@ -6112,46 +6086,28 @@ window.addEventListener("message", event => {
       case "userModelsLoaded":
         {
           window.__userModels = Array.isArray(message.models) ? message.models : [];
-          window.__activeUserModelKey = message.activeKey || "";
-          renderList(window.__userModels, window.__activeUserModelKey);
-          if (typeof window.refreshUserModelsInMainDropdown === "function") {
-            window.refreshUserModelsInMainDropdown();
-          }
+          renderList(window.__userModels);
           break;
         }
       case "userModelSaved":
         {
           window.__userModels = Array.isArray(message.models) ? message.models : window.__userModels;
-          renderList(window.__userModels, window.__activeUserModelKey);
+          renderList(window.__userModels);
           hideForm();
           setStatus("저장되었습니다.", false);
-          if (typeof window.refreshUserModelsInMainDropdown === "function") {
-            window.refreshUserModelsInMainDropdown();
-          }
           break;
         }
       case "userModelDeleted":
         {
           window.__userModels = Array.isArray(message.models) ? message.models : window.__userModels;
-          if (window.__activeUserModelKey === message.key) window.__activeUserModelKey = "";
-          renderList(window.__userModels, window.__activeUserModelKey);
+          renderList(window.__userModels);
           setStatus("삭제되었습니다.", false);
-          if (typeof window.refreshUserModelsInMainDropdown === "function") {
-            window.refreshUserModelsInMainDropdown();
-          }
           break;
         }
       case "userModelSaveError":
         {
           if (formErrorEl) formErrorEl.textContent = message.error || "저장 실패";
           setStatus(message.error || "저장 실패", true);
-          break;
-        }
-      case "userModelSelected":
-        {
-          window.__activeUserModelKey = message.key || "";
-          renderList(window.__userModels, window.__activeUserModelKey);
-          setStatus(`활성 모델로 적용: ${message.modelName || message.key}`, false);
           break;
         }
       case "userModelConnectionTestResult":
@@ -6161,27 +6117,6 @@ window.addEventListener("message", event => {
         }
     }
   });
-
-  // 메인 드롭다운(#ai-model-select)에 "사용자 정의" optgroup 추가
-  window.refreshUserModelsInMainDropdown = function refreshUserModelsInMainDropdown() {
-    const mainSelect = document.getElementById("ai-model-select");
-    if (!mainSelect) return;
-    mainSelect.querySelectorAll("optgroup[data-user-group]").forEach(og => og.remove());
-    mainSelect.querySelectorAll("option[data-user-option]").forEach(o => o.remove());
-    const models = window.__userModels || [];
-    if (models.length === 0) return;
-    const og = document.createElement("optgroup");
-    og.setAttribute("data-user-group", "true");
-    og.label = "사용자 정의";
-    for (const m of models) {
-      const opt = document.createElement("option");
-      opt.value = `user:${m.key}`;
-      opt.textContent = `${m.name} (${m.provider})`;
-      opt.setAttribute("data-user-option", "true");
-      og.appendChild(opt);
-    }
-    mainSelect.appendChild(og);
-  };
 
   // 초기 로드
   document.addEventListener("DOMContentLoaded", () => {

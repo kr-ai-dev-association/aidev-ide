@@ -2193,6 +2193,7 @@ window.addEventListener("message", (event) => {
         message.current || "",
         message.adminModels || [],
         message.supportedModels || [],
+        message.userModels || [],
       );
       break;
     case "ollamaModelChanged":

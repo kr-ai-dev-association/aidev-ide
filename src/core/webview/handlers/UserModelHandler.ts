@@ -262,6 +262,23 @@ export class UserModelHandler {
   }
 
   /**
+   * 채팅 패널 드롭다운에 표시할 사용자 모델 목록
+   * `{ key, name, displayName }` 형식 — adminModels/supportedModels와 동일 패턴
+   */
+  static listForChatDropdown(
+    context: vscode.ExtensionContext,
+  ): { key: string; name: string; displayName: string }[] {
+    const models = readUserModels(context);
+    return models
+      .filter((m) => m.enabled !== false)
+      .map((m) => ({
+        key: m.key,
+        name: `user:${m.key}`,
+        displayName: m.name || m.model || m.key,
+      }));
+  }
+
+  /**
    * 외부에서 활성 사용자 모델을 로드·적용할 때 사용
    * `saveAiModel`에서 `user:{key}` 처리 시 재사용
    */

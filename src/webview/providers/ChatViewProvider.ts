@@ -16,6 +16,7 @@ import { ModelConnectionService } from "../../core/managers/model/ModelConnectio
 import { InlineDiffManager } from "../../core/managers/diff/InlineDiffManager";
 import { getAllExclusionPaths } from "../../core/utils/FileExclusionConstants";
 import { WebviewBridge } from "../../core/webview/WebviewBridge";
+import { UserModelHandler } from "../../core/webview/handlers/UserModelHandler";
 // AuthService removed (standalone mode)
 
 /**
@@ -302,12 +303,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 }));
             } catch {}
 
+            const userModels = UserModelHandler.listForChatDropdown(
+              this.context,
+            );
             webviewView.webview.postMessage({
               command: "ollamaModels",
               models,
               current: currentModel,
               adminModels,
               supportedModels,
+              userModels,
             });
           } catch (e) {
             // Ollama 실패해도 admin/supported 모델은 표시
@@ -351,12 +356,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                   displayName: s.value?.model || s.value?.model_name || s.key,
                 }));
             } catch {}
+            const userModels = UserModelHandler.listForChatDropdown(
+              this.context,
+            );
             webviewView.webview.postMessage({
               command: "ollamaModels",
               models: [],
               current: "",
               adminModels,
               supportedModels,
+              userModels,
             });
           }
           break;
@@ -569,6 +578,44 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             }
           } catch (e) {
             console.error("Failed to set supported model:", e);
+          }
+          break;
+        }
+        case "setUserModel": {
+          try {
+            const userKey = typeof data.key === "string" ? data.key : "";
+            if (!userKey) break;
+            const config = await UserModelHandler.buildAdminConfigByKey(
+              this.context,
+              userKey,
+            );
+            if (!config) break;
+            const stateManager = StateManager.getInstance(this.context);
+            await stateManager.saveAdminModelConfig(JSON.stringify(config));
+            await stateManager.saveAiModel(`user:${userKey}`);
+            await stateManager.saveCurrentAiModel("admin");
+
+            const { LLMManager } =
+              await import("../../core/managers/model/LLMManager");
+            const llmManager = LLMManager.getInstance();
+            llmManager.setAdminModelConfig(config as any);
+            llmManager.setCurrentModel(AiModelType.ADMIN);
+
+            try {
+              const { updateAdminTokenLimits } =
+                await import("../../utils/tokenUtils");
+              updateAdminTokenLimits(
+                config.contextWindow,
+                config.maxOutputTokens,
+              );
+            } catch {}
+
+            webviewView.webview.postMessage({
+              command: "ollamaModelChanged",
+              model: `user:${userKey}`,
+            });
+          } catch (e) {
+            console.error("Failed to set user model:", e);
           }
           break;
         }
@@ -2278,12 +2325,14 @@ ${JSON.stringify(errorContext, null, 2)}
             }));
         } catch {}
 
+        const userModels = UserModelHandler.listForChatDropdown(this.context);
         webview.postMessage({
           command: "ollamaModels",
           models: [],
           current: currentModel,
           adminModels: [],
           supportedModels,
+          userModels,
         });
       } catch (e) {
         console.warn("[ChatViewProvider] pushCurrentModelToWebview error:", e);
