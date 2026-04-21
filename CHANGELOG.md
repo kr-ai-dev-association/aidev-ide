@@ -2,8 +2,19 @@
 
 VS Code용 AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.1.4**  
+> **현재 버전: v1.1.5**  
 > **브랜치:** `agentgocoder`
+
+---
+
+## v1.1.5 (2026-04-21)
+
+### 다크 테마 드롭다운·입력창 테두리 가시성 수정
+
+- **문제**: VS Code 일부 다크 테마에서 `--vscode-input-border`가 투명 계열(`rgba(*,*,*,0)`)로 설정되어 `select` / `input[type="text|password|number"]` / `textarea`의 라운드 테두리가 배경과 같아져 **보이지 않음**
+- **수정**: 다크 테마(`body:not([data-theme="light"])`) 전용 CSS로 테두리를 `rgba(255,255,255,0.18)`로 명시 — 라이트 테마(`body[data-theme="light"]`) 기존 규칙은 그대로 유지되어 영향 없음
+- **대상**: `.api-key-input-group` 내부 select/text/password/number, `.settings-section select`, `#user-model-form` 내부 select/text/password/number/textarea
+- **포커스 링**: 동일 셀렉터에 `var(--vscode-focusBorder, #007acc)` 보완
 
 ---
 
