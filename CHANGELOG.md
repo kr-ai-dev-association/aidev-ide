@@ -8,6 +8,20 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ## v1.0.66 (2026-04-20)
 
+### 컨텍스트 주입 가시화 (채팅 패널)
+
+- **Rules 참조 알림**: 서버 등록 Rules가 프롬프트에 포함되면 `📋 [Rules] {title 목록}` 출력 (기본 회색)
+- **Skills 참조 알림**: IntentDetector가 선택하고 실제로 skill registry에 등록된 Skills만 `🧩 [Skills] {key 목록}` 출력 (emerald 색상)
+- **MCP 프롬프트 알림**: MCP 커스텀 프롬프트 포함 시 `🔌 [MCP] N개 서버 프롬프트 포함` 출력 (purple 색상)
+- **webview 색상 매핑 확장**: `webview/chat/message-display.js`의 system-message 색상 분기에 Skills(emerald)/MCP(purple) 케이스 추가
+- **RAG 미제공**: standalone 모드는 RAG 서버 검색을 하지 않으므로 📚 [RAG] 알림 경로 없음
+
+### RAG 스텁 완전 제거
+
+- **`ContextGatherer.ts`의 RAG 스텁 삭제**: `const ragContext = '';` 및 반환 객체의 `ragContext` 필드 제거. 타입 `GatheredContext`에서도 `ragContext: string` 필드 삭제
+- **`ConversationManager.ts`의 ragContext 전달 구문 정리**: `PromptBuilderOptions`에 `ragContext: gatheredContext?.ragContext` 넘기던 2곳(주요 경로 + investigation 재주입 경로) 제거
+- **의도**: standalone은 서버 RAG 비활성화가 설계 결정 — 빈 문자열 상수로 "비활성화됨"을 흉내내는 대신 타입·변수 수준에서 완전히 없앰. 향후 이 브랜치에서 RAG 관련 코드 혼동 방지
+
 ### update_file Block Anchor Matching 제거
 
 - **`UpdateFileToolHandler.blockAnchorFallbackMatch()` 제거**: Match strategy "Block anchor" (3+ lines의 첫/마지막 라인 anchor + 중간 60% 유사도 허용) 전체 삭제

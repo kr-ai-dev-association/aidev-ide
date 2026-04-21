@@ -10,7 +10,7 @@
  * @param {HTMLElement} element - 추가할 요소
  */
 export function appendBeforeThinkingBubble(chatMessages, element) {
-  const thinkingBubble = chatMessages.querySelector('.thinking-bubble');
+  const thinkingBubble = chatMessages.querySelector(".thinking-bubble");
   if (thinkingBubble) {
     chatMessages.insertBefore(element, thinkingBubble);
   } else {
@@ -25,7 +25,12 @@ export function appendBeforeThinkingBubble(chatMessages, element) {
  * @param {HTMLElement} chatMessages - 채팅 메시지 컨테이너
  * @param {Function} scrollToUserMessageFn - 스크롤 함수
  */
-export function displayUserMessage(text, imageData, chatMessages, scrollToUserMessageFn) {
+export function displayUserMessage(
+  text,
+  imageData,
+  chatMessages,
+  scrollToUserMessageFn,
+) {
   if (!chatMessages) return null;
 
   // 사용자 메시지 컨테이너 생성
@@ -59,7 +64,7 @@ export function displayUserMessage(text, imageData, chatMessages, scrollToUserMe
       // 멘션 이전의 일반 텍스트 추가
       if (match.index > lastIndex) {
         const textBefore = document.createTextNode(
-          text.substring(lastIndex, match.index)
+          text.substring(lastIndex, match.index),
         );
         userMessageElement.appendChild(textBefore);
       }
@@ -118,14 +123,25 @@ export function displayUserMessage(text, imageData, chatMessages, scrollToUserMe
  * @param {Function} sanitizeHtmlFn - HTML 살균 함수
  * @param {Object} sanitizeOptions - 살균 옵션
  */
-export function displaySystemMessage(text, chatMessages, isLightTheme = false, sanitizeHtmlFn = null, sanitizeOptions = null) {
+export function displaySystemMessage(
+  text,
+  chatMessages,
+  isLightTheme = false,
+  sanitizeHtmlFn = null,
+  sanitizeOptions = null,
+) {
   if (!chatMessages || !text || !text.trim()) return null;
 
   // 🔥 파일 내용이 포함된 긴 메시지 필터링
   let displayText = text.trim();
-  if (displayText.includes("[Updated]") || displayText.includes("[Created]") || displayText.includes("[Modified]")) {
+  if (
+    displayText.includes("[Updated]") ||
+    displayText.includes("[Created]") ||
+    displayText.includes("[Modified]")
+  ) {
     const firstLine = displayText.split("\n")[0].trim();
-    displayText = firstLine.length > 200 ? firstLine.substring(0, 200) + "..." : firstLine;
+    displayText =
+      firstLine.length > 200 ? firstLine.substring(0, 200) + "..." : firstLine;
   }
 
   // 너무 긴 메시지는 자르기 (방어적 처리)
@@ -156,6 +172,10 @@ export function displaySystemMessage(text, chatMessages, isLightTheme = false, s
     color = isLightTheme ? "#ca8a04" : "var(--vscode-terminal-ansiYellow)";
   } else if (text.includes("Created")) {
     color = isLightTheme ? "#16a34a" : "var(--vscode-testing-iconPassed)";
+  } else if (text.includes("🧩") || text.includes("[Skills]")) {
+    color = isLightTheme ? "#059669" : "#34d399"; // emerald
+  } else if (text.includes("🔌") || text.includes("[MCP]")) {
+    color = isLightTheme ? "#7c3aed" : "#a78bfa"; // purple
   }
 
   systemMessageElement.style.cssText = `
@@ -173,7 +193,10 @@ export function displaySystemMessage(text, chatMessages, isLightTheme = false, s
 
   // HTML 살균 함수가 제공되면 사용, 아니면 텍스트 그대로
   if (sanitizeHtmlFn && sanitizeOptions) {
-    systemMessageElement.innerHTML = sanitizeHtmlFn(displayText, sanitizeOptions);
+    systemMessageElement.innerHTML = sanitizeHtmlFn(
+      displayText,
+      sanitizeOptions,
+    );
   } else {
     systemMessageElement.textContent = displayText;
   }
@@ -254,7 +277,12 @@ export function hideLoading(thinkingBubbleElement) {
  * @param {number} retryCount - 재시도 횟수
  * @param {HTMLElement} chatMessages - 채팅 메시지 컨테이너
  */
-export function showErrorCorrection(originalCommand, correctedCommand, retryCount, chatMessages) {
+export function showErrorCorrection(
+  originalCommand,
+  correctedCommand,
+  retryCount,
+  chatMessages,
+) {
   if (!chatMessages) return;
 
   const errorCorrectionDiv = document.createElement("div");
