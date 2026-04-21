@@ -6081,7 +6081,7 @@ window.addEventListener("message", event => {
     });
   }
 
-  // 메인 AI 모델 드롭다운(#ai-model-select)에 "User" optgroup 주입
+  // 메인 AI 모델 드롭다운(#ai-model-select)에 사용자 모델 옵션 직접 주입 (그룹 없이)
   function refreshUserModelsInMainDropdown() {
     const mainSelect = document.getElementById("ai-model-select");
     if (!mainSelect) return;
@@ -6089,17 +6089,13 @@ window.addEventListener("message", event => {
     mainSelect.querySelectorAll("option[data-user-option]").forEach(o => o.remove());
     const models = window.__userModels || [];
     if (models.length === 0) return;
-    const og = document.createElement("optgroup");
-    og.setAttribute("data-user-group", "true");
-    og.label = "User";
     for (const m of models) {
       const opt = document.createElement("option");
       opt.value = `user:${m.key}`;
       opt.textContent = m.name;
       opt.setAttribute("data-user-option", "true");
-      og.appendChild(opt);
+      mainSelect.appendChild(opt);
     }
-    mainSelect.appendChild(og);
   }
   window.refreshUserModelsInMainDropdown = refreshUserModelsInMainDropdown;
   window.addEventListener("message", event => {
