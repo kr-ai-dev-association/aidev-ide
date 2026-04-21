@@ -22933,7 +22933,7 @@ __webpack_require__.r(__webpack_exports__);
  * @param {HTMLElement} element - 추가할 요소
  */
 function appendBeforeThinkingBubble(chatMessages, element) {
-  const thinkingBubble = chatMessages.querySelector('.thinking-bubble');
+  const thinkingBubble = chatMessages.querySelector(".thinking-bubble");
   if (thinkingBubble) {
     chatMessages.insertBefore(element, thinkingBubble);
   } else {
@@ -23061,6 +23061,8 @@ function displaySystemMessage(text, chatMessages, isLightTheme = false, sanitize
     color = isLightTheme ? "#ca8a04" : "var(--vscode-terminal-ansiYellow)";
   } else if (text.includes("Created")) {
     color = isLightTheme ? "#16a34a" : "var(--vscode-testing-iconPassed)";
+  } else if (text.includes("🧩") || text.includes("[Skills]")) {
+    color = isLightTheme ? "#059669" : "#34d399"; // emerald
   }
   systemMessageElement.style.cssText = `
     padding: 4px 8px;

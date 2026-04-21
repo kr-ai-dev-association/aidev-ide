@@ -377,6 +377,32 @@ export class ConversationManager implements IConversationHandler {
       const systemPrompt =
         this.promptBuilder.generateSystemPrompt(promptOptions);
 
+      // 컨텍스트 주입 가시화 채팅 알림 (Rules/Skills 한정 — agentgocoder는 MCP/RAG 미제공)
+      if (webviewToRespond) {
+        // Rules
+        const includedRules = PromptComposer.getLastIncludedServerRuleKeys();
+        if (includedRules.length > 0) {
+          const ruleNames = includedRules.map((r) => r.title).slice(0, 5);
+          WebviewBridge.receiveMessage(
+            webviewToRespond,
+            "System",
+            `📋 [Rules] ${ruleNames.join(", ")}`,
+          );
+        }
+        // Skills
+        const skillRegistry = PromptComposer.getSkillRegistry();
+        const activeSkills = (intent.requiredSkillKeys || []).filter(
+          (k: string) => skillRegistry.has(k),
+        );
+        if (activeSkills.length > 0) {
+          WebviewBridge.receiveMessage(
+            webviewToRespond,
+            "System",
+            `🧩 [Skills] ${activeSkills.join(", ")}`,
+          );
+        }
+      }
+
       // 5. CODE 모드: FSM 기반 에이전트 루프
       {
         const userParts = await this.buildUserPartsWithUrlsAndHistory(
