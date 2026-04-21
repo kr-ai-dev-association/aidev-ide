@@ -4458,19 +4458,10 @@ function setupAgentPolicyFileUpload(
     uploadButton.disabled = false;
   });
 
-  // 저장 버튼 클릭 (다중 파일 업로드)
+  // 저장 버튼 클릭 (다중 파일 업로드 — 각 파일마다 미리보기 모달 표시)
   uploadButton.addEventListener("click", async () => {
-    if (selectedFiles.length === 0) {
-      return;
-    }
+    if (selectedFiles.length === 0) return;
 
-    showStatus(statusElement, "저장 중...", "info");
-    uploadButton.disabled = true;
-
-    let successCount = 0;
-    let errorCount = 0;
-
-    // 타입 선택 정보 가져오기
     const typeSelector = document.querySelector(
       `.policy-type-selector[data-category="${category}"]`,
     );
@@ -4486,38 +4477,66 @@ function setupAgentPolicyFileUpload(
         ? skillDescInput.value.trim()
         : "";
 
-    for (const file of selectedFiles) {
+    uploadButton.disabled = true;
+    let savedCount = 0;
+    let errorCount = 0;
+    let cancelledCount = 0;
+    const filesToProcess = selectedFiles.slice();
+
+    for (const file of filesToProcess) {
+      let content;
       try {
-        const content = await readFileAsText(file);
-        vscode.postMessage({
-          command: "addAgentPolicyFile",
-          category: category,
-          fileName: file.name,
-          content: content,
-          policyType: policyType,
-          skillDescription: skillDescription,
-        });
-        successCount++;
+        content = await readFileAsText(file);
       } catch (error) {
         errorCount++;
         console.error(`Failed to read file ${file.name}:`, error);
+        continue;
       }
+      const hash = await _computeSha256Short(content);
+      const suspicious = _detectSuspiciousClient(content);
+      const confirmed = await new Promise((resolve) => {
+        _showSkillPreviewModal(
+          {
+            originUrl: `로컬 파일: ${file.name}`,
+            filename: file.name,
+            size: content.length,
+            hash,
+            suspicious,
+            content,
+          },
+          () => resolve(true),
+          () => resolve(false),
+        );
+      });
+      if (!confirmed) {
+        cancelledCount++;
+        continue;
+      }
+      vscode.postMessage({
+        command: "addAgentPolicyFile",
+        category: category,
+        fileName: file.name,
+        content: content,
+        policyType: policyType,
+        skillDescription: skillDescription,
+      });
+      savedCount++;
     }
 
-    // 파일 입력 초기화
     fileInput.value = "";
     selectedFiles = [];
-    if (fileNameElement) {
-      fileNameElement.textContent = "";
-    }
-    if (skillDescInput) {
-      skillDescInput.value = "";
-    }
+    if (fileNameElement) fileNameElement.textContent = "";
+    if (skillDescInput) skillDescInput.value = "";
+    uploadButton.disabled = false;
 
-    if (errorCount > 0) {
+    if (savedCount > 0 || cancelledCount > 0 || errorCount > 0) {
+      const parts = [];
+      if (savedCount > 0) parts.push(`${savedCount}개 저장 요청됨`);
+      if (cancelledCount > 0) parts.push(`${cancelledCount}개 취소됨`);
+      if (errorCount > 0) parts.push(`${errorCount}개 실패`);
       showStatus(
         statusElement,
-        `${successCount}개 저장됨, ${errorCount}개 실패`,
+        parts.join(", "),
         errorCount > 0 ? "error" : "success",
       );
     }
@@ -4541,6 +4560,7 @@ function loadAgentPolicyFiles() {
 
 // 카테고리별 상태 요소 ID 매핑
 const categoryStatusMap = {
+  "global-rules": "global-rules-status",
   "stable-version": "stable-version-status",
   "coding-style": "coding-style-status",
   "project-architecture": "project-architecture-status",
@@ -4548,52 +4568,7 @@ const categoryStatusMap = {
   "db-policy": "db-policy-status",
 };
 
-// AgentPolicy 파일 업로드 설정 (다중 파일 지원)
-setupAgentPolicyFileUpload(
-  "agent-policy-stable-version-input",
-  "select-stable-version-button",
-  "upload-stable-version-button",
-  "stable-version-status",
-  "stable-version-file-name",
-  "stable-version",
-);
-
-setupAgentPolicyFileUpload(
-  "agent-policy-coding-style-input",
-  "select-coding-style-button",
-  "upload-coding-style-button",
-  "coding-style-status",
-  "coding-style-file-name",
-  "coding-style",
-);
-
-setupAgentPolicyFileUpload(
-  "agent-policy-project-architecture-input",
-  "select-project-architecture-button",
-  "upload-project-architecture-button",
-  "project-architecture-status",
-  "project-architecture-file-name",
-  "project-architecture",
-);
-
-setupAgentPolicyFileUpload(
-  "agent-policy-dependency-policy-input",
-  "select-dependency-policy-button",
-  "upload-dependency-policy-button",
-  "dependency-policy-status",
-  "dependency-policy-file-name",
-  "dependency-policy",
-);
-
-setupAgentPolicyFileUpload(
-  "agent-policy-db-policy-input",
-  "select-db-policy-button",
-  "upload-db-policy-button",
-  "db-policy-status",
-  "db-policy-file-name",
-  "db-policy",
-);
-
+// 파일 업로드/경로/URL setup 호출 제거 — 통합 모달로 대체
 // AgentPolicy 경로 입력 설정
 function setupAgentPolicyPathInput(category, pathInputId, buttonId, statusId) {
   const pathInput = document.getElementById(pathInputId);
@@ -4633,55 +4608,22 @@ function setupAgentPolicyPathInput(category, pathInputId, buttonId, statusId) {
         ? skillDescInput.value.trim()
         : "";
 
-    if (statusElement) showStatus(statusElement, "추가 중...", "info");
+    if (statusElement) showStatus(statusElement, "미리보기 중...", "info");
     addButton.disabled = true;
+    // 백엔드에 미리보기 요청 — 응답은 agentPolicyPathPreview 핸들러에서 모달 표시 후 addPathAgentPolicy 전송
     vscode.postMessage({
-      command: "addPathAgentPolicy",
+      command: "previewAgentPolicyPath",
       category,
       filePath,
       policyType,
       skillDescription,
     });
-    if (skillDescInput) {
-      skillDescInput.value = "";
-    }
   });
 
   pathInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") addButton.click();
   });
 }
-
-setupAgentPolicyPathInput(
-  "stable-version",
-  "path-stable-version-input",
-  "add-path-stable-version-button",
-  "stable-version-status",
-);
-setupAgentPolicyPathInput(
-  "coding-style",
-  "path-coding-style-input",
-  "add-path-coding-style-button",
-  "coding-style-status",
-);
-setupAgentPolicyPathInput(
-  "project-architecture",
-  "path-project-architecture-input",
-  "add-path-project-architecture-button",
-  "project-architecture-status",
-);
-setupAgentPolicyPathInput(
-  "dependency-policy",
-  "path-dependency-policy-input",
-  "add-path-dependency-policy-button",
-  "dependency-policy-status",
-);
-setupAgentPolicyPathInput(
-  "db-policy",
-  "path-db-policy-input",
-  "add-path-db-policy-button",
-  "db-policy-status",
-);
 
 // ─── URL 다운로드로 Skill/Rule 추가 ───────────────────────────────
 function setupAgentPolicyUrlDownload(category) {
@@ -4698,7 +4640,7 @@ function setupAgentPolicyUrlDownload(category) {
   urlInput.type = "text";
   urlInput.id = `url-${category}-input`;
   urlInput.className = "api-key-input";
-  urlInput.placeholder = "URL에서 Skill .md 다운로드 (https://...)";
+  urlInput.placeholder = "URL에서 .md 다운로드 (https://...)";
   const btn = document.createElement("button");
   btn.type = "button";
   btn.id = `download-${category}-button`;
@@ -4745,33 +4687,76 @@ function setupAgentPolicyUrlDownload(category) {
   });
 }
 
-[
-  "global-rules",
-  "stable-version",
-  "coding-style",
-  "project-architecture",
-  "dependency-policy",
-  "db-policy",
-].forEach((c) => setupAgentPolicyUrlDownload(c));
-
 function _showSkillPreviewModal(data, onConfirm, onCancel) {
   const existing = document.getElementById("skill-preview-modal");
   if (existing) existing.remove();
+
+  const isLight =
+    document.body.getAttribute("data-theme") === "light" ||
+    document.body.classList.contains("vscode-light") ||
+    document.documentElement.getAttribute("data-theme") === "light";
+
+  {
+    const prev = document.getElementById("md-preview-modal-style");
+    if (prev) prev.remove();
+    const style = document.createElement("style");
+    style.id = "md-preview-modal-style";
+    const scrollbarCss = isLight
+      ? `
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar { width: 8px !important; height: 8px !important; }
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar-track { background: #f3f4f6 !important; }
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar-thumb { background: #9ca3af !important; border-radius: 4px !important; }
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar-thumb:hover { background: #6b7280 !important; }
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar-corner { background: #f3f4f6 !important; }`
+      : `
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar { width: 8px !important; height: 8px !important; }
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar-track { background: transparent !important; }
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2) !important; border-radius: 4px !important; }
+        #skill-preview-modal .md-preview-pre::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.35) !important; }`;
+    style.textContent = `
+      #skill-preview-modal .md-preview-meta b { color: inherit; font-weight: 600; margin-right: 4px; }
+      #skill-preview-modal .md-preview-meta code {
+        background: transparent !important;
+        padding: 0 !important;
+        color: inherit !important;
+        font-family: var(--vscode-editor-font-family, "SFMono-Regular", Consolas, "Courier New", monospace);
+        font-size: inherit !important;
+        word-break: break-all;
+      }
+      ${scrollbarCss}
+    `;
+    document.head.appendChild(style);
+  }
+
   const overlay = document.createElement("div");
   overlay.id = "skill-preview-modal";
   overlay.style.cssText =
     "position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10000;display:flex;align-items:center;justify-content:center;";
+
+  const boxBg = isLight ? "#ffffff" : "var(--vscode-editor-background,#1e1e1e)";
+  const boxBorder = isLight ? "#e5e7eb" : "var(--vscode-input-border,#444)";
+  const boxFg = isLight ? "#111827" : "var(--vscode-foreground,#ccc)";
+  const metaFg = isLight
+    ? "#4b5563"
+    : "var(--vscode-descriptionForeground,#888)";
+  const preBg = isLight
+    ? "#f3f4f6"
+    : "var(--vscode-textCodeBlock-background,#2a2a2a)";
+  const preFg = isLight ? "#1f2937" : "var(--vscode-foreground,#d4d4d4)";
+
   const box = document.createElement("div");
-  box.style.cssText =
-    "background:var(--vscode-editor-background,#1e1e1e);color:var(--vscode-foreground,#ccc);border:1px solid var(--vscode-input-border,#444);border-radius:6px;width:80%;max-width:820px;max-height:80vh;padding:16px;display:flex;flex-direction:column;gap:8px;font-family:var(--vscode-font-family);";
+  box.style.cssText = `background:${boxBg};color:${boxFg};border:1px solid ${boxBorder};border-radius:6px;width:80%;max-width:820px;max-height:80vh;padding:16px;display:flex;flex-direction:column;gap:8px;font-family:var(--vscode-font-family);`;
+
   const title = document.createElement("h3");
-  title.style.cssText = "margin:0 0 4px 0;font-size:1em;";
-  title.textContent = "Skill 다운로드 미리보기";
+  title.style.cssText = `margin:0 0 4px 0;font-size:1em;color:${boxFg};`;
+  title.textContent = "MD 미리보기";
   box.appendChild(title);
+
   const metaRoot = document.createElement("div");
-  metaRoot.style.cssText =
-    "font-size:0.82em;color:var(--vscode-descriptionForeground);line-height:1.6;";
+  metaRoot.className = "md-preview-meta";
+  metaRoot.style.cssText = `font-size:0.82em;color:${metaFg};line-height:1.6;`;
   const addMetaRow = (label, value) => {
+    if (value == null || value === "") return;
     const row = document.createElement("div");
     const b = document.createElement("b");
     b.textContent = `${label} `;
@@ -4782,13 +4767,19 @@ function _showSkillPreviewModal(data, onConfirm, onCancel) {
     metaRoot.appendChild(row);
   };
   addMetaRow("출처:", data.originUrl);
-  addMetaRow("크기:", `${data.size} bytes · SHA256(16): ${data.hash}`);
+  addMetaRow(
+    "크기:",
+    `${data.size} bytes${data.hash ? ` · SHA256(16): ${data.hash}` : ""}`,
+  );
   addMetaRow("파일명:", data.filename);
   box.appendChild(metaRoot);
+
   if (Array.isArray(data.suspicious) && data.suspicious.length > 0) {
     const warn = document.createElement("div");
     warn.style.cssText =
-      "background:rgba(245,158,11,0.18);border-left:3px solid #f59e0b;padding:8px;font-size:0.85em;";
+      "background:rgba(245,158,11,0.18);border-left:3px solid #f59e0b;padding:8px;font-size:0.85em;color:" +
+      (isLight ? "#92400e" : "#fbbf24") +
+      ";";
     const head = document.createElement("div");
     head.textContent = "⚠️ 의심 패턴 감지:";
     warn.appendChild(head);
@@ -4799,25 +4790,34 @@ function _showSkillPreviewModal(data, onConfirm, onCancel) {
     });
     box.appendChild(warn);
   }
+
   const pre = document.createElement("pre");
-  pre.style.cssText =
-    "flex:1;overflow:auto;background:var(--vscode-textCodeBlock-background,#2a2a2a);padding:8px;margin:0;font-size:0.78em;max-height:45vh;border-radius:4px;white-space:pre;";
+  pre.className = "md-preview-pre";
+  pre.style.cssText = `flex:1;overflow:auto;background:${preBg};color:${preFg};padding:8px;margin:0;font-size:0.78em;max-height:45vh;border-radius:4px;white-space:pre;border:1px solid ${boxBorder};`;
   pre.textContent = String(data.content || "");
   box.appendChild(pre);
+
   const actions = document.createElement("div");
   actions.style.cssText =
     "display:flex;gap:8px;justify-content:flex-end;margin-top:4px;";
+  const btnStyle = isLight
+    ? "padding:6px 14px;background:transparent;color:#4b5563;border:1px solid #9ca3af;border-radius:3px;cursor:pointer;font-size:12px;"
+    : "padding:6px 14px;background:transparent;color:var(--vscode-foreground);border:1px solid rgba(255,255,255,0.35);border-radius:3px;cursor:pointer;font-size:12px;";
   const cancelBtn = document.createElement("button");
   cancelBtn.type = "button";
   cancelBtn.textContent = "취소";
+  cancelBtn.style.cssText = btnStyle;
   const saveBtn = document.createElement("button");
   saveBtn.type = "button";
   saveBtn.textContent = "저장";
+  saveBtn.style.cssText = btnStyle;
   actions.appendChild(cancelBtn);
   actions.appendChild(saveBtn);
   box.appendChild(actions);
+
   overlay.appendChild(box);
   document.body.appendChild(overlay);
+
   cancelBtn.addEventListener("click", () => {
     overlay.remove();
     if (onCancel) onCancel();
@@ -4827,6 +4827,388 @@ function _showSkillPreviewModal(data, onConfirm, onCancel) {
     if (onConfirm) onConfirm();
   });
 }
+
+async function _computeSha256Short(content) {
+  try {
+    const data = new TextEncoder().encode(String(content || ""));
+    const buf = await crypto.subtle.digest("SHA-256", data);
+    return Array.from(new Uint8Array(buf))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("")
+      .slice(0, 16);
+  } catch {
+    return "";
+  }
+}
+
+function _detectSuspiciousClient(content) {
+  const matches = [];
+  const patterns = [
+    [
+      /ignore\s+(previous|all|above)\s+(instructions|rules|directives)/i,
+      "이전 지시 무시 유도 문구",
+    ],
+    [/disregard\s+(previous|all|above)/i, "이전 지시 무시 유도 문구"],
+    [/^\s*(system|assistant)\s*:\s*/im, "역할 태그 흉내 (system:/assistant:)"],
+    [/[A-Za-z0-9+/=]{200,}/, "매우 긴 base64/hex 블록"],
+    [/\bcurl\s+[^\s]+|\bwget\s+[^\s]+/i, "외부 커맨드 호출 (curl/wget)"],
+    [/<!--\s*prompt\s*injection\s*-->/i, "prompt injection 마커"],
+    [/(new\s+)?function\s*\(|eval\s*\(|require\s*\(/i, "JS 코드 실행 패턴"],
+  ];
+  for (const [re, label] of patterns) {
+    if (re.test(content) && !matches.includes(label)) matches.push(label);
+  }
+  return matches;
+}
+
+// ────────────────────────────────────────────────────────────
+// Skills/Rules 추가 — 통합 모달 (타입 + 방법 드롭다운)
+// ────────────────────────────────────────────────────────────
+
+function _showAddPolicyModal(category, onSubmit) {
+  const existing = document.getElementById("add-policy-modal");
+  if (existing) existing.remove();
+
+  const isLight =
+    document.body.getAttribute("data-theme") === "light" ||
+    document.body.classList.contains("vscode-light") ||
+    document.documentElement.getAttribute("data-theme") === "light";
+
+  const boxBg = isLight ? "#ffffff" : "var(--vscode-editor-background,#1e1e1e)";
+  const boxBorder = isLight ? "#e5e7eb" : "var(--vscode-input-border,#444)";
+  const boxFg = isLight ? "#111827" : "var(--vscode-foreground,#ccc)";
+  const labelFg = isLight
+    ? "#4b5563"
+    : "var(--vscode-descriptionForeground,#aaa)";
+  const inputBg = isLight
+    ? "#ffffff"
+    : "var(--vscode-input-background,#3c3c3c)";
+  const inputBorder = isLight ? "#d1d5db" : "var(--vscode-input-border,#555)";
+  const inputFg = isLight ? "#111827" : "var(--vscode-input-foreground,#ccc)";
+  const btnOutline = isLight
+    ? "background:transparent;color:#4b5563;border:1px solid #9ca3af;"
+    : "background:transparent;color:var(--vscode-foreground);border:1px solid rgba(255,255,255,0.35);";
+  const btnPrimary =
+    "background:#2563eb;color:#ffffff;border:1px solid #2563eb;";
+
+  const overlay = document.createElement("div");
+  overlay.id = "add-policy-modal";
+  overlay.style.cssText =
+    "position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10000;display:flex;align-items:center;justify-content:center;";
+
+  const box = document.createElement("div");
+  box.style.cssText = `background:${boxBg};color:${boxFg};border:1px solid ${boxBorder};border-radius:6px;width:80%;max-width:560px;padding:16px;display:flex;flex-direction:column;gap:12px;font-family:var(--vscode-font-family);`;
+
+  const title = document.createElement("h3");
+  title.style.cssText = `margin:0;font-size:1em;color:${boxFg};`;
+  title.textContent = "Skill/Rule 추가";
+  box.appendChild(title);
+
+  const typeRow = document.createElement("div");
+  typeRow.style.cssText = "display:flex;flex-direction:column;gap:4px;";
+  const typeLabel = document.createElement("label");
+  typeLabel.textContent = "타입";
+  typeLabel.style.cssText = `font-size:0.85em;color:${labelFg};`;
+  typeRow.appendChild(typeLabel);
+  const typeGroup = document.createElement("div");
+  typeGroup.style.cssText = `display:flex;border:1px solid ${inputBorder};border-radius:4px;overflow:hidden;width:fit-content;`;
+  let currentType = "rule";
+  // 클래스 `.policy-type-btn` 사용 — 전역 라이트 :not(.policy-type-btn) override 회피 + .active 시 파란색 규칙 적용
+  const ruleBtn = document.createElement("button");
+  ruleBtn.type = "button";
+  ruleBtn.className = "policy-type-btn active";
+  ruleBtn.dataset.type = "rule";
+  ruleBtn.textContent = "규칙";
+  ruleBtn.style.cssText =
+    "padding:6px 14px;font-size:0.85em;border:none;cursor:pointer;";
+  const skillBtn = document.createElement("button");
+  skillBtn.type = "button";
+  skillBtn.className = "policy-type-btn";
+  skillBtn.dataset.type = "skill";
+  skillBtn.textContent = "스킬";
+  skillBtn.style.cssText = `padding:6px 14px;font-size:0.85em;border:none;border-left:1px solid ${inputBorder};cursor:pointer;`;
+  typeGroup.appendChild(ruleBtn);
+  typeGroup.appendChild(skillBtn);
+  typeRow.appendChild(typeGroup);
+
+  const skillDescInput = document.createElement("input");
+  skillDescInput.type = "text";
+  skillDescInput.placeholder = "이 스킬이 필요한 상황을 설명하세요";
+  skillDescInput.style.cssText = `display:none;padding:6px 8px;font-size:0.85em;background:${inputBg};color:${inputFg};border:1px solid ${inputBorder};border-radius:3px;margin-top:4px;`;
+  typeRow.appendChild(skillDescInput);
+
+  const setType = (t) => {
+    currentType = t;
+    if (t === "skill") {
+      skillBtn.classList.add("active");
+      ruleBtn.classList.remove("active");
+      skillDescInput.style.display = "";
+    } else {
+      ruleBtn.classList.add("active");
+      skillBtn.classList.remove("active");
+      skillDescInput.style.display = "none";
+    }
+  };
+  ruleBtn.addEventListener("click", () => setType("rule"));
+  skillBtn.addEventListener("click", () => setType("skill"));
+  box.appendChild(typeRow);
+
+  const methodRow = document.createElement("div");
+  methodRow.style.cssText = "display:flex;flex-direction:column;gap:4px;";
+  const methodLabel = document.createElement("label");
+  methodLabel.textContent = "추가 방법";
+  methodLabel.style.cssText = `font-size:0.85em;color:${labelFg};`;
+  methodRow.appendChild(methodLabel);
+  const methodSelect = document.createElement("select");
+  methodSelect.style.cssText = `padding:6px 8px;font-size:0.9em;background:${inputBg};color:${inputFg};border:1px solid ${inputBorder};border-radius:3px;`;
+  [
+    ["file", "파일 업로드"],
+    ["path", "경로 추가"],
+    ["url", "URL 다운로드"],
+  ].forEach(([v, label]) => {
+    const opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = label;
+    methodSelect.appendChild(opt);
+  });
+  methodRow.appendChild(methodSelect);
+  box.appendChild(methodRow);
+
+  const inputArea = document.createElement("div");
+  inputArea.style.cssText = "display:flex;flex-direction:column;gap:4px;";
+  box.appendChild(inputArea);
+
+  const statusEl = document.createElement("p");
+  statusEl.style.cssText = `font-size:0.8em;margin:0;min-height:1.2em;color:${labelFg};`;
+  box.appendChild(statusEl);
+
+  let selectedFiles = [];
+  let pathValue = "";
+  let urlValue = "";
+  const clearInputArea = () => {
+    while (inputArea.firstChild) inputArea.removeChild(inputArea.firstChild);
+  };
+  const renderInput = () => {
+    clearInputArea();
+    statusEl.textContent = "";
+    const m = methodSelect.value;
+    if (m === "file") {
+      const fileLabel = document.createElement("label");
+      fileLabel.textContent = "Markdown 파일 (.md)";
+      fileLabel.style.cssText = `font-size:0.85em;color:${labelFg};`;
+      const fileBtn = document.createElement("button");
+      fileBtn.type = "button";
+      fileBtn.textContent = "파일 선택";
+      fileBtn.style.cssText = `padding:6px 14px;font-size:0.85em;${btnOutline}border-radius:3px;cursor:pointer;width:fit-content;`;
+      const fileInput = document.createElement("input");
+      fileInput.type = "file";
+      fileInput.accept = ".md,.markdown,text/markdown";
+      fileInput.multiple = true;
+      fileInput.style.display = "none";
+      const fileNameEl = document.createElement("p");
+      fileNameEl.style.cssText = `font-size:0.8em;margin:0;color:${labelFg};`;
+      fileBtn.addEventListener("click", () => fileInput.click());
+      fileInput.addEventListener("change", (e) => {
+        selectedFiles = Array.from(e.target.files || []).filter(
+          (f) => f.name.endsWith(".md") || f.name.endsWith(".markdown"),
+        );
+        fileNameEl.textContent = selectedFiles.length
+          ? `선택: ${selectedFiles.map((f) => f.name).join(", ")}`
+          : "";
+      });
+      inputArea.appendChild(fileLabel);
+      inputArea.appendChild(fileBtn);
+      inputArea.appendChild(fileInput);
+      inputArea.appendChild(fileNameEl);
+    } else if (m === "path") {
+      const pathLabel = document.createElement("label");
+      pathLabel.textContent = "파일 경로 (절대 경로)";
+      pathLabel.style.cssText = `font-size:0.85em;color:${labelFg};`;
+      const pathInput = document.createElement("input");
+      pathInput.type = "text";
+      pathInput.placeholder = "/path/to/file.md";
+      pathInput.value = pathValue;
+      pathInput.style.cssText = `padding:6px 8px;font-size:0.85em;background:${inputBg};color:${inputFg};border:1px solid ${inputBorder};border-radius:3px;`;
+      pathInput.addEventListener("input", (e) => {
+        pathValue = e.target.value;
+      });
+      inputArea.appendChild(pathLabel);
+      inputArea.appendChild(pathInput);
+    } else if (m === "url") {
+      const urlLabel = document.createElement("label");
+      urlLabel.textContent = "URL (https://...)";
+      urlLabel.style.cssText = `font-size:0.85em;color:${labelFg};`;
+      const urlInput = document.createElement("input");
+      urlInput.type = "text";
+      urlInput.placeholder = "https://example.com/file.md";
+      urlInput.value = urlValue;
+      urlInput.style.cssText = `padding:6px 8px;font-size:0.85em;background:${inputBg};color:${inputFg};border:1px solid ${inputBorder};border-radius:3px;`;
+      urlInput.addEventListener("input", (e) => {
+        urlValue = e.target.value;
+      });
+      inputArea.appendChild(urlLabel);
+      inputArea.appendChild(urlInput);
+    }
+  };
+  methodSelect.addEventListener("change", renderInput);
+  renderInput();
+
+  const actions = document.createElement("div");
+  actions.style.cssText =
+    "display:flex;gap:8px;justify-content:flex-end;margin-top:4px;";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.textContent = "취소";
+  cancelBtn.style.cssText = `padding:6px 14px;font-size:0.85em;${btnOutline}border-radius:3px;cursor:pointer;`;
+  const nextBtn = document.createElement("button");
+  nextBtn.type = "button";
+  nextBtn.textContent = "다음";
+  nextBtn.style.cssText = `padding:6px 14px;font-size:0.85em;${btnPrimary}border-radius:3px;cursor:pointer;`;
+  actions.appendChild(cancelBtn);
+  actions.appendChild(nextBtn);
+  box.appendChild(actions);
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  cancelBtn.addEventListener("click", () => overlay.remove());
+  nextBtn.addEventListener("click", () => {
+    const m = methodSelect.value;
+    const skillDescription =
+      currentType === "skill" ? skillDescInput.value.trim() : "";
+    if (currentType === "skill" && !skillDescription) {
+      statusEl.textContent = "스킬 설명을 입력하세요.";
+      statusEl.style.color = "#ef4444";
+      return;
+    }
+    if (m === "file") {
+      if (selectedFiles.length === 0) {
+        statusEl.textContent = "파일을 선택하세요.";
+        statusEl.style.color = "#ef4444";
+        return;
+      }
+    } else if (m === "path") {
+      if (!pathValue.trim()) {
+        statusEl.textContent = "파일 경로를 입력하세요.";
+        statusEl.style.color = "#ef4444";
+        return;
+      }
+      const p = pathValue.trim();
+      if (!p.endsWith(".md") && !p.endsWith(".markdown")) {
+        statusEl.textContent = "Markdown 파일(.md)만 추가할 수 있습니다.";
+        statusEl.style.color = "#ef4444";
+        return;
+      }
+    } else if (m === "url") {
+      if (!urlValue.trim()) {
+        statusEl.textContent = "URL을 입력하세요.";
+        statusEl.style.color = "#ef4444";
+        return;
+      }
+    }
+    overlay.remove();
+    onSubmit({
+      policyType: currentType,
+      skillDescription,
+      method: m,
+      files: m === "file" ? selectedFiles : [],
+      filePath: m === "path" ? pathValue.trim() : "",
+      url: m === "url" ? urlValue.trim() : "",
+    });
+  });
+}
+
+async function openAddPolicyFlow(category) {
+  const statusEl = document.getElementById(`${category}-status`);
+  // 이전 상태 메시지 초기화 — Add 플로우 시작 시
+  if (statusEl) {
+    statusEl.textContent = "";
+    statusEl.className = "info-message";
+  }
+  _showAddPolicyModal(category, async (data) => {
+    const { policyType, skillDescription, method, files, filePath, url } = data;
+    if (method === "file") {
+      let savedCount = 0;
+      let cancelledCount = 0;
+      for (const file of files) {
+        let content;
+        try {
+          content = await readFileAsText(file);
+        } catch {
+          if (statusEl)
+            showStatus(statusEl, `파일 읽기 실패: ${file.name}`, "error");
+          continue;
+        }
+        const hash = await _computeSha256Short(content);
+        const suspicious = _detectSuspiciousClient(content);
+        const confirmed = await new Promise((resolve) => {
+          _showSkillPreviewModal(
+            {
+              originUrl: `로컬 파일: ${file.name}`,
+              filename: file.name,
+              size: content.length,
+              hash,
+              suspicious,
+              content,
+            },
+            () => resolve(true),
+            () => resolve(false),
+          );
+        });
+        if (!confirmed) {
+          cancelledCount++;
+          continue;
+        }
+        vscode.postMessage({
+          command: "addAgentPolicyFile",
+          category,
+          fileName: file.name,
+          content,
+          policyType,
+          skillDescription,
+        });
+        savedCount++;
+      }
+      if (statusEl) {
+        if (savedCount > 0) showStatus(statusEl, "저장 중...", "info");
+        else if (cancelledCount > 0) showStatus(statusEl, "취소됨", "info");
+      }
+    } else if (method === "path") {
+      if (statusEl) showStatus(statusEl, "미리보기 중...", "info");
+      vscode.postMessage({
+        command: "previewAgentPolicyPath",
+        category,
+        filePath,
+        policyType,
+        skillDescription,
+      });
+    } else if (method === "url") {
+      if (statusEl) showStatus(statusEl, "다운로드 중...", "info");
+      vscode.postMessage({
+        command: "downloadSkillFromUrl",
+        url,
+        category,
+        policyType,
+        skillDescription,
+      });
+    }
+  });
+}
+
+// + 추가 버튼 바인딩 (6개 카테고리)
+[
+  "global-rules",
+  "stable-version",
+  "coding-style",
+  "project-architecture",
+  "dependency-policy",
+  "db-policy",
+].forEach((cat) => {
+  const btn = document.getElementById(`add-${cat}-button`);
+  if (btn) btn.addEventListener("click", () => openAddPolicyFlow(cat));
+});
+
+
 
 // AgentPolicy 관련 메시지 핸들러 (다중 파일 지원)
 window.addEventListener("message", (event) => {
@@ -4935,6 +5317,55 @@ window.addEventListener("message", (event) => {
       break;
     }
 
+    // 경로 추가 미리보기 응답 — 승인 시 addPathAgentPolicy 로 저장
+    case "agentPolicyPathPreview": {
+      const previewStatusEl = document.getElementById(
+        `${message.category}-status`,
+      );
+      const previewBtn = document.getElementById(
+        `add-path-${message.category}-button`,
+      );
+      if (previewBtn) previewBtn.disabled = false;
+      _showSkillPreviewModal(
+        message,
+        () => {
+          vscode.postMessage({
+            command: "addPathAgentPolicy",
+            category: message.category,
+            filePath: message.filePath,
+            policyType: message.policyType,
+            skillDescription: message.skillDescription,
+          });
+          if (previewStatusEl)
+            showStatus(previewStatusEl, "저장 중...", "info");
+          const pathInputEl = document.getElementById(
+            `path-${message.category}-input`,
+          );
+          if (pathInputEl) pathInputEl.value = "";
+          const typeSelector = document.querySelector(
+            `.policy-type-selector[data-category="${message.category}"]`,
+          );
+          const skillDescInput = typeSelector
+            ? typeSelector.querySelector(".policy-skill-desc")
+            : null;
+          if (skillDescInput) skillDescInput.value = "";
+        },
+        () => {
+          if (previewStatusEl) showStatus(previewStatusEl, "취소됨", "info");
+        },
+      );
+      break;
+    }
+    case "agentPolicyPathPreviewError": {
+      const errStatusEl = document.getElementById(`${message.category}-status`);
+      const errBtn = document.getElementById(
+        `add-path-${message.category}-button`,
+      );
+      if (errBtn) errBtn.disabled = false;
+      if (errStatusEl)
+        showStatus(errStatusEl, `미리보기 실패: ${message.error}`, "error");
+      break;
+    }
     case "skillUrlDownloadError": {
       const errStatusEl = document.getElementById(`${message.category}-status`);
       const errBtn = document.getElementById(

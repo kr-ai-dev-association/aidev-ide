@@ -31,33 +31,64 @@
       color: #374151 !important;
     }
 
-    /* 버튼 스타일 - 라이트 테마 (주요 액션 버튼만 강조) */
+    /* 버튼 스타일 - 라이트 테마 outline: 회색 테두리 + 진한 회색 글씨 + 배경 투명 */
+    body[data-theme="light"] .api-key-input-group button,
     body[data-theme="light"] .save-button,
     body[data-theme="light"] #add-directory-button,
     body[data-theme="light"] #save-mcp-server-button,
     body[data-theme="light"] .model-download-button,
     body[data-theme="light"] .download-link button {
-      background-color: #0e639c !important;
-      color: #ffffff !important;
+      background-color: transparent !important;
+      color: #4b5563 !important;
+      border: 1px solid #9ca3af !important;
     }
 
+    body[data-theme="light"] .api-key-input-group button:hover,
     body[data-theme="light"] .save-button:hover,
     body[data-theme="light"] #add-directory-button:hover,
     body[data-theme="light"] #save-mcp-server-button:hover,
     body[data-theme="light"] .model-download-button:hover,
     body[data-theme="light"] .download-link button:hover {
-      background-color: #1177bb !important;
+      background-color: rgba(0, 0, 0, 0.04) !important;
+      border-color: #6b7280 !important;
     }
 
-    /* 일반 버튼 - 배경과 동화 */
-    body[data-theme="light"] button:not(.settings-nav-item):not(.save-button):not(#add-directory-button):not(#save-mcp-server-button):not(.model-download-button):not(.sync-icon-btn):not(.mcp-toggle-input) {
+    /* 일반 버튼 - 배경과 동화 (규칙·스킬 토글은 제외 — active 상태 파란색 유지) */
+    body[data-theme="light"] button:not(.settings-nav-item):not(.save-button):not(#add-directory-button):not(#save-mcp-server-button):not(.model-download-button):not(.sync-icon-btn):not(.mcp-toggle-input):not(.policy-type-btn) {
       background-color: transparent !important;
       color: #374151 !important;
       border: 1px solid #d1d5db !important;
     }
 
-    body[data-theme="light"] button:not(.settings-nav-item):not(.save-button):not(#add-directory-button):not(#save-mcp-server-button):not(.model-download-button):not(.sync-icon-btn):not(.mcp-toggle-input):hover {
+    body[data-theme="light"] button:not(.settings-nav-item):not(.save-button):not(#add-directory-button):not(#save-mcp-server-button):not(.model-download-button):not(.sync-icon-btn):not(.mcp-toggle-input):not(.policy-type-btn):hover {
       background-color: rgba(0, 0, 0, 0.04) !important;
+    }
+
+    /* 규칙/스킬 토글 — 양쪽 테마 모두 active는 파란색, 비활성은 투명 */
+    .policy-type-btn {
+      background: transparent !important;
+      color: var(--vscode-foreground) !important;
+    }
+    .policy-type-btn.active {
+      background: #2563eb !important;
+      color: #ffffff !important;
+    }
+
+    /* 라이트 모드 — 기본 제외 패턴 / 기본 차단 명령어 목록 컨테이너 회색 배경 */
+    body[data-theme="light"] #context-exclusion-default-list,
+    body[data-theme="light"] #blocked-command-default-list {
+      background-color: #f3f4f6 !important;
+      color: #6b7280 !important;
+    }
+
+    /* 각 아이템과 내부 패턴 code 배경 투명 */
+    body[data-theme="light"] #blocked-command-default-list > div {
+      background: transparent !important;
+      color: #4b5563 !important;
+    }
+    body[data-theme="light"] #blocked-command-default-list code {
+      background: transparent !important;
+      color: #6b7280 !important;
     }
 
     body[data-theme="light"] .sync-icon-btn {
@@ -2265,28 +2296,7 @@
                 <p class="info-message">
                   모든 프로젝트에 공통으로 적용되는 규칙과 스킬을 관리합니다. 프로젝트가 바뀌어도 항상 함께 적용됩니다.
                 </p>
-                <div class="policy-type-selector" data-category="global-rules" style="margin-bottom:6px;">
-                  <div
-                    style="display:flex;border:1px solid var(--vscode-input-border);border-radius:4px;overflow:hidden;width:fit-content;">
-                    <button type="button" class="policy-type-btn active" data-type="rule"
-                      style="padding:2px 10px;font-size:0.8em;border:none;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);">규칙</button>
-                    <button type="button" class="policy-type-btn" data-type="skill"
-                      style="padding:2px 10px;font-size:0.8em;border:none;border-left:1px solid var(--vscode-input-border);cursor:pointer;background:transparent;color:var(--vscode-foreground);">스킬</button>
-                  </div>
-                  <input type="text" class="policy-skill-desc api-key-input" placeholder="이 스킬이 필요한 상황을 설명하세요"
-                    style="display:none;margin-top:4px;font-size:0.85em;" />
-                </div>
-                <div class="api-key-input-group">
-                  <input type="file" id="agent-policy-global-rules-input" accept=".md,.markdown,text/markdown"
-                    multiple style="display: none" />
-                  <button id="select-global-rules-button" type="button">파일 추가</button>
-                  <button id="upload-global-rules-button" type="button" disabled>저장</button>
-                </div>
-                <div class="api-key-input-group" style="margin-top: 6px;">
-                  <input type="text" id="path-global-rules-input" class="api-key-input"
-                    placeholder="파일 경로 직접 입력 (/path/to/file.md)" />
-                  <button id="add-path-global-rules-button" type="button">경로 추가</button>
-                </div>
+                <button id="add-global-rules-button" class="add-item-btn" type="button" style="margin-top:8px;">+ 추가</button>
                 <p id="global-rules-status" class="info-message"></p>
                 <p id="global-rules-file-name" class="info-message"
                   style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"></p>
@@ -2300,32 +2310,7 @@
                   프로젝트의 버전 관리 정책을 정의하는 Markdown 파일을 저장하세요. 여러
                   파일을 추가할 수 있습니다.
                 </p>
-                <div class="policy-type-selector" data-category="stable-version" style="margin-bottom:6px;">
-                  <div
-                    style="display:flex;border:1px solid var(--vscode-input-border);border-radius:4px;overflow:hidden;width:fit-content;">
-                    <button type="button" class="policy-type-btn active" data-type="rule"
-                      style="padding:2px 10px;font-size:0.8em;border:none;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);">규칙</button>
-                    <button type="button" class="policy-type-btn" data-type="skill"
-                      style="padding:2px 10px;font-size:0.8em;border:none;border-left:1px solid var(--vscode-input-border);cursor:pointer;background:transparent;color:var(--vscode-foreground);">스킬</button>
-                  </div>
-                  <input type="text" class="policy-skill-desc api-key-input" placeholder="이 스킬이 필요한 상황을 설명하세요"
-                    style="display:none;margin-top:4px;font-size:0.85em;" />
-                </div>
-                <div class="api-key-input-group">
-                  <input type="file" id="agent-policy-stable-version-input" accept=".md,.markdown,text/markdown"
-                    multiple style="display: none" />
-                  <button id="select-stable-version-button" type="button">
-                    파일 추가
-                  </button>
-                  <button id="upload-stable-version-button" type="button" disabled>
-                    저장
-                  </button>
-                </div>
-                <div class="api-key-input-group" style="margin-top: 6px;">
-                  <input type="text" id="path-stable-version-input" class="api-key-input"
-                    placeholder="파일 경로 직접 입력 (/path/to/file.md)" />
-                  <button id="add-path-stable-version-button" type="button">경로 추가</button>
-                </div>
+                <button id="add-stable-version-button" class="add-item-btn" type="button" style="margin-top:8px;">+ 추가</button>
                 <p id="stable-version-status" class="info-message"></p>
                 <p id="stable-version-file-name" class="info-message"
                   style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"></p>
@@ -2339,32 +2324,7 @@
                   프로젝트의 코딩 스타일 가이드를 정의하는 Markdown 파일을 저장하세요.
                   여러 파일을 추가할 수 있습니다.
                 </p>
-                <div class="policy-type-selector" data-category="coding-style" style="margin-bottom:6px;">
-                  <div
-                    style="display:flex;border:1px solid var(--vscode-input-border);border-radius:4px;overflow:hidden;width:fit-content;">
-                    <button type="button" class="policy-type-btn active" data-type="rule"
-                      style="padding:2px 10px;font-size:0.8em;border:none;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);">규칙</button>
-                    <button type="button" class="policy-type-btn" data-type="skill"
-                      style="padding:2px 10px;font-size:0.8em;border:none;border-left:1px solid var(--vscode-input-border);cursor:pointer;background:transparent;color:var(--vscode-foreground);">스킬</button>
-                  </div>
-                  <input type="text" class="policy-skill-desc api-key-input" placeholder="이 스킬이 필요한 상황을 설명하세요"
-                    style="display:none;margin-top:4px;font-size:0.85em;" />
-                </div>
-                <div class="api-key-input-group">
-                  <input type="file" id="agent-policy-coding-style-input" accept=".md,.markdown,text/markdown" multiple
-                    style="display: none" />
-                  <button id="select-coding-style-button" type="button">
-                    파일 추가
-                  </button>
-                  <button id="upload-coding-style-button" type="button" disabled>
-                    저장
-                  </button>
-                </div>
-                <div class="api-key-input-group" style="margin-top: 6px;">
-                  <input type="text" id="path-coding-style-input" class="api-key-input"
-                    placeholder="파일 경로 직접 입력 (/path/to/file.md)" />
-                  <button id="add-path-coding-style-button" type="button">경로 추가</button>
-                </div>
+                <button id="add-coding-style-button" class="add-item-btn" type="button" style="margin-top:8px;">+ 추가</button>
                 <p id="coding-style-status" class="info-message"></p>
                 <p id="coding-style-file-name" class="info-message"
                   style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"></p>
@@ -2378,32 +2338,7 @@
                   프로젝트의 아키텍처 구조와 설계 원칙을 정의하는 Markdown 파일을
                   저장하세요. 여러 파일을 추가할 수 있습니다.
                 </p>
-                <div class="policy-type-selector" data-category="project-architecture" style="margin-bottom:6px;">
-                  <div
-                    style="display:flex;border:1px solid var(--vscode-input-border);border-radius:4px;overflow:hidden;width:fit-content;">
-                    <button type="button" class="policy-type-btn active" data-type="rule"
-                      style="padding:2px 10px;font-size:0.8em;border:none;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);">규칙</button>
-                    <button type="button" class="policy-type-btn" data-type="skill"
-                      style="padding:2px 10px;font-size:0.8em;border:none;border-left:1px solid var(--vscode-input-border);cursor:pointer;background:transparent;color:var(--vscode-foreground);">스킬</button>
-                  </div>
-                  <input type="text" class="policy-skill-desc api-key-input" placeholder="이 스킬이 필요한 상황을 설명하세요"
-                    style="display:none;margin-top:4px;font-size:0.85em;" />
-                </div>
-                <div class="api-key-input-group">
-                  <input type="file" id="agent-policy-project-architecture-input" accept=".md,.markdown,text/markdown"
-                    multiple style="display: none" />
-                  <button id="select-project-architecture-button" type="button">
-                    파일 추가
-                  </button>
-                  <button id="upload-project-architecture-button" type="button" disabled>
-                    저장
-                  </button>
-                </div>
-                <div class="api-key-input-group" style="margin-top: 6px;">
-                  <input type="text" id="path-project-architecture-input" class="api-key-input"
-                    placeholder="파일 경로 직접 입력 (/path/to/file.md)" />
-                  <button id="add-path-project-architecture-button" type="button">경로 추가</button>
-                </div>
+                <button id="add-project-architecture-button" class="add-item-btn" type="button" style="margin-top:8px;">+ 추가</button>
                 <p id="project-architecture-status" class="info-message"></p>
                 <p id="project-architecture-file-name" class="info-message"
                   style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"></p>
@@ -2418,32 +2353,7 @@
                   프로젝트의 의존성 관리 정책을 정의하는 Markdown 파일을 저장하세요.
                   여러 파일을 추가할 수 있습니다.
                 </p>
-                <div class="policy-type-selector" data-category="dependency-policy" style="margin-bottom:6px;">
-                  <div
-                    style="display:flex;border:1px solid var(--vscode-input-border);border-radius:4px;overflow:hidden;width:fit-content;">
-                    <button type="button" class="policy-type-btn active" data-type="rule"
-                      style="padding:2px 10px;font-size:0.8em;border:none;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);">규칙</button>
-                    <button type="button" class="policy-type-btn" data-type="skill"
-                      style="padding:2px 10px;font-size:0.8em;border:none;border-left:1px solid var(--vscode-input-border);cursor:pointer;background:transparent;color:var(--vscode-foreground);">스킬</button>
-                  </div>
-                  <input type="text" class="policy-skill-desc api-key-input" placeholder="이 스킬이 필요한 상황을 설명하세요"
-                    style="display:none;margin-top:4px;font-size:0.85em;" />
-                </div>
-                <div class="api-key-input-group">
-                  <input type="file" id="agent-policy-dependency-policy-input" accept=".md,.markdown,text/markdown"
-                    multiple style="display: none" />
-                  <button id="select-dependency-policy-button" type="button">
-                    파일 추가
-                  </button>
-                  <button id="upload-dependency-policy-button" type="button" disabled>
-                    저장
-                  </button>
-                </div>
-                <div class="api-key-input-group" style="margin-top: 6px;">
-                  <input type="text" id="path-dependency-policy-input" class="api-key-input"
-                    placeholder="파일 경로 직접 입력 (/path/to/file.md)" />
-                  <button id="add-path-dependency-policy-button" type="button">경로 추가</button>
-                </div>
+                <button id="add-dependency-policy-button" class="add-item-btn" type="button" style="margin-top:8px;">+ 추가</button>
                 <p id="dependency-policy-status" class="info-message"></p>
                 <p id="dependency-policy-file-name" class="info-message"
                   style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"></p>
@@ -2457,30 +2367,7 @@
                   프로젝트의 데이터베이스 정책을 정의하는 Markdown 파일을 저장하세요.
                   여러 파일을 추가할 수 있습니다.
                 </p>
-                <div class="policy-type-selector" data-category="db-policy" style="margin-bottom:6px;">
-                  <div
-                    style="display:flex;border:1px solid var(--vscode-input-border);border-radius:4px;overflow:hidden;width:fit-content;">
-                    <button type="button" class="policy-type-btn active" data-type="rule"
-                      style="padding:2px 10px;font-size:0.8em;border:none;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);">규칙</button>
-                    <button type="button" class="policy-type-btn" data-type="skill"
-                      style="padding:2px 10px;font-size:0.8em;border:none;border-left:1px solid var(--vscode-input-border);cursor:pointer;background:transparent;color:var(--vscode-foreground);">스킬</button>
-                  </div>
-                  <input type="text" class="policy-skill-desc api-key-input" placeholder="이 스킬이 필요한 상황을 설명하세요"
-                    style="display:none;margin-top:4px;font-size:0.85em;" />
-                </div>
-                <div class="api-key-input-group">
-                  <input type="file" id="agent-policy-db-policy-input" accept=".md,.markdown,text/markdown" multiple
-                    style="display: none" />
-                  <button id="select-db-policy-button" type="button">파일 추가</button>
-                  <button id="upload-db-policy-button" type="button" disabled>
-                    저장
-                  </button>
-                </div>
-                <div class="api-key-input-group" style="margin-top: 6px;">
-                  <input type="text" id="path-db-policy-input" class="api-key-input"
-                    placeholder="파일 경로 직접 입력 (/path/to/file.md)" />
-                  <button id="add-path-db-policy-button" type="button">경로 추가</button>
-                </div>
+                <button id="add-db-policy-button" class="add-item-btn" type="button" style="margin-top:8px;">+ 추가</button>
                 <p id="db-policy-status" class="info-message"></p>
                 <p id="db-policy-file-name" class="info-message"
                   style="font-size: 0.85em; color: var(--vscode-descriptionForeground)"></p>

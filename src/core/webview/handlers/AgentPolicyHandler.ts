@@ -40,6 +40,7 @@ const AGENT_POLICY_COMMANDS = new Set([
   "deleteAgentPolicyFile",
   "listAllAgentPolicyFiles",
   "downloadSkillFromUrl",
+  "previewAgentPolicyPath",
 ]);
 
 const MAX_SKILL_SIZE = 1024 * 1024;
@@ -69,10 +70,6 @@ function deriveSkillFilename(rawUrl: string): string {
   return clean || "skill.md";
 }
 
-function hasFrontmatter(content: string): boolean {
-  return /^---\r?\n[\s\S]*?\r?\n---/.test(content);
-}
-
 function detectSuspiciousPatterns(content: string): string[] {
   const matches: string[] = [];
   const patterns: Array<[RegExp, string]> = [
@@ -98,9 +95,11 @@ function injectOriginMetadata(
   originUrl: string,
   hash: string,
 ): string {
-  const m = content.match(/^(---\r?\n)([\s\S]*?)(\r?\n---)/);
-  if (!m) return content;
   const safeUrl = originUrl.replace(/"/g, '\\"');
+  const m = content.match(/^(---\r?\n)([\s\S]*?)(\r?\n---)/);
+  if (!m) {
+    return `---\n_source_url: "${safeUrl}"\n_source_hash: "${hash}"\n---\n${content}`;
+  }
   const addition = `\n_source_url: "${safeUrl}"\n_source_hash: "${hash}"`;
   return (
     content.slice(0, m[1].length + m[2].length) +
@@ -136,9 +135,13 @@ async function handleDownloadSkillFromUrl(
       .split(";")[0]
       .trim();
     if (contentType && !ACCEPTED_CONTENT_TYPES.includes(contentType)) {
-      throw new Error(
-        `허용되지 않은 Content-Type: ${contentType || "(empty)"} — .md 파일만 허용`,
-      );
+      // application/octet-stream은 URL이 .md/.markdown 확장자인 경우에만 허용
+      const isMdUrl = /\.(md|markdown)(\?|#|$)/i.test(rawUrl);
+      if (contentType !== "application/octet-stream" || !isMdUrl) {
+        throw new Error(
+          `허용되지 않은 Content-Type: ${contentType || "(empty)"} — .md 파일만 허용`,
+        );
+      }
     }
 
     const buf = Buffer.from(await response.arrayBuffer());
@@ -152,11 +155,7 @@ async function handleDownloadSkillFromUrl(
     if (content.includes("\uFFFD"))
       throw new Error("UTF-8이 아닌 인코딩입니다");
 
-    if (!hasFrontmatter(content)) {
-      throw new Error(
-        "YAML frontmatter(---) 블록이 없습니다. Skill 파일 형식이 아닙니다.",
-      );
-    }
+    // frontmatter 필수 검증 제거 — Core의 injectFm이 저장 시 자동 주입
 
     const { createHash } = await import("crypto");
     const hash = createHash("sha256").update(buf).digest("hex").slice(0, 16);
@@ -192,6 +191,53 @@ async function handleDownloadSkillFromUrl(
   }
 }
 
+async function handlePreviewAgentPolicyPath(
+  data: any,
+  panel: vscode.WebviewPanel,
+): Promise<void> {
+  try {
+    const filePath = String(data.filePath || "").trim();
+    if (!filePath) throw new Error("파일 경로가 비어있습니다");
+    if (!filePath.endsWith(".md") && !filePath.endsWith(".markdown")) {
+      throw new Error("Markdown 파일(.md)만 미리보기 가능합니다");
+    }
+    const fs = await import("fs/promises");
+    const pathMod = await import("path");
+    const stat = await fs.stat(filePath);
+    if (stat.size > MAX_SKILL_SIZE) {
+      throw new Error(`파일이 너무 큽니다 (최대 ${MAX_SKILL_SIZE} bytes)`);
+    }
+    const buf = await fs.readFile(filePath);
+    if (buf.includes(0)) throw new Error("Null byte 포함 파일");
+    let content = buf.toString("utf-8");
+    if (content.charCodeAt(0) === 0xfeff) content = content.slice(1);
+    if (content.includes("\uFFFD")) throw new Error("UTF-8이 아닌 인코딩");
+    const { createHash } = await import("crypto");
+    const hash = createHash("sha256").update(buf).digest("hex").slice(0, 16);
+    const suspicious = detectSuspiciousPatterns(content);
+    const filename = pathMod.basename(filePath);
+    safePostMessage(panel, {
+      command: "agentPolicyPathPreview",
+      category: data.category,
+      filePath,
+      policyType: data.policyType,
+      skillDescription: data.skillDescription,
+      content,
+      filename,
+      originUrl: filePath,
+      hash,
+      size: buf.length,
+      suspicious,
+    });
+  } catch (e: any) {
+    safePostMessage(panel, {
+      command: "agentPolicyPathPreviewError",
+      category: data.category,
+      error: e?.message || String(e),
+    });
+  }
+}
+
 export class AgentPolicyHandler {
   /**
    * 주어진 command가 AgentPolicy 관련 명령인지 확인합니다.
@@ -217,6 +263,12 @@ export class AgentPolicyHandler {
     // URL 다운로드는 fetch+검증만, 저장은 미리보기 후 addAgentPolicyFile로 재라우팅
     if (data.command === "downloadSkillFromUrl") {
       await handleDownloadSkillFromUrl(data, panel);
+      return true;
+    }
+
+    // 경로 추가 미리보기 — 파일 읽어서 메타+의심 패턴과 함께 웹뷰로 전송
+    if (data.command === "previewAgentPolicyPath") {
+      await handlePreviewAgentPolicyPath(data, panel);
       return true;
     }
 
@@ -591,7 +643,7 @@ export class AgentPolicyHandler {
             error: error.message,
           });
           notificationService.showErrorMessage(
-            `Error deleting Stable Version Markdown: ${error.message}`,
+            `CODEPILOT: 버전 관리 파일 삭제 실패 — ${error.message}`,
           );
         }
         break;
@@ -624,7 +676,7 @@ export class AgentPolicyHandler {
             error: error.message,
           });
           notificationService.showErrorMessage(
-            `Error deleting Coding Style Markdown: ${error.message}`,
+            `CODEPILOT: 코딩 스타일 파일 삭제 실패 — ${error.message}`,
           );
         }
         break;
@@ -659,7 +711,7 @@ export class AgentPolicyHandler {
             error: error.message,
           });
           notificationService.showErrorMessage(
-            `Error deleting Project Architecture Markdown: ${error.message}`,
+            `CODEPILOT: 프로젝트 아키텍처 파일 삭제 실패 — ${error.message}`,
           );
         }
         break;
@@ -694,7 +746,7 @@ export class AgentPolicyHandler {
             error: error.message,
           });
           notificationService.showErrorMessage(
-            `Error deleting Dependency Policy Markdown: ${error.message}`,
+            `CODEPILOT: 의존성 정책 파일 삭제 실패 — ${error.message}`,
           );
         }
         break;
@@ -727,7 +779,7 @@ export class AgentPolicyHandler {
             error: error.message,
           });
           notificationService.showErrorMessage(
-            `Error deleting DB Policy Markdown: ${error.message}`,
+            `CODEPILOT: DB 정책 파일 삭제 실패 — ${error.message}`,
           );
         }
         break;
@@ -835,7 +887,7 @@ export class AgentPolicyHandler {
             error: error.message,
           });
           notificationService.showErrorMessage(
-            `Error adding Agent Policy file: ${error.message}`,
+            `CODEPILOT: 파일 저장 실패 — ${error.message}`,
           );
         }
         break;
@@ -936,7 +988,7 @@ export class AgentPolicyHandler {
             error: error.message,
           });
           notificationService.showErrorMessage(
-            `Error adding Agent Policy file from path: ${error.message}`,
+            `CODEPILOT: 경로 추가 실패 — ${error.message}`,
           );
         }
         break;
@@ -1032,7 +1084,7 @@ export class AgentPolicyHandler {
             error: error.message,
           });
           notificationService.showErrorMessage(
-            `Error deleting Agent Policy file: ${error.message}`,
+            `CODEPILOT: 파일 삭제 실패 — ${error.message}`,
           );
         }
         break;
