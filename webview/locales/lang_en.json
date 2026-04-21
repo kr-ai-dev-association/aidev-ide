@@ -125,7 +125,7 @@
   "aiModelSaved": "AI model saved successfully.",
   "aiModelSaveError": "Failed to save AI model:",
   "userModelsTitle": "User-Defined Models",
-  "userModelsDescription": "Add AI models by entering the provider, endpoint, and authentication directly. Models are stored only on this machine; API keys are kept in VS Code SecretStorage.",
+  "userModelsDescription": "Add AI models by entering the provider, endpoint, and authentication directly.",
   "userModelAddButton": "+ Add Model",
   "userModelSaved": "User model saved.",
   "userModelDeleted": "User model deleted.",

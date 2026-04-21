@@ -347,6 +347,25 @@
       color: #666;
     }
 
+    /* 사용자 정의 모델 폼 — 숫자 입력은 spinner-container 스타일과 동일하게 */
+    #user-model-form input[type="number"] {
+      width: 100%;
+      padding: 8px 12px;
+      border: 2px solid var(--vscode-input-border, #ddd);
+      border-radius: 6px;
+      font-size: 14px;
+      background: var(--vscode-input-background);
+      color: var(--vscode-input-foreground);
+      transition: border-color 0.2s ease;
+      box-sizing: border-box;
+    }
+
+    #user-model-form input[type="number"]:focus {
+      outline: none;
+      border-color: #007acc;
+      box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
+    }
+
     .toggle-label-text {
       font-weight: normal;
       /* 일반 텍스트처럼 */
@@ -1870,7 +1889,6 @@
               </div>
               <p class="info-message" id="user-models-description" data-i18n="userModelsDescription">
                 직접 AI 모델의 프로바이더·엔드포인트·인증을 입력하여 추가할 수 있습니다.
-                추가한 모델은 이 기기에만 저장되며, API 키는 VS Code SecretStorage에 안전하게 보관됩니다.
               </p>
 
               <!-- 사용자 모델 리스트 -->
@@ -1879,7 +1897,6 @@
 
               <!-- 추가/수정 폼 -->
               <div id="user-model-form" style="display:none;margin-top:12px;padding:12px;border:1px solid var(--vscode-input-border);border-radius:6px;">
-                <h4 id="user-model-form-title" style="margin-top:0;">새 AI 모델 추가</h4>
                 <input type="hidden" id="user-model-key" value="" />
 
                 <div class="api-key-input-group" style="flex-direction:column;align-items:stretch;">

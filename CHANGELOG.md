@@ -2,8 +2,18 @@
 
 VS Code용 AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.1.3**  
+> **현재 버전: v1.1.4**  
 > **브랜치:** `agentgocoder`
+
+---
+
+## v1.1.4 (2026-04-21)
+
+### 사용자 정의 모델 UI 다듬기
+
+- **"새 AI 모델 추가" 폼 타이틀 제거**: `#user-model-form-title` h4 제거 — 폼이 열리는 맥락 자체로 용도가 명확해 불필요
+- **저장소 안내 문구 제거**: "추가한 모델은 이 기기에만 저장되며, API 키는 VS Code SecretStorage에 안전하게 보관됩니다." 삭제 (`userModelsDescription` 단축 — ko/en 동기화)
+- **숫자 입력 스타일 통일**: `#user-model-form input[type="number"]` (컨텍스트 윈도우 / 최대 출력 토큰 / 기본 온도 / Top P)에 `.spinner-container input[type="number"]`과 동일한 스타일 적용 — `padding: 8px 12px`, `border: 2px solid`, `border-radius: 6px`, `font-size: 14px`, focus 시 파란 링
 
 ---
 
