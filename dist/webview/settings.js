@@ -6080,6 +6080,28 @@ window.addEventListener("message", event => {
       }
     });
   }
+
+  // 메인 AI 모델 드롭다운(#ai-model-select)에 "User" optgroup 주입
+  function refreshUserModelsInMainDropdown() {
+    const mainSelect = document.getElementById("ai-model-select");
+    if (!mainSelect) return;
+    mainSelect.querySelectorAll("optgroup[data-user-group]").forEach(og => og.remove());
+    mainSelect.querySelectorAll("option[data-user-option]").forEach(o => o.remove());
+    const models = window.__userModels || [];
+    if (models.length === 0) return;
+    const og = document.createElement("optgroup");
+    og.setAttribute("data-user-group", "true");
+    og.label = "User";
+    for (const m of models) {
+      const opt = document.createElement("option");
+      opt.value = `user:${m.key}`;
+      opt.textContent = m.name;
+      opt.setAttribute("data-user-option", "true");
+      og.appendChild(opt);
+    }
+    mainSelect.appendChild(og);
+  }
+  window.refreshUserModelsInMainDropdown = refreshUserModelsInMainDropdown;
   window.addEventListener("message", event => {
     const message = event.data || {};
     switch (message.command) {
@@ -6087,6 +6109,7 @@ window.addEventListener("message", event => {
         {
           window.__userModels = Array.isArray(message.models) ? message.models : [];
           renderList(window.__userModels);
+          refreshUserModelsInMainDropdown();
           break;
         }
       case "userModelSaved":
@@ -6095,6 +6118,7 @@ window.addEventListener("message", event => {
           renderList(window.__userModels);
           hideForm();
           setStatus("저장되었습니다.", false);
+          refreshUserModelsInMainDropdown();
           break;
         }
       case "userModelDeleted":
@@ -6102,6 +6126,7 @@ window.addEventListener("message", event => {
           window.__userModels = Array.isArray(message.models) ? message.models : window.__userModels;
           renderList(window.__userModels);
           setStatus("삭제되었습니다.", false);
+          refreshUserModelsInMainDropdown();
           break;
         }
       case "userModelSaveError":
