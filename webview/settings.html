@@ -82,27 +82,26 @@
     }
 
     /* 각 아이템 — 컨테이너와 구분되도록 배경/테두리 override
-       (JS 인라인 `background: var(--vscode-badge-background)` 는 대부분 테마에서 파란색이라 덮어씀) */
+       (JS 인라인 `background: var(--vscode-badge-background)` 는 대부분 테마에서 파란색이라 덮어씀)
+       context-exclusion 항목은 `<span class="default-exclusion-tag">` 로 렌더링되므로 별도 셀렉터 필요 */
     body[data-theme="light"] #blocked-command-default-list > div,
-    body[data-theme="light"] #context-exclusion-default-list > div {
+    body[data-theme="light"] #context-exclusion-default-list .default-exclusion-tag {
       background: #ffffff !important;
       color: #374151 !important;
       border: 1px solid #e5e7eb !important;
     }
-    body[data-theme="light"] #blocked-command-default-list code,
-    body[data-theme="light"] #context-exclusion-default-list code {
+    body[data-theme="light"] #blocked-command-default-list code {
       background: transparent !important;
       color: #6b7280 !important;
     }
     /* 다크 모드 — 배지 파란색 대신 은은하게 밝은 반투명 배경 */
     body:not([data-theme="light"]) #blocked-command-default-list > div,
-    body:not([data-theme="light"]) #context-exclusion-default-list > div {
+    body:not([data-theme="light"]) #context-exclusion-default-list .default-exclusion-tag {
       background: rgba(255, 255, 255, 0.05) !important;
       color: var(--vscode-foreground) !important;
       border: 1px solid rgba(255, 255, 255, 0.1) !important;
     }
-    body:not([data-theme="light"]) #blocked-command-default-list code,
-    body:not([data-theme="light"]) #context-exclusion-default-list code {
+    body:not([data-theme="light"]) #blocked-command-default-list code {
       background: transparent !important;
     }
 
