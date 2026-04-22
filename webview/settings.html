@@ -79,15 +79,29 @@
       color: #6b7280 !important;
     }
 
-    /* 각 아이템 — 컨테이너(#f3f4f6)와 구분되도록 흰 배경 + 엷은 테두리 */
-    body[data-theme="light"] #blocked-command-default-list > div {
+    /* 각 아이템 — 컨테이너와 구분되도록 배경/테두리 override
+       (JS 인라인 `background: var(--vscode-badge-background)` 는 대부분 테마에서 파란색이라 덮어씀) */
+    body[data-theme="light"] #blocked-command-default-list > div,
+    body[data-theme="light"] #context-exclusion-default-list > div {
       background: #ffffff !important;
       color: #374151 !important;
       border: 1px solid #e5e7eb !important;
     }
-    body[data-theme="light"] #blocked-command-default-list code {
+    body[data-theme="light"] #blocked-command-default-list code,
+    body[data-theme="light"] #context-exclusion-default-list code {
       background: transparent !important;
       color: #6b7280 !important;
+    }
+    /* 다크 모드 — 배지 파란색 대신 은은하게 밝은 반투명 배경 */
+    body:not([data-theme="light"]) #blocked-command-default-list > div,
+    body:not([data-theme="light"]) #context-exclusion-default-list > div {
+      background: rgba(255, 255, 255, 0.05) !important;
+      color: var(--vscode-foreground) !important;
+      border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    }
+    body:not([data-theme="light"]) #blocked-command-default-list code,
+    body:not([data-theme="light"]) #context-exclusion-default-list code {
+      background: transparent !important;
     }
 
     /* 라이트 모드 스크롤바 — WebKit 기준 흰색 계열로 강제 (기본 OS 검정 스크롤바 방지) */
@@ -393,6 +407,7 @@
     body:not([data-theme="light"]) .api-key-input-group input[type="password"],
     body:not([data-theme="light"]) .api-key-input-group input[type="number"],
     body:not([data-theme="light"]) .settings-section select,
+    body:not([data-theme="light"]) .model-selection-container select,
     body:not([data-theme="light"]) #user-model-form select,
     body:not([data-theme="light"]) #user-model-form input[type="text"],
     body:not([data-theme="light"]) #user-model-form input[type="password"],
@@ -405,6 +420,7 @@
     body:not([data-theme="light"]) .api-key-input-group input[type="password"]:focus,
     body:not([data-theme="light"]) .api-key-input-group input[type="number"]:focus,
     body:not([data-theme="light"]) .settings-section select:focus,
+    body:not([data-theme="light"]) .model-selection-container select:focus,
     body:not([data-theme="light"]) #user-model-form select:focus,
     body:not([data-theme="light"]) #user-model-form input[type="text"]:focus,
     body:not([data-theme="light"]) #user-model-form input[type="password"]:focus,
