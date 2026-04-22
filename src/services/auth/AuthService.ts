@@ -14,8 +14,11 @@ export class AuthService {
   private context: vscode.ExtensionContext;
   private _onDidChangeAuth = new vscode.EventEmitter<boolean>();
   readonly onDidChangeAuth = this._onDidChangeAuth.event;
+  private _onSessionExpired = new vscode.EventEmitter<void>();
+  readonly onSessionExpired = this._onSessionExpired.event;
   private _oauthServer?: http.Server;
   private _refreshPromise: Promise<string | null> | null = null;
+  private _sessionExpiredHandled = false;
 
   private static readonly ACCESS_TOKEN_KEY = "codepilot.accessToken";
   private static readonly REFRESH_TOKEN_KEY = "codepilot.refreshToken";
@@ -77,7 +80,9 @@ export class AuthService {
 
       if (error) {
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-        res.end(`<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>로그인 취소됨</h2><p>${error}</p><p>이 창을 닫아도 됩니다.</p></body></html>`);
+        res.end(
+          `<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>로그인 취소됨</h2><p>${error}</p><p>이 창을 닫아도 됩니다.</p></body></html>`,
+        );
         server.close();
         this._oauthServer = undefined;
         return;
@@ -85,7 +90,9 @@ export class AuthService {
 
       if (!code) {
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-        res.end(`<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>인증 실패</h2><p>인증 코드를 받지 못했습니다.</p></body></html>`);
+        res.end(
+          `<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>인증 실패</h2><p>인증 코드를 받지 못했습니다.</p></body></html>`,
+        );
         server.close();
         this._oauthServer = undefined;
         return;
@@ -93,7 +100,9 @@ export class AuthService {
 
       // 성공 페이지 먼저 표시
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      res.end(`<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>인증 완료!</h2><p>VS Code로 돌아가세요. 이 창은 닫아도 됩니다.</p></body></html>`);
+      res.end(
+        `<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>인증 완료!</h2><p>VS Code로 돌아가세요. 이 창은 닫아도 됩니다.</p></body></html>`,
+      );
 
       // 서버 종료 (port 변수는 클로저로 접근)
       server.close();
@@ -101,7 +110,8 @@ export class AuthService {
 
       // 백엔드로 code 교환
       try {
-        const { CodePilotApiClient } = await import("../api/CodePilotApiClient");
+        const { CodePilotApiClient } =
+          await import("../api/CodePilotApiClient");
         const api = CodePilotApiClient.getInstance();
         const redirectUri = `http://127.0.0.1:${port}/callback`;
 
@@ -115,10 +125,16 @@ export class AuthService {
 
         // 토큰 저장
         if (result.access_token) {
-          await this.context.secrets.store(AuthService.ACCESS_TOKEN_KEY, result.access_token);
+          await this.context.secrets.store(
+            AuthService.ACCESS_TOKEN_KEY,
+            result.access_token,
+          );
         }
         if (result.refresh_token) {
-          await this.context.secrets.store(AuthService.REFRESH_TOKEN_KEY, result.refresh_token);
+          await this.context.secrets.store(
+            AuthService.REFRESH_TOKEN_KEY,
+            result.refresh_token,
+          );
         }
 
         // 사용자 정보 저장
@@ -132,8 +148,12 @@ export class AuthService {
           apiKeyName: result.user?.api_key_name || "",
           apiKeyMasked: result.user?.api_key_masked || "",
         };
-        await this.context.globalState.update(AuthService.USER_INFO_KEY, userInfo);
+        await this.context.globalState.update(
+          AuthService.USER_INFO_KEY,
+          userInfo,
+        );
 
+        this._sessionExpiredHandled = false;
         this._onDidChangeAuth.fire(true);
       } catch (e: any) {
         const msg = e?.message || "알 수 없는 오류";
@@ -144,9 +164,13 @@ export class AuthService {
         this._onDidChangeAuth.fire(false);
 
         // 에러 리포팅
-        import('../error/ErrorReportingService').then(({ ErrorReportingService }) => {
-          ErrorReportingService.getInstance().reportAuthError(`Google OAuth failed: ${msg}`);
-        }).catch(() => {});
+        import("../error/ErrorReportingService")
+          .then(({ ErrorReportingService }) => {
+            ErrorReportingService.getInstance().reportAuthError(
+              `Google OAuth failed: ${msg}`,
+            );
+          })
+          .catch(() => {});
       }
     });
 
@@ -189,7 +213,9 @@ export class AuthService {
    */
   async handleOAuthCallback(_uri: vscode.Uri): Promise<void> {
     // 루프백 서버 방식에서는 서버 콜백에서 직접 처리
-    console.log("[AuthService] handleOAuthCallback called but OAuth is handled by loopback server");
+    console.log(
+      "[AuthService] handleOAuthCallback called but OAuth is handled by loopback server",
+    );
   }
 
   async getAccessToken(): Promise<string | undefined> {
@@ -236,10 +262,48 @@ export class AuthService {
     await this.context.secrets.delete(AuthService.REFRESH_TOKEN_KEY);
     await this.context.globalState.update(AuthService.USER_INFO_KEY, undefined);
     // 프로젝트 선택 초기화 (다른 계정 로그인 시 이전 프로젝트 잔류 방지)
-    await this.context.globalState.update('codepilot.projectId', undefined);
+    await this.context.globalState.update("codepilot.projectId", undefined);
 
     this._onDidChangeAuth.fire(false);
     vscode.window.showInformationMessage("로그아웃되었습니다");
+  }
+
+  /**
+   * 리프레시 토큰까지 실패한 경우 호출 — 서버 로그아웃 호출 없이 로컬만 정리하고
+   * webview에 "token_expired" 이유와 함께 로그아웃 전파.
+   * CodePilotApiClient.request() 가 여러 번 401을 만나더라도 1회만 처리.
+   */
+  async logoutDueToTokenExpiry(): Promise<void> {
+    if (this._sessionExpiredHandled) return;
+    this._sessionExpiredHandled = true;
+    console.warn(
+      "[AuthService] Session expired — clearing tokens and emitting session expired event",
+    );
+    try {
+      await this.context.secrets.delete(AuthService.ACCESS_TOKEN_KEY);
+    } catch {
+      /* ignore */
+    }
+    try {
+      await this.context.secrets.delete(AuthService.REFRESH_TOKEN_KEY);
+    } catch {
+      /* ignore */
+    }
+    try {
+      await this.context.globalState.update(
+        AuthService.USER_INFO_KEY,
+        undefined,
+      );
+    } catch {
+      /* ignore */
+    }
+    try {
+      await this.context.globalState.update("codepilot.projectId", undefined);
+    } catch {
+      /* ignore */
+    }
+    this._onDidChangeAuth.fire(false);
+    this._onSessionExpired.fire();
   }
 
   /**
@@ -277,19 +341,23 @@ export class AuthService {
 
       await this.context.secrets.store(
         AuthService.ACCESS_TOKEN_KEY,
-        result.access_token
+        result.access_token,
       );
       await this.context.secrets.store(
         AuthService.REFRESH_TOKEN_KEY,
-        result.refresh_token
+        result.refresh_token,
       );
 
       return result.access_token;
     } catch (err: any) {
       // 리프레시 실패 → 로그아웃
-      import('../error/ErrorReportingService').then(({ ErrorReportingService }) => {
-        ErrorReportingService.getInstance().reportAuthError(`Token refresh failed: ${err?.message || 'unknown'}`);
-      }).catch(() => {});
+      import("../error/ErrorReportingService")
+        .then(({ ErrorReportingService }) => {
+          ErrorReportingService.getInstance().reportAuthError(
+            `Token refresh failed: ${err?.message || "unknown"}`,
+          );
+        })
+        .catch(() => {});
 
       await this.logout();
       return null;

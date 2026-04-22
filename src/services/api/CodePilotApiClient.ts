@@ -211,6 +211,10 @@ export class CodePilotApiClient {
         const { AuthService } = await import("../auth/AuthService");
         const auth = AuthService.getInstance();
         const newToken = await auth.refreshAccessToken();
+        if (!newToken) {
+          // 리프레시가 실패했거나 새 토큰을 못 받음 → 자동 로그아웃 + webview 알림
+          await auth.logoutDueToTokenExpiry();
+        }
         if (newToken) {
           headers["Authorization"] = `Bearer ${newToken}`;
           const retryResponse = await this.fetchWithTimeout(url, {
@@ -227,7 +231,13 @@ export class CodePilotApiClient {
           return retryResponse.json();
         }
       } catch {
-        // 리프레시 실패
+        // 리프레시 자체가 예외로 실패한 경우에도 로그아웃 처리
+        try {
+          const { AuthService } = await import("../auth/AuthService");
+          await AuthService.getInstance().logoutDueToTokenExpiry();
+        } catch {
+          /* ignore */
+        }
       }
       throw new Error("인증이 필요합니다. 다시 로그인해주세요.");
     }

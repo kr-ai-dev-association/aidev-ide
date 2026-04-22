@@ -724,6 +724,27 @@ export async function activate(context: vscode.ExtensionContext) {
     ollamaApi,
   );
 
+  // 세션 만료(리프레시 토큰까지 실패) → webview에 "token_expired" 알림 + 로그인 화면 전환
+  context.subscriptions.push(
+    authService.onSessionExpired(() => {
+      const payload = {
+        command: "authState",
+        loggedIn: false,
+        reason: "token_expired",
+      };
+      try {
+        broadcastToSettingsPanels(payload);
+      } catch {
+        /* no settings panel open */
+      }
+      try {
+        (chatViewProvider as any)?._view?.webview?.postMessage(payload);
+      } catch {
+        /* chat webview not ready */
+      }
+    }),
+  );
+
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
       ChatViewProvider.viewType,

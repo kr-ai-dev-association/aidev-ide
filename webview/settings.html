@@ -3063,6 +3063,9 @@
             if (message.loggedIn) {
               showSettings(message.user);
             } else {
+              if (message.reason === 'token_expired') {
+                try { alert('세션이 만료되어 로그아웃되었습니다.\n\n다시 로그인해 주세요.'); } catch (_) {}
+              }
               showLogin();
             }
             break;
