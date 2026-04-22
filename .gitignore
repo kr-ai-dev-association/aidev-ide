@@ -6,3 +6,6 @@ node_modules/
 src/**/*.js
 src/**/*.js.map
 !src/core/tools/code/index.js
+
+# VS Code extension build artifacts — 빌드 산출물은 CI/릴리즈 태그에서만 관리
+*.vsix
