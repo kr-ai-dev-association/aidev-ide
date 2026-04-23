@@ -249,6 +249,51 @@ export class OrchestrationRouter {
           console.log(
             `[OrchestrationRouter] References collected: ${collectedReferences.length}개 (${collectedReferences.map((r) => `${r.type}:${r.name}`).join(", ")})`,
           );
+          // 단일 agent 경로(ContextGatherer/ConversationManager) 가 뿌리는
+          // 📚 [RAG] / 📋 [Rules] 인라인 프리뷰 parity — 멀티 태스크 분기 직전에
+          // 사용자에게 어떤 컨텍스트가 들어갔는지 즉시 알린다. reference-panel 은
+          // 모든 subtask 완료 후에 뿌려지므로 진행 중인 동안 시각 정보가 비는 문제 보강.
+          try {
+            const ragItems = collectedReferences.filter(
+              (r) => r.type === "rag",
+            );
+            const ruleItems = collectedReferences.filter(
+              (r) =>
+                r.type === "server_rule" ||
+                r.type === "local_rule" ||
+                r.type === "server_skill" ||
+                r.type === "local_skill",
+            );
+            if (ragItems.length > 0) {
+              const fileMap = new Map<string, number>();
+              for (const r of ragItems) {
+                fileMap.set(r.name, (fileMap.get(r.name) || 0) + 1);
+              }
+              const ragSummary = Array.from(fileMap.entries())
+                .map(([name, n]) => `${name} (${n}개 청크)`)
+                .join(", ");
+              WebviewBridge.receiveMessage(
+                webview,
+                "System",
+                `📚 [RAG] ${ragSummary}`,
+              );
+            }
+            if (ruleItems.length > 0) {
+              const ruleNames = Array.from(
+                new Set(ruleItems.map((r) => r.name)),
+              );
+              WebviewBridge.receiveMessage(
+                webview,
+                "System",
+                `📋 [Rules] ${ruleNames.join(", ")}`,
+              );
+            }
+          } catch (previewErr) {
+            console.warn(
+              "[OrchestrationRouter] context preview emit failed:",
+              previewErr,
+            );
+          }
         }
       } catch (e) {
         console.warn(
