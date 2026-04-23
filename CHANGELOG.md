@@ -2,7 +2,22 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.71**
+> **현재 버전: v1.0.72**
+
+---
+
+## v1.0.72 (2026-04-23)
+
+### TaskSplitter rules 스니펫 한계 완화 (300 → 800 chars)
+
+**문제**: v1.0.71 에서 추가한 `buildActiveRulesSummary()` 의 `SNIPPET_CHARS = 300` 한계가 빠듯함. Rule MD 가 "이 문서는 우리 조직의…" 같은 서두로 시작하면 핵심 directive (예: "백엔드는 Python FastAPI" / "React 는 Next.js 기반") 가 300자 너머로 밀려 TaskSplitter 가 못 보는 케이스 가능.
+
+**수정**:
+
+- `OrchestrationRouter.buildActiveRulesSummary()` 의 `SNIPPET_CHARS` 300 → 800 상향.
+- 토큰 영향 미미 (rule 4개 기준 약 2KB 추가, TaskSplitter 프롬프트 ~7KB 수준).
+
+**중기 TODO (별도 작업 예정)**: Claude Code (`src/skills/loadSkillsDir.ts`) 처럼 admin rule 에 frontmatter `description` / `whenToUse` 필드를 도입하면 본문 자르기 없이도 author 가 작성한 정확한 요약을 pre-load 에 쓸 수 있음. 그 시점에 SNIPPET_CHARS 값 재조정 고려.
 
 ---
 

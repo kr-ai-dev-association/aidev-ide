@@ -1532,7 +1532,11 @@ export class OrchestrationRouter {
    */
   private static buildActiveRulesSummary(): string {
     try {
-      const SNIPPET_CHARS = 300;
+      // 300자에서 rule 서두가 "이 문서는 우리 조직의..." 식으로 차지하면
+      // 정작 핵심 directive ("Python FastAPI 사용") 가 잘릴 수 있어 800자로 상향.
+      // TODO(중기): Claude Code 처럼 admin rule 에 frontmatter description/summary
+      // 필드 도입하면 snippet 없이도 정확한 요약 주입 가능. 그때 이 값 재조정.
+      const SNIPPET_CHARS = 800;
       const lines: string[] = [];
 
       // 1. Local rules (.agent/rules/{category}/*.md) — 제목 + 본문 스니펫
