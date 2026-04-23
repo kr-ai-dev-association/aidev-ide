@@ -155,10 +155,19 @@ export class OrchestrationRouter {
         "작업 분할 분석 중...",
       );
 
+      // Pre-load rules/skills (registry must be populated before IntentDetector + TaskSplitter)
+      // Split 결정 전에 활성 Rule 제목+본문 스니펫을 TaskSplitter 에 보여줘야
+      // "분리 금지" / 스택 정책 등을 LLM 이 반영할 수 있음.
+      PromptComposer.loadAgentRulesWithKeys();
+      await PromptComposer.ensureServerSettingsSynced();
+      PromptComposer.loadServerPromptTemplates(new Set());
+      const activeRulesSummary = OrchestrationRouter.buildActiveRulesSummary();
+
       const splitResult = await splitter.split(
         options.userQuery,
         projectContext,
         hotLoadKeywords,
+        activeRulesSummary,
       );
 
       if (!splitResult.shouldSplit) {
@@ -196,11 +205,6 @@ export class OrchestrationRouter {
 
       const toolContext = OrchestrationRouter.buildToolContext(webview);
       const results: AgentLoopResult[] = [];
-
-      // Pre-load skill registry (registry must be populated before IntentDetector)
-      PromptComposer.loadAgentRulesWithKeys();
-      await PromptComposer.ensureServerSettingsSynced();
-      PromptComposer.loadServerPromptTemplates(new Set());
 
       // If skills are registered, collect candidateSkillKeys via IntentDetector
       let candidateSkillKeys: string[] = [];
@@ -1436,6 +1440,166 @@ export class OrchestrationRouter {
       contextManager: ContextManager.getInstance(),
       webview,
     };
+  }
+
+  /**
+   * 로컬 rule 파일 (.agent/rules/{category}/*.md) 스니펫 추출.
+   * ruleKeys 에 포함된 파일만 읽어 frontmatter 제거 후 maxChars 만큼 반환.
+   */
+  private static readLocalRuleSnippets(
+    ruleKeys: Set<string>,
+    maxChars: number,
+  ): Array<{ key: string; snippet: string; truncated: boolean }> {
+    const results: Array<{
+      key: string;
+      snippet: string;
+      truncated: boolean;
+    }> = [];
+    try {
+      const agentRulesDir = PromptComposer.getSkillsDir();
+      if (!agentRulesDir) {
+        for (const k of ruleKeys) {
+          results.push({ key: k, snippet: "", truncated: false });
+        }
+        return results;
+      }
+      const fsSync = require("fs");
+      const pathMod = require("path");
+      if (!fsSync.existsSync(agentRulesDir)) {
+        for (const k of ruleKeys) {
+          results.push({ key: k, snippet: "", truncated: false });
+        }
+        return results;
+      }
+      const categories = fsSync
+        .readdirSync(agentRulesDir, { withFileTypes: true })
+        .filter((e: any) => e.isDirectory() && !e.name.startsWith("."))
+        .map((e: any) => e.name);
+
+      const keyToFile = new Map<string, string>();
+      for (const cat of categories) {
+        const catDir = pathMod.join(agentRulesDir, cat);
+        try {
+          const files = fsSync
+            .readdirSync(catDir)
+            .filter(
+              (f: string) => f.endsWith(".md") || f.endsWith(".markdown"),
+            );
+          for (const file of files) {
+            const stem = file.replace(/\.(md|markdown)$/, "");
+            if (ruleKeys.has(stem) && !keyToFile.has(stem)) {
+              keyToFile.set(stem, pathMod.join(catDir, file));
+            }
+          }
+        } catch {
+          /* skip category */
+        }
+      }
+
+      for (const key of ruleKeys) {
+        const filePath = keyToFile.get(key);
+        if (!filePath) {
+          results.push({ key, snippet: "", truncated: false });
+          continue;
+        }
+        try {
+          let content = fsSync.readFileSync(filePath, "utf8").trim();
+          content = content.replace(/^---[\s\S]*?---\s*/, "");
+          const normalized = content.replace(/\s+/g, " ").trim();
+          const snippet = normalized.substring(0, maxChars);
+          results.push({
+            key,
+            snippet,
+            truncated: normalized.length > maxChars,
+          });
+        } catch {
+          results.push({ key, snippet: "", truncated: false });
+        }
+      }
+    } catch (e) {
+      console.warn("[OrchestrationRouter] readLocalRuleSnippets 실패:", e);
+      for (const k of ruleKeys) {
+        results.push({ key: k, snippet: "", truncated: false });
+      }
+    }
+    return results;
+  }
+
+  /**
+   * 활성 Rule/Skill 요약 — TaskSplitter 가 split 결정과 subtask.description 작성 시 정책 반영.
+   * 제목 + 본문 스니펫 (최대 SNIPPET_CHARS) 포함 → 스택/프레임워크 enforce 를 TaskSplitter 가 인지.
+   * 호출 전제: PromptComposer.loadAgentRulesWithKeys / loadServerPromptTemplates 가 선행됨.
+   */
+  private static buildActiveRulesSummary(): string {
+    try {
+      const SNIPPET_CHARS = 300;
+      const lines: string[] = [];
+
+      // 1. Local rules (.agent/rules/{category}/*.md) — 제목 + 본문 스니펫
+      const { ruleKeys } = PromptComposer.loadAgentRulesWithKeys();
+      const localSnippets = OrchestrationRouter.readLocalRuleSnippets(
+        ruleKeys,
+        SNIPPET_CHARS,
+      );
+      for (const s of localSnippets) {
+        if (s.snippet) {
+          lines.push(
+            `- [local] ${s.key}: ${s.snippet}${s.truncated ? "..." : ""}`,
+          );
+        } else {
+          lines.push(`- [local] ${s.key}`);
+        }
+      }
+
+      // 2. Server rules (admin dev_rules, skill_type=rule only) — 제목 + 본문 스니펫
+      try {
+        const {
+          SettingsManager: SettingsMgr,
+        } = require("../managers/state/SettingsManager");
+        const sm = SettingsMgr.getInstance();
+        const allServerRules = sm.getServerDevRules() as {
+          key: string;
+          content: string;
+          title?: string;
+          skill_type?: string;
+        }[];
+        const includedKeys = new Set(
+          PromptComposer.getLastIncludedServerRuleKeys().map((r) => r.key),
+        );
+        for (const r of allServerRules) {
+          if (r.skill_type === "skill") continue;
+          if (!includedKeys.has(r.key)) continue;
+          const title = r.title || r.key;
+          const body = (r.content || "")
+            .replace(/\s+/g, " ")
+            .trim()
+            .substring(0, SNIPPET_CHARS);
+          if (body) {
+            const ellipsis = r.content.length > SNIPPET_CHARS ? "..." : "";
+            lines.push(`- [server] ${title}: ${body}${ellipsis}`);
+          } else {
+            lines.push(`- [server] ${title}`);
+          }
+        }
+      } catch (e) {
+        console.warn(
+          "[OrchestrationRouter] server rule snippet 로드 실패, 제목만 포함:",
+          e,
+        );
+        const serverRules = PromptComposer.getLastIncludedServerRuleKeys();
+        for (const r of serverRules) {
+          lines.push(`- [server] ${r.title}`);
+        }
+      }
+
+      return lines.join("\n");
+    } catch (e) {
+      console.warn(
+        "[OrchestrationRouter] Failed to build active rules summary:",
+        e,
+      );
+      return "";
+    }
   }
 
   /**

@@ -7,10 +7,10 @@
  * Complex task -> shouldSplit: true + SubTask[] (SubAgentLoop parallel execution)
  */
 
-import { LLMManager } from '../managers/model/LLMManager';
-import { SubTask, TaskSplitResult, ToolPermission } from './types';
-import { UsageMetricsManager } from '../managers/state/UsageMetricsManager';
-import { estimateTokens } from '../../utils/tokenUtils';
+import { LLMManager } from "../managers/model/LLMManager";
+import { SubTask, TaskSplitResult, ToolPermission } from "./types";
+import { UsageMetricsManager } from "../managers/state/UsageMetricsManager";
+import { estimateTokens } from "../../utils/tokenUtils";
 
 const SYSTEM_PROMPT = `You are a task splitting evaluator for a coding assistant.
 You analyze user requests and determine whether it would be efficient for multiple agents to process them in parallel.
@@ -115,89 +115,133 @@ If shouldSplit is false, subtasks should be an empty array.
 IMPORTANT: All "title", "description", and "reasoning" values MUST be written in Korean.`;
 
 export class TaskSplitter {
-    private llmManager: LLMManager;
+  private llmManager: LLMManager;
 
-    constructor() {
-        this.llmManager = LLMManager.getInstance();
+  constructor() {
+    this.llmManager = LLMManager.getInstance();
+  }
+
+  async split(
+    userQuery: string,
+    projectContext?: string,
+    hotLoadKeywords?: string[],
+    activeRulesSummary?: string,
+  ): Promise<TaskSplitResult> {
+    const prompt = this.buildPrompt(
+      userQuery,
+      projectContext,
+      hotLoadKeywords,
+      activeRulesSummary,
+    );
+
+    try {
+      const response = await this.llmManager.sendMessageWithSystemPrompt(
+        SYSTEM_PROMPT,
+        [{ text: prompt }],
+        { disableRetry: true },
+      );
+
+      return this.parseResponse(response);
+    } catch (error) {
+      console.error("[TaskSplitter] LLM call failed:", error);
+      return { shouldSplit: false, subtasks: [], reasoning: "LLM call failed" };
     }
+  }
 
-    async split(userQuery: string, projectContext?: string, hotLoadKeywords?: string[]): Promise<TaskSplitResult> {
-        const prompt = this.buildPrompt(userQuery, projectContext, hotLoadKeywords);
-
-        try {
-            const response = await this.llmManager.sendMessageWithSystemPrompt(
-                SYSTEM_PROMPT,
-                [{ text: prompt }],
-                { disableRetry: true }
-            );
-
-            return this.parseResponse(response);
-        } catch (error) {
-            console.error('[TaskSplitter] LLM call failed:', error);
-            return { shouldSplit: false, subtasks: [], reasoning: 'LLM call failed' };
-        }
+  private buildPrompt(
+    userQuery: string,
+    projectContext?: string,
+    hotLoadKeywords?: string[],
+    activeRulesSummary?: string,
+  ): string {
+    let prompt = `User request: ${userQuery}`;
+    if (projectContext) {
+      prompt += `\n\nProject information:\n${projectContext}`;
     }
-
-    private buildPrompt(userQuery: string, projectContext?: string, hotLoadKeywords?: string[]): string {
-        let prompt = `User request: ${userQuery}`;
-        if (projectContext) {
-            prompt += `\n\nProject information:\n${projectContext}`;
-        }
-        if (hotLoadKeywords && hotLoadKeywords.length > 0) {
-            prompt += `\n\nHOT LOAD registered keywords: [${hotLoadKeywords.join(', ')}]\nIf the above keywords are semantically related to the user request, you must return shouldSplit: false. The registered command must be executed in a single loop.`;
-        }
-        return prompt;
+    if (hotLoadKeywords && hotLoadKeywords.length > 0) {
+      prompt += `\n\nHOT LOAD registered keywords: [${hotLoadKeywords.join(", ")}]\nIf the above keywords are semantically related to the user request, you must return shouldSplit: false. The registered command must be executed in a single loop.`;
     }
-
-    private parseResponse(response: string): TaskSplitResult {
-        try {
-            // Remove thinking blocks (<think>...</think>) then extract JSON
-            const stripped = response.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-            const jsonMatch = stripped.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) {
-                return { shouldSplit: false, subtasks: [], reasoning: 'Failed to parse response' };
-            }
-
-            const parsed = JSON.parse(jsonMatch[0]);
-
-            if (!parsed.shouldSplit || !Array.isArray(parsed.subtasks) || parsed.subtasks.length < 2) {
-                console.log(`[TaskSplitter] Not splitting: shouldSplit=${parsed.shouldSplit}, subtasks=${parsed.subtasks?.length ?? 0}, reasoning=${parsed.reasoning}`);
-                return { shouldSplit: false, subtasks: [], reasoning: parsed.reasoning || 'Single task' };
-            }
-
-            const subtasks: SubTask[] = parsed.subtasks.map((st: any, i: number) => ({
-                id: st.id || `task-${i + 1}`,
-                title: st.title || `Subtask ${i + 1}`,
-                description: st.description || '',
-                dependencies: Array.isArray(st.dependencies) ? st.dependencies : [],
-                toolPermission: this.validatePermission(st.toolPermission),
-            }));
-
-            const independent = subtasks.filter(st => st.dependencies.length === 0);
-            const dependent = subtasks.filter(st => st.dependencies.length > 0);
-
-            if (independent.length < 2) {
-                console.log(`[TaskSplitter] Not splitting: ${independent.length} independent / ${dependent.length} dependent tasks`);
-                return { shouldSplit: false, subtasks: [], reasoning: 'Not enough independent tasks for parallel execution' };
-            }
-
-            console.log(`[TaskSplitter] Split result: ${subtasks.length} total, ${independent.length} independent, ${dependent.length} dependent`);
-
-            return {
-                shouldSplit: true,
-                subtasks,  // Return all — the router determines independent/dependent execution order
-                reasoning: parsed.reasoning || '',
-            };
-        } catch (error) {
-            console.error('[TaskSplitter] Failed to parse LLM response:', error);
-            return { shouldSplit: false, subtasks: [], reasoning: 'Parsing error' };
-        }
+    if (activeRulesSummary && activeRulesSummary.trim()) {
+      prompt += `\n\nActive architectural/coding rules (titles + body snippets — full content is injected to sub-agents later):\n${activeRulesSummary}\n\nIf any of the above rules constrain how work should be organized (e.g. "unified single-layer implementation required", "forbid parallel file creation", "single source of truth"), you must respect them and prefer shouldSplit: false. When splitting, subtask.description MUST use the tech stack/framework specified in the rules (e.g. if rule says "Python FastAPI", do not write "Node.js" in description). If rules are neutral on organization, decide based on the Splitting Criteria above as usual.`;
     }
+    return prompt;
+  }
 
-    private validatePermission(perm: string): ToolPermission {
-        if (perm === 'read-only' || perm === 'read-only-with-commands' || perm === 'full') {
-            return perm;
-        }
-        return 'full';
+  private parseResponse(response: string): TaskSplitResult {
+    try {
+      // Remove thinking blocks (<think>...</think>) then extract JSON
+      const stripped = response.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+      const jsonMatch = stripped.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        return {
+          shouldSplit: false,
+          subtasks: [],
+          reasoning: "Failed to parse response",
+        };
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+
+      if (
+        !parsed.shouldSplit ||
+        !Array.isArray(parsed.subtasks) ||
+        parsed.subtasks.length < 2
+      ) {
+        console.log(
+          `[TaskSplitter] Not splitting: shouldSplit=${parsed.shouldSplit}, subtasks=${parsed.subtasks?.length ?? 0}, reasoning=${parsed.reasoning}`,
+        );
+        return {
+          shouldSplit: false,
+          subtasks: [],
+          reasoning: parsed.reasoning || "Single task",
+        };
+      }
+
+      const subtasks: SubTask[] = parsed.subtasks.map((st: any, i: number) => ({
+        id: st.id || `task-${i + 1}`,
+        title: st.title || `Subtask ${i + 1}`,
+        description: st.description || "",
+        dependencies: Array.isArray(st.dependencies) ? st.dependencies : [],
+        toolPermission: this.validatePermission(st.toolPermission),
+      }));
+
+      const independent = subtasks.filter((st) => st.dependencies.length === 0);
+      const dependent = subtasks.filter((st) => st.dependencies.length > 0);
+
+      if (independent.length < 2) {
+        console.log(
+          `[TaskSplitter] Not splitting: ${independent.length} independent / ${dependent.length} dependent tasks`,
+        );
+        return {
+          shouldSplit: false,
+          subtasks: [],
+          reasoning: "Not enough independent tasks for parallel execution",
+        };
+      }
+
+      console.log(
+        `[TaskSplitter] Split result: ${subtasks.length} total, ${independent.length} independent, ${dependent.length} dependent`,
+      );
+
+      return {
+        shouldSplit: true,
+        subtasks, // Return all — the router determines independent/dependent execution order
+        reasoning: parsed.reasoning || "",
+      };
+    } catch (error) {
+      console.error("[TaskSplitter] Failed to parse LLM response:", error);
+      return { shouldSplit: false, subtasks: [], reasoning: "Parsing error" };
     }
+  }
+
+  private validatePermission(perm: string): ToolPermission {
+    if (
+      perm === "read-only" ||
+      perm === "read-only-with-commands" ||
+      perm === "full"
+    ) {
+      return perm;
+    }
+    return "full";
+  }
 }

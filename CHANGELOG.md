@@ -2,7 +2,27 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.70**
+> **현재 버전: v1.0.71**
+
+---
+
+## v1.0.71 (2026-04-23)
+
+### TaskSplitter 가 활성 Rule 을 인지하도록 개선 (멀티 에이전트 분할 정책 반영)
+
+**문제**: 멀티 에이전트 orchestration 에서 `TaskSplitter.split()` 이 호출되는 시점에 아직 rules context 가 수집되기 전이었음. 그 결과 TaskSplitter 는 admin/local 에 설정된 아키텍처 규칙 (예: "Python FastAPI 로 백엔드 구성") 을 전혀 모른 채 subtask 를 나눴고, subtask.description 이 규칙과 충돌하는 스택 (예: Node.js) 으로 작성되는 경우가 있었음. 실행 단계에서는 subagent 가 규칙을 받지만 이미 description 에 잘못된 스택이 박혀있어 "규칙을 각주 처리" 하는 혼란이 발생.
+
+**수정**:
+
+- `OrchestrationRouter.ts`: `PromptComposer.loadAgentRulesWithKeys()` + `loadServerPromptTemplates()` 호출을 `TaskSplitter.split()` 앞으로 이동. split 결정 전에 rules 가 로드되도록 순서 재정렬.
+- `OrchestrationRouter.buildActiveRulesSummary()` 신설: 로컬 (`.agent/rules/{category}/*.md`) + 서버 (`dev_rules`, `skill_type=rule` 만) 규칙의 **제목 + 본문 첫 300자 스니펫** 추출. 토큰 비용 감안해 full body 는 미포함.
+- `OrchestrationRouter.readLocalRuleSnippets()` 헬퍼: 로컬 rule 파일을 직접 읽어 frontmatter 제거 후 스니펫 생성.
+- `TaskSplitter.split()` / `buildPrompt()`: `activeRulesSummary?: string` 파라미터 추가. 요약이 존재하면 "rules 가 분할/스택 제약한다면 shouldSplit: false 로 하거나, split 시에도 subtask.description 에 규칙의 스택을 사용하라" 는 가이드를 프롬프트에 주입.
+- 기존 중복 `PromptComposer.load*` 호출 블록 제거 (재호출 절약).
+
+**효과**: TaskSplitter LLM 이 "architecture-guide 는 Python FastAPI 강제" 같은 실제 enforcement 문구를 읽고 subtask 를 짜므로, 규칙과 일치하는 description 이 생성됨. Subagent 단계에서 갈등이 사라짐.
+
+**참고**: rulesContext 자체의 sub-agent 주입 동작은 변경 없음 (기존에도 38KB 전체 주입 중). 이번 수정은 split 단계의 눈멀음만 해결.
 
 ---
 
