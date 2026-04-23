@@ -1272,6 +1272,7 @@ ${this.subtask.title}
 ${this.subtask.description}
 ${projectSection}
 ## Rules
+- **PROJECT RULES TAKE PRIORITY OVER TASK DESCRIPTION**: If the task description mentions a specific technology (framework, library, language, runtime) that conflicts with a **[Required]** rule above, you MUST follow the rule, not the task description. The task tells you WHAT to build; [Required] rules tell you HOW (stack, patterns, conventions). Example: if task says "make a Node.js backend" but a [Required] rule specifies Python FastAPI, implement in Python FastAPI. Only [Recommended] rules may be overridden by explicit user/task preferences.
 - Focus only on this task
 - Call the __done__ tool when the task is complete
 - Even if the task is already implemented and no additional work is needed, call the __done__ tool after verification

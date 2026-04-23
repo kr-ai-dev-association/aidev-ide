@@ -661,7 +661,9 @@ ${rules.join("\n\n---\n\n")}`,
             title?: string;
           }) => {
             const name = r.title || r.key;
-            return `[Required] **${name}**:\n${r.content}`;
+            const tag =
+              r.enforcement === "required" ? "[Required]" : "[Recommended]";
+            return `${tag} **${name}**:\n${r.content}`;
           },
         )
         .join("\n\n");
@@ -669,6 +671,12 @@ ${rules.join("\n\n---\n\n")}`,
       const wrappedText = `## Admin-Registered Skills (Mandatory Enforced Rules)
 The following are development rules registered by the organization administrator.
 **You must apply the rules below to all code generation, file creation, and UI implementation. Never generate code that ignores or violates these rules.**
+
+### Rule priority (how to resolve conflicts)
+
+- **[Required] rules**: strict. If the user's request (or a subtask description) conflicts with a Required rule — for example, the user asks for a Node.js backend but a Required rule specifies Python FastAPI — you MUST follow the rule. The user's/task's words tell you WHAT to build; Required rules define HOW (stack, framework, language, architecture, conventions). When in doubt, prefer the Required rule and briefly note that you applied it.
+- **[Recommended] rules**: default behavior. If the user explicitly requests something different, the user's explicit choice wins. Otherwise, apply the rule.
+- Cross-reference these rules before deciding on frameworks, languages, libraries, architecture, or patterns.
 
 ${formattedRules}`;
 

@@ -2,8 +2,30 @@
 
 VS Code용 AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.1.6**  
+> **현재 버전: v1.1.7**  
 > **브랜치:** `agentgocoder`
+
+---
+
+## v1.1.7 (2026-04-23)
+
+### TaskSplitter ↔ SubAgent 책임 분리
+
+**문제**: 멀티 에이전트 orchestration 에서 TaskSplitter 가 `subtask.description` 에 스택/프레임워크 이름 (예: "Node.js 로 백엔드 초기화") 을 박으면서, SubAgent 는 "구체적 task > 일반 rule" 로 해석해 rule 과 충돌해도 task 를 우선하는 케이스 발생. SubAgent 가 rule 을 받고도 각주 처리.
+
+**원인**: 책임 구분 불명확 — TaskSplitter 가 stack 을 결정하는 구조였고, SubAgent 는 rule 의 우선순위 명시적 지시가 없었음.
+
+**수정**:
+
+- `src/core/orchestration/TaskSplitter.ts`: SYSTEM_PROMPT 에 **"CRITICAL: Do Not Specify Technology Stacks"** 섹션 추가. `subtask.description` 에 프레임워크/언어/런타임/라이브러리 이름 금지. stack 선택은 SubAgent 에 위임.
+- `src/core/orchestration/SubAgentLoop.ts`: `buildSystemPrompt()` 의 `## Rules` 최상단에 **"PROJECT RULES TAKE PRIORITY OVER TASK DESCRIPTION"** 규칙 추가. `[Required]` rule 이 task description 과 충돌하면 rule 우선, `[Recommended]` 만 override 가능.
+- `src/core/managers/context/prompts/PromptComposer.ts`: `loadServerPromptTemplates()` 의 rule 태그를 enforcement 별 `[Required]` / `[Recommended]` 로 구분 (기존엔 전부 `[Required]` hardcode). Rules 섹션 헤더에 **"Rule priority (how to resolve conflicts)"** 소섹션 추가 — multi-agent 뿐 아니라 single-agent 경로에도 동일 정책 적용.
+
+**결과**:
+
+- TaskSplitter: "뭘 나눌지" 만 담당, stack 선택 금지 → 일관된 generic description 생성.
+- SubAgent: 명시적 "rule > task" 가이드 받음 → stack 충돌 시 rule 따름.
+- Single-agent: 동일 priority 문구가 주입되어 사용자 요청 vs rule 충돌 상황에서도 정책 일관.
 
 ---
 
