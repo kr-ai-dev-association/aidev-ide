@@ -67,6 +67,23 @@ You analyze user requests and determine whether it would be efficient for multip
   - If project info contains workspace root directory or user-mentioned paths, you must reference them
   - Sub-agents may not know the project structure, so the exact path for file creation must be included in the description
 
+## CRITICAL: Do Not Specify Technology Stacks
+
+**subtask.description MUST stay stack-neutral.** Tech stack selection (framework/library/language/runtime) is decided by the executor (sub-agent) based on project rules, NOT by you.
+
+- **DO NOT include specific technologies** in subtask.description:
+  - No framework names: React / Vue / Angular / Next.js / FastAPI / Express / Django / Spring / ...
+  - No language names: Node.js / Python / TypeScript / Kotlin / Go / ...
+  - No runtime/package-manager names: npm / pnpm / bun / pip / poetry / ...
+  - No library names: Axios / React Query / Prisma / SQLAlchemy / ...
+- **Only describe WHAT to build, not HOW or WITH-WHAT**:
+  - BAD: "Create Node.js backend in server/ with Express + Prisma"
+  - GOOD: "Create backend API endpoints in server/"
+  - BAD: "Build React dashboard in client/src/pages/"
+  - GOOD: "Build dashboard page in client/src/pages/"
+- **Exception**: if the user query explicitly names a technology, you may echo it **verbatim** (do not add stacks the user didn't mention). Even then, the sub-agent may override based on required rules.
+- **Why**: tech stack belongs to the project's policy layer (enforced rules). TaskSplitter cannot see rules and must not guess — guessing leads to conflicts between task instructions and required stack policies at the sub-agent level.
+
 ## Examples
 
 ### Example 1: Split YES
@@ -125,14 +142,8 @@ export class TaskSplitter {
     userQuery: string,
     projectContext?: string,
     hotLoadKeywords?: string[],
-    activeRulesSummary?: string,
   ): Promise<TaskSplitResult> {
-    const prompt = this.buildPrompt(
-      userQuery,
-      projectContext,
-      hotLoadKeywords,
-      activeRulesSummary,
-    );
+    const prompt = this.buildPrompt(userQuery, projectContext, hotLoadKeywords);
 
     try {
       const response = await this.llmManager.sendMessageWithSystemPrompt(
@@ -152,7 +163,6 @@ export class TaskSplitter {
     userQuery: string,
     projectContext?: string,
     hotLoadKeywords?: string[],
-    activeRulesSummary?: string,
   ): string {
     let prompt = `User request: ${userQuery}`;
     if (projectContext) {
@@ -160,9 +170,6 @@ export class TaskSplitter {
     }
     if (hotLoadKeywords && hotLoadKeywords.length > 0) {
       prompt += `\n\nHOT LOAD registered keywords: [${hotLoadKeywords.join(", ")}]\nIf the above keywords are semantically related to the user request, you must return shouldSplit: false. The registered command must be executed in a single loop.`;
-    }
-    if (activeRulesSummary && activeRulesSummary.trim()) {
-      prompt += `\n\nActive architectural/coding rules (titles + body snippets — full content is injected to sub-agents later):\n${activeRulesSummary}\n\nIf any of the above rules constrain how work should be organized (e.g. "unified single-layer implementation required", "forbid parallel file creation", "single source of truth"), you must respect them and prefer shouldSplit: false. When splitting, subtask.description MUST use the tech stack/framework specified in the rules (e.g. if rule says "Python FastAPI", do not write "Node.js" in description). If rules are neutral on organization, decide based on the Splitting Criteria above as usual.`;
     }
     return prompt;
   }

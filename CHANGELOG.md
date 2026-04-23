@@ -6,22 +6,50 @@ VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티
 
 ---
 
-## v1.0.72 (2026-04-23)
+## v1.0.72 (2026-04-23) — 최종 업데이트
 
-### TaskSplitter rules 스니펫 한계 완화 (300 → 800 chars)
+### TaskSplitter ↔ SubAgent 책임 재분리 (B방식 구조로 전환)
 
-**문제**: v1.0.71 에서 추가한 `buildActiveRulesSummary()` 의 `SNIPPET_CHARS = 300` 한계가 빠듯함. Rule MD 가 "이 문서는 우리 조직의…" 같은 서두로 시작하면 핵심 directive (예: "백엔드는 Python FastAPI" / "React 는 Next.js 기반") 가 300자 너머로 밀려 TaskSplitter 가 못 보는 케이스 가능.
+**배경**: v1.0.71 ~ 초기 1.0.72 에서 시도한 "TaskSplitter 가 rule 요약을 보게 한다 + snippet 800자" 방식 (Plan A) 은 증상은 가리지만 구조적으로는 결합도만 높임. 사용자 피드백에 따라 아키텍처 관점에서 더 깨끗한 방향으로 재설계.
+
+**원인 재분석**:
+
+1. 문제의 본질은 "SubAgent 가 rule 을 못 본 것" 이 아님 — rule 은 이미 rulesContext 로 subagent 에 full body 주입 중.
+2. 진짜 원인은 **TaskSplitter 가 subtask.description 에 스택을 박는 것**. 예: `subtask.description: "Node.js 로 백엔드 초기화, package.json / index.js 생성"`. SubAgent LLM 은 구체적 task > 일반 rule 로 해석 → rule 을 각주 처리하고 Node 로 감.
+3. Plan A 는 "TaskSplitter 에게 rule 보여주고 맞게 적어달라" 는 회피책. 결합도 ↑ + LLM 에게 rule 판단 책임 이중 부여.
+
+**B방식 (순수 분리)**:
+
+- **TaskSplitter**: "뭘 나눌지" 만 판단. stack/framework/language 등 기술 선택 **금지** — subtask.description 은 generic 하게 ("백엔드 API 만들기", "로그인 페이지", "테스트 추가"). rule 은 보지도 않음.
+- **SubAgent**: rule 다 받음 + stack 선택 책임. "[Required] rule 이 task description 과 충돌하면 rule 우선" 을 system prompt 로 명시.
+- **Single-agent 경로**: PromptComposer 의 rules 섹션 헤더에 동일한 priority 설명 추가 (multi-agent 만이 아닌 모든 agent 에 일괄 적용).
 
 **수정**:
 
-- `OrchestrationRouter.buildActiveRulesSummary()` 의 `SNIPPET_CHARS` 300 → 800 상향.
-- 토큰 영향 미미 (rule 4개 기준 약 2KB 추가, TaskSplitter 프롬프트 ~7KB 수준).
+- `src/core/orchestration/TaskSplitter.ts`:
+  - Plan A 의 `activeRulesSummary?: string` 파라미터 제거.
+  - SYSTEM_PROMPT 에 "CRITICAL: Do Not Specify Technology Stacks" 섹션 추가. subtask.description 에 프레임워크/언어/런타임/라이브러리 이름 금지.
+- `src/core/orchestration/OrchestrationRouter.ts`:
+  - Plan A 의 `buildActiveRulesSummary()` / `readLocalRuleSnippets()` 헬퍼 제거.
+  - split 앞의 rule pre-load + summary 생성 블록 제거 (기존 위치 복원).
+  - `splitter.split()` 4번째 인자 제거.
+- `src/core/orchestration/SubAgentLoop.ts`:
+  - `buildSystemPrompt()` 의 `## Rules` 섹션 맨 위에 **"PROJECT RULES TAKE PRIORITY OVER TASK DESCRIPTION"** 규칙 추가.
+- `src/core/managers/context/prompts/PromptComposer.ts`:
+  - `loadServerPromptTemplates()` 의 rule 태그를 enforcement 에 따라 `[Required]` / `[Recommended]` 로 구분.
+  - Rules 섹션 헤더에 "Rule priority (how to resolve conflicts)" 소섹션 추가 — single-agent 경로까지 동일 priority 규칙 적용.
 
-**중기 TODO (별도 작업 예정)**: Claude Code (`src/skills/loadSkillsDir.ts`) 처럼 admin rule 에 frontmatter `description` / `whenToUse` 필드를 도입하면 본문 자르기 없이도 author 가 작성한 정확한 요약을 pre-load 에 쓸 수 있음. 그 시점에 SNIPPET_CHARS 값 재조정 고려.
+**결과**:
+
+- TaskSplitter: rule 무관 + stack 언급 금지 → 결합도 낮고 일관된 generic description 생성.
+- SubAgent: 명시적 "rule > task" 가이드 받음 → stack 충돌 시 rule 따름.
+- Single-agent: 동일한 rule priority 설명을 PromptComposer 가 주입 → 사용자 요청 vs rule 충돌 상황에서도 동일 정책.
+
+**참고**: 이전 Plan A 코드 (snippet 생성, TaskSplitter 에 rule 주입) 는 이번 전환으로 실질 revert. 버전은 1.0.72 유지 (no bump).
 
 ---
 
-## v1.0.71 (2026-04-23)
+## v1.0.71 (2026-04-23) — 과도기 (v1.0.72 에서 재설계됨)
 
 ### TaskSplitter 가 활성 Rule 을 인지하도록 개선 (멀티 에이전트 분할 정책 반영)
 
