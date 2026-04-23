@@ -542,7 +542,7 @@ export class UserModelHandler {
         error: error?.message || String(error),
       });
       notificationService.showErrorMessage(
-        `Error in user model handler: ${error?.message || error}`,
+        `사용자 모델 핸들러 오류: ${error?.message || error}`,
       );
       return true;
     }

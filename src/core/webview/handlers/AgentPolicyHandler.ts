@@ -307,16 +307,14 @@ export class AgentPolicyHandler {
               command: "agentPolicyStableVersionSaved",
             });
             notificationService.showInfoMessage(
-              `AgentGoCoder: Stable Version Markdown saved to ${filePath}`,
+              `AgentGoCoder: 안정 버전 Markdown 저장됨 — ${filePath}`,
             );
           } else {
             safePostMessage(panel, {
               command: "agentPolicyStableVersionSaveError",
               error: "Invalid Markdown content",
             });
-            notificationService.showErrorMessage(
-              "Invalid Markdown content provided.",
-            );
+            notificationService.showErrorMessage("잘못된 Markdown 내용입니다.");
           }
         } catch (error: any) {
           safePostMessage(panel, {
@@ -324,7 +322,7 @@ export class AgentPolicyHandler {
             error: error.message,
           });
           notificationService.showErrorMessage(
-            `Error saving Stable Version Markdown: ${error.message}`,
+            `안정 버전 Markdown 저장 오류: ${error.message}`,
           );
         }
         break;
@@ -357,16 +355,14 @@ export class AgentPolicyHandler {
 
             safePostMessage(panel, { command: "agentPolicyCodingStyleSaved" });
             notificationService.showInfoMessage(
-              `AgentGoCoder: Coding Style Markdown saved to ${filePath}`,
+              `AgentGoCoder: 코딩 스타일 Markdown 저장됨 — ${filePath}`,
             );
           } else {
             safePostMessage(panel, {
               command: "agentPolicyCodingStyleSaveError",
               error: "Invalid Markdown content",
             });
-            notificationService.showErrorMessage(
-              "Invalid Markdown content provided.",
-            );
+            notificationService.showErrorMessage("잘못된 Markdown 내용입니다.");
           }
         } catch (error: any) {
           safePostMessage(panel, {
@@ -374,7 +370,7 @@ export class AgentPolicyHandler {
             error: error.message,
           });
           notificationService.showErrorMessage(
-            `Error saving Coding Style Markdown: ${error.message}`,
+            `코딩 스타일 Markdown 저장 오류: ${error.message}`,
           );
         }
         break;
@@ -409,16 +405,14 @@ export class AgentPolicyHandler {
               command: "agentPolicyProjectArchitectureSaved",
             });
             notificationService.showInfoMessage(
-              `AgentGoCoder: Project Architecture Markdown saved to ${filePath}`,
+              `AgentGoCoder: 프로젝트 아키텍처 Markdown 저장됨 — ${filePath}`,
             );
           } else {
             safePostMessage(panel, {
               command: "agentPolicyProjectArchitectureSaveError",
               error: "Invalid Markdown content",
             });
-            notificationService.showErrorMessage(
-              "Invalid Markdown content provided.",
-            );
+            notificationService.showErrorMessage("잘못된 Markdown 내용입니다.");
           }
         } catch (error: any) {
           safePostMessage(panel, {
@@ -426,7 +420,7 @@ export class AgentPolicyHandler {
             error: error.message,
           });
           notificationService.showErrorMessage(
-            `Error saving Project Architecture Markdown: ${error.message}`,
+            `프로젝트 아키텍처 Markdown 저장 오류: ${error.message}`,
           );
         }
         break;
@@ -461,16 +455,14 @@ export class AgentPolicyHandler {
               command: "agentPolicyDependencyPolicySaved",
             });
             notificationService.showInfoMessage(
-              `AgentGoCoder: Dependency Policy Markdown saved to ${filePath}`,
+              `AgentGoCoder: 의존성 정책 Markdown 저장됨 — ${filePath}`,
             );
           } else {
             safePostMessage(panel, {
               command: "agentPolicyDependencyPolicySaveError",
               error: "Invalid Markdown content",
             });
-            notificationService.showErrorMessage(
-              "Invalid Markdown content provided.",
-            );
+            notificationService.showErrorMessage("잘못된 Markdown 내용입니다.");
           }
         } catch (error: any) {
           safePostMessage(panel, {
@@ -478,7 +470,7 @@ export class AgentPolicyHandler {
             error: error.message,
           });
           notificationService.showErrorMessage(
-            `Error saving Dependency Policy Markdown: ${error.message}`,
+            `의존성 정책 Markdown 저장 오류: ${error.message}`,
           );
         }
         break;
@@ -511,16 +503,14 @@ export class AgentPolicyHandler {
 
             safePostMessage(panel, { command: "agentPolicyDbPolicySaved" });
             notificationService.showInfoMessage(
-              `AgentGoCoder: DB Policy Markdown saved to ${filePath}`,
+              `AgentGoCoder: DB 정책 Markdown 저장됨 — ${filePath}`,
             );
           } else {
             safePostMessage(panel, {
               command: "agentPolicyDbPolicySaveError",
               error: "Invalid Markdown content",
             });
-            notificationService.showErrorMessage(
-              "Invalid Markdown content provided.",
-            );
+            notificationService.showErrorMessage("잘못된 Markdown 내용입니다.");
           }
         } catch (error: any) {
           safePostMessage(panel, {
@@ -528,7 +518,7 @@ export class AgentPolicyHandler {
             error: error.message,
           });
           notificationService.showErrorMessage(
-            `Error saving DB Policy Markdown: ${error.message}`,
+            `DB 정책 Markdown 저장 오류: ${error.message}`,
           );
         }
         break;
@@ -636,7 +626,7 @@ export class AgentPolicyHandler {
             command: "agentPolicyStableVersionDeleted",
           });
           notificationService.showInfoMessage(
-            "AgentGoCoder: Stable Version Markdown deleted.",
+            "AgentGoCoder: 안정 버전 Markdown 삭제됨",
           );
         } catch (error: any) {
           safePostMessage(panel, {
@@ -669,7 +659,7 @@ export class AgentPolicyHandler {
           await stateManager.deleteAgentPolicyCodingStyle();
           safePostMessage(panel, { command: "agentPolicyCodingStyleDeleted" });
           notificationService.showInfoMessage(
-            "AgentGoCoder: Coding Style Markdown deleted.",
+            "AgentGoCoder: 코딩 스타일 Markdown 삭제됨",
           );
         } catch (error: any) {
           safePostMessage(panel, {
@@ -704,7 +694,7 @@ export class AgentPolicyHandler {
             command: "agentPolicyProjectArchitectureDeleted",
           });
           notificationService.showInfoMessage(
-            "AgentGoCoder: Project Architecture Markdown deleted.",
+            "AgentGoCoder: 프로젝트 아키텍처 Markdown 삭제됨",
           );
         } catch (error: any) {
           safePostMessage(panel, {
@@ -739,7 +729,7 @@ export class AgentPolicyHandler {
             command: "agentPolicyDependencyPolicyDeleted",
           });
           notificationService.showInfoMessage(
-            "AgentGoCoder: Dependency Policy Markdown deleted.",
+            "AgentGoCoder: 의존성 정책 Markdown 삭제됨",
           );
         } catch (error: any) {
           safePostMessage(panel, {
@@ -772,7 +762,7 @@ export class AgentPolicyHandler {
           await stateManager.deleteAgentPolicyDbPolicy();
           safePostMessage(panel, { command: "agentPolicyDbPolicyDeleted" });
           notificationService.showInfoMessage(
-            "AgentGoCoder: DB Policy Markdown deleted.",
+            "AgentGoCoder: DB 정책 Markdown 삭제됨",
           );
         } catch (error: any) {
           safePostMessage(panel, {
@@ -872,7 +862,7 @@ export class AgentPolicyHandler {
             skillDescription: fileType === "skill" ? fileSkillDesc || "" : "",
           });
           notificationService.showInfoMessage(
-            `AgentGoCoder: ${safeFileName} saved to skills/${category}/`,
+            `AgentGoCoder: ${safeFileName} → skills/${category}/ 저장됨`,
           );
         } catch (error: any) {
           safePostMessage(panel, {
@@ -976,7 +966,7 @@ export class AgentPolicyHandler {
               pathPolicyType === "skill" ? pathSkillDesc || "" : "",
           });
           notificationService.showInfoMessage(
-            `AgentGoCoder: ${safeFileName} saved to skills/${category}/`,
+            `AgentGoCoder: ${safeFileName} → skills/${category}/ 저장됨`,
           );
         } catch (error: any) {
           safePostMessage(panel, {
@@ -1064,7 +1054,7 @@ export class AgentPolicyHandler {
             fileName: targetFileName,
           });
           notificationService.showInfoMessage(
-            `AgentGoCoder: ${targetFileName} deleted`,
+            `AgentGoCoder: ${targetFileName} 삭제됨`,
           );
         } catch (error: any) {
           console.error(`[SettingsPanel] deleteAgentPolicyFile error:`, error);

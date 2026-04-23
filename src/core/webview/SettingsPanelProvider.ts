@@ -323,7 +323,7 @@ export function openSettingsPanel(
               await stateManager.saveApiKey(apiKeyToSave);
               safePostMessage(panel, { command: "apiKeySaved" });
               notificationService.showInfoMessage(
-                "AgentGoCoder: API Key saved successfully.",
+                "AgentGoCoder: API 키 저장됨",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -331,7 +331,7 @@ export function openSettingsPanel(
                 error: error.message,
               });
               notificationService.showErrorMessage(
-                `Error saving API Key: ${error.message}`,
+                `API 키 저장 오류: ${error.message}`,
               );
             }
           } else {
@@ -339,7 +339,7 @@ export function openSettingsPanel(
               command: "apiKeySaveError",
               error: "Invalid API key",
             });
-            notificationService.showErrorMessage("Invalid API key provided.");
+            notificationService.showErrorMessage("잘못된 API 키입니다.");
           }
           break;
         case "saveCompactorModel": // Compactor 모델 저장
@@ -1119,7 +1119,7 @@ export function openSettingsPanel(
               await stateManager.saveOllamaApiUrl(ollamaApiUrlToSave);
               safePostMessage(panel, { command: "ollamaApiUrlSaved" });
               notificationService.showInfoMessage(
-                "AgentGoCoder: Ollama API URL saved.",
+                "AgentGoCoder: Ollama API URL 저장됨",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -1127,7 +1127,7 @@ export function openSettingsPanel(
                 error: error.message,
               });
               notificationService.showErrorMessage(
-                `Error saving Ollama API URL: ${error.message}`,
+                `Ollama API URL 저장 오류: ${error.message}`,
               );
             }
           } else {
@@ -1136,7 +1136,7 @@ export function openSettingsPanel(
               error: "Invalid Ollama API URL",
             });
             notificationService.showErrorMessage(
-              "Invalid Ollama API URL provided.",
+              "잘못된 Ollama API URL 입니다.",
             );
           }
           break;
@@ -1150,7 +1150,7 @@ export function openSettingsPanel(
               await stateManager.saveOllamaApiUrl(localOllamaApiUrlToSave);
               safePostMessage(panel, { command: "localOllamaApiUrlSaved" });
               notificationService.showInfoMessage(
-                "AgentGoCoder: Local Ollama API URL saved.",
+                "AgentGoCoder: 로컬 Ollama API URL 저장됨",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -1158,7 +1158,7 @@ export function openSettingsPanel(
                 error: error.message,
               });
               notificationService.showErrorMessage(
-                `Error saving Local Ollama API URL: ${error.message}`,
+                `로컬 Ollama API URL 저장 오류: ${error.message}`,
               );
             }
           } else {
@@ -1167,7 +1167,7 @@ export function openSettingsPanel(
               error: "Invalid Local Ollama API URL",
             });
             notificationService.showErrorMessage(
-              "Invalid Local Ollama API URL provided.",
+              "잘못된 로컬 Ollama API URL 입니다.",
             );
           }
           break;
@@ -1190,7 +1190,7 @@ export function openSettingsPanel(
               }
 
               notificationService.showInfoMessage(
-                "AgentGoCoder: Ollama Model saved.",
+                "AgentGoCoder: Ollama 모델 저장됨",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -1198,7 +1198,7 @@ export function openSettingsPanel(
                 error: error.message,
               });
               notificationService.showErrorMessage(
-                `Error saving Ollama Model: ${error.message}`,
+                `Ollama 모델 저장 오류: ${error.message}`,
               );
             }
           } else {
@@ -1206,9 +1206,7 @@ export function openSettingsPanel(
               command: "ollamaModelSaveError",
               error: "Invalid Ollama Model",
             });
-            notificationService.showErrorMessage(
-              "Invalid Ollama Model provided.",
-            );
+            notificationService.showErrorMessage("잘못된 Ollama 모델입니다.");
           }
           break;
         case "saveOllamaServerType": // Ollama 서버 타입 저장 케이스 추가
@@ -1221,7 +1219,7 @@ export function openSettingsPanel(
               await stateManager.saveOllamaServerType(ollamaServerTypeToSave);
               safePostMessage(panel, { command: "ollamaServerTypeSaved" });
               notificationService.showInfoMessage(
-                "AgentGoCoder: Ollama Server Type saved.",
+                "AgentGoCoder: Ollama 서버 타입 저장됨",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -1229,7 +1227,7 @@ export function openSettingsPanel(
                 error: error.message,
               });
               notificationService.showErrorMessage(
-                `Error saving Ollama Server Type: ${error.message}`,
+                `Ollama 서버 타입 저장 오류: ${error.message}`,
               );
             }
           } else {
@@ -1238,7 +1236,7 @@ export function openSettingsPanel(
               error: "Invalid Ollama Server Type",
             });
             notificationService.showErrorMessage(
-              "Invalid Ollama Server Type provided.",
+              "잘못된 Ollama 서버 타입입니다.",
             );
           }
           break;
@@ -1254,7 +1252,7 @@ export function openSettingsPanel(
               );
               safePostMessage(panel, { command: "remoteOllamaApiUrlSaved" });
               notificationService.showInfoMessage(
-                "AgentGoCoder: Remote Ollama API URL saved.",
+                "AgentGoCoder: 원격 Ollama API URL 저장됨",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -1262,7 +1260,7 @@ export function openSettingsPanel(
                 error: error.message,
               });
               notificationService.showErrorMessage(
-                `Error saving Remote Ollama API URL: ${error.message}`,
+                `원격 Ollama API URL 저장 오류: ${error.message}`,
               );
             }
           } else {
@@ -1271,7 +1269,7 @@ export function openSettingsPanel(
               error: "Invalid Remote Ollama API URL",
             });
             notificationService.showErrorMessage(
-              "Invalid Remote Ollama API URL provided.",
+              "잘못된 원격 Ollama API URL 입니다.",
             );
           }
           break;
@@ -1285,7 +1283,7 @@ export function openSettingsPanel(
               await stateManager.saveRemoteOllamaModel(remoteOllamaModelToSave);
               safePostMessage(panel, { command: "remoteOllamaModelSaved" });
               notificationService.showInfoMessage(
-                "AgentGoCoder: Remote Ollama Model saved.",
+                "AgentGoCoder: 원격 Ollama 모델 저장됨",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -1293,7 +1291,7 @@ export function openSettingsPanel(
                 error: error.message,
               });
               notificationService.showErrorMessage(
-                `Error saving Remote Ollama Model: ${error.message}`,
+                `원격 Ollama 모델 저장 오류: ${error.message}`,
               );
             }
           } else {
@@ -1302,7 +1300,7 @@ export function openSettingsPanel(
               error: "Invalid Remote Ollama Model",
             });
             notificationService.showErrorMessage(
-              "Invalid Remote Ollama Model provided.",
+              "잘못된 원격 Ollama 모델입니다.",
             );
           }
           break;
@@ -1323,7 +1321,7 @@ export function openSettingsPanel(
               } catch {}
               safePostMessage(panel, { command: "autoUpdateEnabledSaved" });
               notificationService.showInfoMessage(
-                "AgentGoCoder: Auto Update setting saved.",
+                "AgentGoCoder: 자동 업데이트 설정 저장됨",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -1331,7 +1329,7 @@ export function openSettingsPanel(
                 error: error.message,
               });
               notificationService.showErrorMessage(
-                `Error saving Auto Update setting: ${error.message}`,
+                `자동 업데이트 설정 저장 오류: ${error.message}`,
               );
             }
           } else {
@@ -1340,7 +1338,7 @@ export function openSettingsPanel(
               error: "Invalid Auto Update setting",
             });
             notificationService.showErrorMessage(
-              "Invalid Auto Update setting provided.",
+              "잘못된 자동 업데이트 설정입니다.",
             );
           }
           break;
@@ -1355,7 +1353,7 @@ export function openSettingsPanel(
               await stateManager.saveErrorRetryCount(errorRetryCountToSave);
               safePostMessage(panel, { command: "errorRetryCountSaved" });
               notificationService.showInfoMessage(
-                "AgentGoCoder: Error Retry Count setting saved.",
+                "AgentGoCoder: 오류 재시도 횟수 설정 저장됨",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -1363,7 +1361,7 @@ export function openSettingsPanel(
                 error: error.message,
               });
               notificationService.showErrorMessage(
-                `Error saving Error Retry Count setting: ${error.message}`,
+                `오류 재시도 횟수 설정 저장 오류: ${error.message}`,
               );
             }
           } else {
@@ -1372,7 +1370,7 @@ export function openSettingsPanel(
               error: "Invalid Error Retry Count setting",
             });
             notificationService.showErrorMessage(
-              "Invalid Error Retry Count setting provided.",
+              "잘못된 오류 재시도 횟수 설정입니다.",
             );
           }
           break;
@@ -1390,7 +1388,7 @@ export function openSettingsPanel(
               );
               safePostMessage(panel, { command: "autoCorrectionEnabledSaved" });
               notificationService.showInfoMessage(
-                "AgentGoCoder: Auto Correction setting saved.",
+                "AgentGoCoder: 자동 수정 설정 저장됨",
               );
             } catch (error: any) {
               safePostMessage(panel, {
@@ -1398,7 +1396,7 @@ export function openSettingsPanel(
                 error: error.message,
               });
               notificationService.showErrorMessage(
-                `Error saving Auto Correction setting: ${error.message}`,
+                `자동 수정 설정 저장 오류: ${error.message}`,
               );
             }
           } else {
@@ -1407,7 +1405,7 @@ export function openSettingsPanel(
               error: "Invalid Auto Correction setting",
             });
             notificationService.showErrorMessage(
-              "Invalid Auto Correction setting provided.",
+              "잘못된 자동 수정 설정입니다.",
             );
           }
           break;
@@ -1429,7 +1427,7 @@ export function openSettingsPanel(
                 error: error.message,
               });
               notificationService.showErrorMessage(
-                `Error setting Auto Correction: ${error.message}`,
+                `자동 수정 설정 오류: ${error.message}`,
               );
             }
           } else {
@@ -1438,7 +1436,7 @@ export function openSettingsPanel(
               error: "Invalid Auto Correction setting",
             });
             notificationService.showErrorMessage(
-              "Invalid Auto Correction setting provided.",
+              "잘못된 자동 수정 설정입니다.",
             );
           }
           break;
@@ -1456,7 +1454,7 @@ export function openSettingsPanel(
                 error: error.message,
               });
               notificationService.showErrorMessage(
-                `Error setting Auto Test Retry: ${error.message}`,
+                `자동 테스트 재시도 설정 오류: ${error.message}`,
               );
             }
           } else {
@@ -1465,7 +1463,7 @@ export function openSettingsPanel(
               error: "Invalid Auto Test Retry setting",
             });
             notificationService.showErrorMessage(
-              "Invalid Auto Test Retry setting provided.",
+              "잘못된 자동 테스트 재시도 설정입니다.",
             );
           }
           break;
@@ -1485,7 +1483,7 @@ export function openSettingsPanel(
                 error: error.message,
               });
               notificationService.showErrorMessage(
-                `Error setting Test Retry Count: ${error.message}`,
+                `테스트 재시도 횟수 설정 오류: ${error.message}`,
               );
             }
           } else {
@@ -1494,7 +1492,7 @@ export function openSettingsPanel(
               error: "Invalid Test Retry Count setting",
             });
             notificationService.showErrorMessage(
-              "Invalid Test Retry Count setting provided.",
+              "잘못된 테스트 재시도 횟수 설정입니다.",
             );
           }
           break;
@@ -1521,7 +1519,7 @@ export function openSettingsPanel(
                 error: error.message,
               });
               notificationService.showErrorMessage(
-                `Error setting Auto Update: ${error.message}`,
+                `자동 업데이트 설정 오류: ${error.message}`,
               );
             }
           } else {
@@ -1530,7 +1528,7 @@ export function openSettingsPanel(
               error: "Invalid Auto Update setting",
             });
             notificationService.showErrorMessage(
-              "Invalid Auto Update setting provided.",
+              "잘못된 자동 업데이트 설정입니다.",
             );
           }
           break;
@@ -1551,7 +1549,7 @@ export function openSettingsPanel(
                 error: error.message,
               });
               notificationService.showErrorMessage(
-                `Error setting Auto Delete Files: ${error.message}`,
+                `자동 파일 삭제 설정 오류: ${error.message}`,
               );
             }
           } else {
@@ -1560,7 +1558,7 @@ export function openSettingsPanel(
               error: "Invalid Auto Delete Files setting",
             });
             notificationService.showErrorMessage(
-              "Invalid Auto Delete Files setting provided.",
+              "잘못된 자동 파일 삭제 설정입니다.",
             );
           }
           break;
@@ -1583,7 +1581,7 @@ export function openSettingsPanel(
                 error: error.message,
               });
               notificationService.showErrorMessage(
-                `Error setting Auto Execute Commands: ${error.message}`,
+                `자동 명령 실행 설정 오류: ${error.message}`,
               );
             }
           } else {
@@ -1592,7 +1590,7 @@ export function openSettingsPanel(
               error: "Invalid Auto Execute Commands setting",
             });
             notificationService.showErrorMessage(
-              "Invalid Auto Execute Commands setting provided.",
+              "잘못된 자동 명령 실행 설정입니다.",
             );
           }
           break;
@@ -1636,7 +1634,7 @@ export function openSettingsPanel(
                 error: error.message,
               });
               notificationService.showErrorMessage(
-                `Error setting Auto Tool Execution: ${error.message}`,
+                `자동 도구 실행 설정 오류: ${error.message}`,
               );
             }
           } else {
@@ -1645,7 +1643,7 @@ export function openSettingsPanel(
               error: "Invalid Auto Tool Execution setting",
             });
             notificationService.showErrorMessage(
-              "Invalid Auto Tool Execution setting provided.",
+              "잘못된 자동 도구 실행 설정입니다.",
             );
           }
           break;
@@ -1691,7 +1689,7 @@ export function openSettingsPanel(
                 error: error.message,
               });
               notificationService.showErrorMessage(
-                `Error setting Streaming: ${error.message}`,
+                `스트리밍 설정 오류: ${error.message}`,
               );
             }
           } else {
@@ -1699,9 +1697,7 @@ export function openSettingsPanel(
               command: "streamingEnabledSetError",
               error: "Invalid Streaming setting",
             });
-            notificationService.showErrorMessage(
-              "Invalid Streaming setting provided.",
-            );
+            notificationService.showErrorMessage("잘못된 스트리밍 설정입니다.");
           }
           break;
         }
@@ -2036,7 +2032,7 @@ export function openSettingsPanel(
                 error: error.message,
               });
               notificationService.showErrorMessage(
-                `Error saving AI Model: ${error.message}`,
+                `AI 모델 저장 오류: ${error.message}`,
               );
             }
           } else {
@@ -2044,7 +2040,7 @@ export function openSettingsPanel(
               command: "aiModelSaveError",
               error: "Invalid AI Model",
             });
-            notificationService.showErrorMessage("Invalid AI Model provided.");
+            notificationService.showErrorMessage("잘못된 AI 모델입니다.");
           }
           break;
         case "saveLanguage": // 언어 설정 저장 케이스 추가
@@ -2057,7 +2053,7 @@ export function openSettingsPanel(
                 language: languageToSave,
               });
               notificationService.showInfoMessage(
-                "AgentGoCoder: Language setting updated.",
+                "AgentGoCoder: 언어 설정 업데이트됨",
               );
             } catch (error: any) {
               console.error("[PanelManager] Failed to save language:", error);
@@ -2066,7 +2062,7 @@ export function openSettingsPanel(
                 error: error.message,
               });
               notificationService.showErrorMessage(
-                `Error saving language setting: ${error.message}`,
+                `언어 설정 저장 오류: ${error.message}`,
               );
             }
           } else {
@@ -2078,9 +2074,7 @@ export function openSettingsPanel(
               command: "languageSaveError",
               error: "Invalid language setting",
             });
-            notificationService.showErrorMessage(
-              "Invalid language setting provided.",
-            );
+            notificationService.showErrorMessage("잘못된 언어 설정입니다.");
           }
           break;
         case "testOllamaConnection": // Ollama 연결 테스트 케이스 추가
@@ -2097,11 +2091,11 @@ export function openSettingsPanel(
             });
             if (result.success) {
               notificationService.showInfoMessage(
-                "AgentGoCoder: Ollama connection test successful.",
+                "AgentGoCoder: Ollama 연결 테스트 성공",
               );
             } else {
               notificationService.showErrorMessage(
-                `AgentGoCoder: Ollama connection test failed: ${result.error}`,
+                `AgentGoCoder: Ollama 연결 테스트 실패 - ${result.error}`,
               );
             }
           } catch (error: any) {
@@ -2111,7 +2105,7 @@ export function openSettingsPanel(
               error: error.message,
             });
             notificationService.showErrorMessage(
-              `AgentGoCoder: Ollama connection test failed: ${error.message}`,
+              `AgentGoCoder: Ollama 연결 테스트 실패 - ${error.message}`,
             );
           }
           break;
@@ -2127,7 +2121,7 @@ export function openSettingsPanel(
                 data: testResult.data,
               });
               notificationService.showInfoMessage(
-                "AgentGoCoder: Terminal Daemon connection test successful.",
+                "AgentGoCoder: Terminal Daemon 연결 테스트 성공",
               );
             } else {
               safePostMessage(panel, {
@@ -2136,7 +2130,7 @@ export function openSettingsPanel(
                 error: testResult.error,
               });
               notificationService.showErrorMessage(
-                `AgentGoCoder: Terminal Daemon connection test failed: ${testResult.error}`,
+                `AgentGoCoder: Terminal Daemon 연결 테스트 실패 - ${testResult.error}`,
               );
             }
           } catch (error: any) {
@@ -2146,7 +2140,7 @@ export function openSettingsPanel(
               error: error.message,
             });
             notificationService.showErrorMessage(
-              `AgentGoCoder: Terminal Daemon connection test failed: ${error.message}`,
+              `AgentGoCoder: Terminal Daemon 연결 테스트 실패 - ${error.message}`,
             );
           }
           break;
@@ -2183,7 +2177,7 @@ export function openSettingsPanel(
               results,
             });
             notificationService.showInfoMessage(
-              "AgentGoCoder: All connections test completed.",
+              "AgentGoCoder: 전체 연결 테스트 완료",
             );
           } catch (error: any) {
             safePostMessage(panel, {
@@ -2191,7 +2185,7 @@ export function openSettingsPanel(
               error: error.message,
             });
             notificationService.showErrorMessage(
-              `AgentGoCoder: All connections test failed: ${error.message}`,
+              `AgentGoCoder: 전체 연결 테스트 실패 - ${error.message}`,
             );
           }
           break;

@@ -611,7 +611,7 @@ export async function activate(context: vscode.ExtensionContext) {
             filePath = activeEditor.document.uri.fsPath;
           } else {
             vscode.window.showWarningMessage(
-              "No file selected. Please open a file first.",
+              "파일이 선택되지 않았습니다. 먼저 파일을 열어주세요.",
             );
             return;
           }
@@ -730,7 +730,7 @@ export async function activate(context: vscode.ExtensionContext) {
           "[Extension] ERROR: openSettingsPanel is undefined when command is called!",
         );
         vscode.window.showErrorMessage(
-          "Settings panel could not be opened. Please reload the extension.",
+          "설정 패널을 열 수 없습니다. 확장을 다시 로드해주세요.",
         );
         return;
       }

@@ -763,12 +763,12 @@ export class OrchestrationRouter {
       // VS Code native modal (same as single agent)
       const dialogDetail = detail ? `\n${detail}` : "";
       const result = await vscode.window.showInformationMessage(
-        `Execute tool: ${toolLabel}${dialogDetail}`,
+        `도구 실행: ${toolLabel}${dialogDetail}`,
         { modal: true },
-        "Execute",
-        "Skip",
+        "실행",
+        "건너뛰기",
       );
-      return result === "Execute";
+      return result === "실행";
     };
     const stateManager = options.extensionContext
       ? StateManager.getInstance(options.extensionContext)

@@ -12,10 +12,7 @@ return /******/ (() => { // webpackBootstrap
 /******/ 	"use strict";
 /******/ 	var __webpack_modules__ = ({
 
-/***/ "./webview/settings/api-keys.js":
-/*!**************************************!*\
-  !*** ./webview/settings/api-keys.js ***!
-  \**************************************/
+/***/ 158:
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -186,10 +183,7 @@ function bindBanyaApiKeyEvents(elements, languageData) {
 
 /***/ }),
 
-/***/ "./webview/settings/toggles.js":
-/*!*************************************!*\
-  !*** ./webview/settings/toggles.js ***!
-  \*************************************/
+/***/ 159:
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -525,12 +519,9 @@ function updateSpinnerValue(spinnerElement, value) {
 var __webpack_exports__ = {};
 // This entry needs to be wrapped in an IIFE because it needs to be isolated against other modules in the chunk.
 (() => {
-/*!*****************************!*\
-  !*** ./webview/settings.js ***!
-  \*****************************/
 __webpack_require__.r(__webpack_exports__);
-/* harmony import */ var _settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./settings/api-keys.js */ "./webview/settings/api-keys.js");
-/* harmony import */ var _settings_toggles_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./settings/toggles.js */ "./webview/settings/toggles.js");
+/* harmony import */ var _settings_api_keys_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(158);
+/* harmony import */ var _settings_toggles_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(159);
 // settings.js
 
 
