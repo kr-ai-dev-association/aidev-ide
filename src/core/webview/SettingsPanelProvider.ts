@@ -2586,6 +2586,19 @@ export function openSettingsPanel(
                 autoTestRetryEnabled:
                   await settingsManager.isAutoTestRetryEnabled(),
                 testRetryCount: await settingsManager.getTestRetryCount(),
+                sourcePaths: await settingsManager.getSourcePaths(),
+                terminalDaemonEnabled:
+                  await settingsManager.isTerminalDaemonEnabled(),
+                validationCommand: config.get<string>("validationCommand", ""),
+                formatterCommand: config.get<string>("formatterCommand", ""),
+                autoMcpToolExecution: config.get<boolean>(
+                  "autoMcpToolExecution",
+                  true,
+                ),
+                promptSuggestion: config.get<boolean>(
+                  "promptSuggestion",
+                  false,
+                ),
                 aiModel: (await stateManager.getAiModel()) || "ollama",
                 ollamaServerType:
                   (await stateManager.getOllamaServerType()) || "local",
@@ -2803,6 +2816,48 @@ export function openSettingsPanel(
               await cfgImport.update(
                 "testRetryCount",
                 s.testRetryCount,
+                vscode.ConfigurationTarget.Global,
+              );
+            }
+            if (Array.isArray(s.sourcePaths)) {
+              await cfgImport.update(
+                "sourcePaths",
+                s.sourcePaths,
+                vscode.ConfigurationTarget.Global,
+              );
+            }
+            if (typeof s.terminalDaemonEnabled === "boolean") {
+              await cfgImport.update(
+                "terminalDaemonEnabled",
+                s.terminalDaemonEnabled,
+                vscode.ConfigurationTarget.Global,
+              );
+            }
+            if (typeof s.validationCommand === "string") {
+              await cfgImport.update(
+                "validationCommand",
+                s.validationCommand,
+                vscode.ConfigurationTarget.Global,
+              );
+            }
+            if (typeof s.formatterCommand === "string") {
+              await cfgImport.update(
+                "formatterCommand",
+                s.formatterCommand,
+                vscode.ConfigurationTarget.Global,
+              );
+            }
+            if (typeof s.autoMcpToolExecution === "boolean") {
+              await cfgImport.update(
+                "autoMcpToolExecution",
+                s.autoMcpToolExecution,
+                vscode.ConfigurationTarget.Global,
+              );
+            }
+            if (typeof s.promptSuggestion === "boolean") {
+              await cfgImport.update(
+                "promptSuggestion",
+                s.promptSuggestion,
                 vscode.ConfigurationTarget.Global,
               );
             }
