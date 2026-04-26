@@ -323,8 +323,6 @@ export class SettingsManager extends BaseManager {
       ollama_url: "ollamaUrl",
       // dev_rules 카테고리
       auto_execute_commands: "autoExecuteCommands",
-      auto_correction_enabled: "autoCorrectionEnabled",
-      error_retry_count: "errorRetryCount",
       auto_tool_execution: "autoToolExecution",
       streaming_enabled: "streamingEnabled",
       // build_test 카테고리
@@ -714,8 +712,6 @@ export class SettingsManager extends BaseManager {
       ollamaModel: ["ai_model", "ollama_model"],
       ollamaUrl: ["ai_model", "ollama_url"],
       autoExecuteCommands: ["dev_rules", "auto_execute_commands"],
-      autoCorrectionEnabled: ["dev_rules", "auto_correction_enabled"],
-      errorRetryCount: ["dev_rules", "error_retry_count"],
       autoToolExecution: ["dev_rules", "auto_tool_execution"],
       streamingEnabled: ["dev_rules", "streaming_enabled"],
       maxContextSize: ["security_rules", "max_context_size"],
@@ -988,51 +984,6 @@ export class SettingsManager extends BaseManager {
   public async updateTerminalDaemonEnabled(enabled: boolean): Promise<void> {
     await this.updateUserSetting(
       "terminalDaemonEnabled" as any,
-      enabled,
-      vscode.ConfigurationTarget.Global,
-    );
-  }
-
-  /**
-   * 자동 오류 수정 횟수를 가져옵니다
-   */
-  public async getErrorRetryCount(): Promise<number> {
-    const count = ConfigurationService.get<number>("errorRetryCount") ?? 5;
-    return Math.max(1, Math.min(10, count));
-  }
-
-  /**
-   * 자동 오류 수정 횟수를 업데이트합니다
-   */
-  public async updateErrorRetryCount(count: number): Promise<void> {
-    const validCount = Math.max(1, Math.min(10, count));
-    await this.updateUserSetting(
-      "errorRetryCount" as any,
-      validCount,
-      vscode.ConfigurationTarget.Global,
-    );
-  }
-
-  /**
-   * 자동 오류 수정 On/Off 상태를 가져옵니다
-   */
-  public async isAutoCorrectionEnabled(): Promise<boolean> {
-    // Global 설정을 우선으로 읽기
-    const config = vscode.workspace.getConfiguration("agentgocoder");
-    const globalValue = config.inspect<boolean>(
-      "autoCorrectionEnabled",
-    )?.globalValue;
-    const value =
-      globalValue ?? config.get<boolean>("autoCorrectionEnabled") ?? false;
-    return value;
-  }
-
-  /**
-   * 자동 오류 수정 On/Off 상태를 저장합니다
-   */
-  public async updateAutoCorrectionEnabled(enabled: boolean): Promise<void> {
-    await ConfigurationService.updateConfig(
-      "autoCorrectionEnabled",
       enabled,
       vscode.ConfigurationTarget.Global,
     );

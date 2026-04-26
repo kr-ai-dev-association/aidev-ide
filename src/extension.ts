@@ -556,7 +556,6 @@ export async function activate(context: vscode.ExtensionContext) {
   toolRegistry.register(new LoadSkillToolHandler());
   // 사용자 질문 도구
   toolRegistry.register(new AskQuestionToolHandler());
-  // 터미널 매니저에 오류 수정 서비스 설정은 각 웹뷰 프로바이더에서 수행됨
 
   // Graceful shutdown: register cleanup functions for ExecutionManager
   registerCleanup(async () => {

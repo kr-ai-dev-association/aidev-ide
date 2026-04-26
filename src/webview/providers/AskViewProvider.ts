@@ -4,7 +4,6 @@ import { getHtmlContentWithUris, safePostMessage } from "../../utils";
 import { PromptType, NotificationService } from "../../services"; // PromptType 임포트
 import {
   SettingsManager,
-  StateManager,
   ConversationService,
   ExecutionManager,
 } from "../../core";

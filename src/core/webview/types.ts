@@ -183,14 +183,13 @@ export interface SetToggleSettingCommand {
   command:
     | "setAutoUpdateEnabled"
     | "setAutoTestRetryEnabled"
-    | "setAutoCorrectionEnabled"
     | "setAutoExecuteCommandsEnabled"
     | "setAutoToolExecutionEnabled";
   enabled: boolean;
 }
 
 export interface SetRetryCountCommand {
-  command: "setTestRetryCount" | "setErrorRetryCount";
+  command: "setTestRetryCount";
   count: number;
 }
 

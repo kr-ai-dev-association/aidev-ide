@@ -59,7 +59,6 @@ export class TerminalManager {
   private lastErrorOutput: string | undefined = undefined;
   private userOS = "unknown";
   public static readonly FILE_OP_PREFIX = "__AIDEV_FILE_OP__::";
-  private static readonly MAX_ERROR_RETRIES = 5;
 
   // Shell Integration을 통해 수집된 명령어 히스토리 (터미널 이름 -> 명령어 배열)
   private shellIntegrationHistory: Map<

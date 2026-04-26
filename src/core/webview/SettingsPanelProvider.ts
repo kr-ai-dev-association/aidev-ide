@@ -114,9 +114,6 @@ export function openSettingsPanel(
             const autoTestRetryEnabled =
               await settingsManager.isAutoTestRetryEnabled();
             const testRetryCount = await settingsManager.getTestRetryCount();
-            const autoCorrectionEnabled =
-              await stateManager.getAutoCorrectionEnabled();
-            const errorRetryCount = await stateManager.getErrorRetryCount();
             const aiModel = await stateManager.getAiModel();
             // UI 표시용 aiModel을 사용 (supported:key, admin:key, ollama 형태)
             const modelToUse = aiModel || "ollama";
@@ -176,10 +173,8 @@ export function openSettingsPanel(
               remoteOllamaModel: remoteOllamaModel || "",
               autoTestRetryEnabled: autoTestRetryEnabled || false,
               testRetryCount: testRetryCount || 2,
-              autoCorrectionEnabled: autoCorrectionEnabled || false,
               autoUpdateEnabled: autoUpdateEnabled || false,
               autoDeleteFilesEnabled: autoDeleteFilesEnabled || false,
-              errorRetryCount: errorRetryCount || 2,
               aiModel: modelToUse, // AI 모델 정보 추가
               language: language || "ko", // 언어 설정 추가
               autoExecuteCommandsEnabled: autoExecuteCommandsEnabled, // 명령어 자동 실행 설정 추가
@@ -1042,104 +1037,6 @@ export function openSettingsPanel(
             );
           }
           break;
-        case "saveErrorRetryCount": // 오류 재시도 횟수 저장 케이스 추가
-          const errorRetryCountToSave = data.errorRetryCount;
-          if (
-            typeof errorRetryCountToSave === "number" &&
-            errorRetryCountToSave >= 0 &&
-            errorRetryCountToSave <= 10
-          ) {
-            try {
-              await stateManager.saveErrorRetryCount(errorRetryCountToSave);
-              safePostMessage(panel, { command: "errorRetryCountSaved" });
-              notificationService.showInfoMessage(
-                "AgentGoCoder: 오류 재시도 횟수 설정 저장됨",
-              );
-            } catch (error: any) {
-              safePostMessage(panel, {
-                command: "errorRetryCountSaveError",
-                error: error.message,
-              });
-              notificationService.showErrorMessage(
-                `오류 재시도 횟수 설정 저장 오류: ${error.message}`,
-              );
-            }
-          } else {
-            safePostMessage(panel, {
-              command: "errorRetryCountSaveError",
-              error: "Invalid Error Retry Count setting",
-            });
-            notificationService.showErrorMessage(
-              "잘못된 오류 재시도 횟수 설정입니다.",
-            );
-          }
-          break;
-        case "saveAutoCorrectionEnabled": // 자동 오류 수정 설정 저장 케이스 추가
-          const autoCorrectionEnabledToSave = data.autoCorrectionEnabled;
-          if (typeof autoCorrectionEnabledToSave === "boolean") {
-            try {
-              // StorageService에 저장 (설정 패널에서 사용하는 소스)
-              await stateManager.saveAutoCorrectionEnabled(
-                autoCorrectionEnabledToSave,
-              );
-              // ConfigurationService에도 동기화 (다른 곳에서 읽을 수 있도록)
-              await settingsManager.updateAutoCorrectionEnabled(
-                autoCorrectionEnabledToSave,
-              );
-              safePostMessage(panel, { command: "autoCorrectionEnabledSaved" });
-              notificationService.showInfoMessage(
-                "AgentGoCoder: 자동 수정 설정 저장됨",
-              );
-            } catch (error: any) {
-              safePostMessage(panel, {
-                command: "autoCorrectionEnabledSaveError",
-                error: error.message,
-              });
-              notificationService.showErrorMessage(
-                `자동 수정 설정 저장 오류: ${error.message}`,
-              );
-            }
-          } else {
-            safePostMessage(panel, {
-              command: "autoCorrectionEnabledSaveError",
-              error: "Invalid Auto Correction setting",
-            });
-            notificationService.showErrorMessage(
-              "잘못된 자동 수정 설정입니다.",
-            );
-          }
-          break;
-        case "setAutoCorrectionEnabled": // 자동 오류 수정 설정 저장 케이스 추가 (토글에서 직접 호출)
-          const autoCorrectionEnabledToSet = data.enabled;
-          if (typeof autoCorrectionEnabledToSet === "boolean") {
-            try {
-              await stateManager.saveAutoCorrectionEnabled(
-                autoCorrectionEnabledToSet,
-              );
-              await settingsManager.updateAutoCorrectionEnabled(
-                autoCorrectionEnabledToSet,
-              );
-              safePostMessage(panel, { command: "autoCorrectionEnabledSet" });
-              // 토글에서는 알림을 표시하지 않음 (사용자 경험을 위해)
-            } catch (error: any) {
-              safePostMessage(panel, {
-                command: "autoCorrectionEnabledSetError",
-                error: error.message,
-              });
-              notificationService.showErrorMessage(
-                `자동 수정 설정 오류: ${error.message}`,
-              );
-            }
-          } else {
-            safePostMessage(panel, {
-              command: "autoCorrectionEnabledSetError",
-              error: "Invalid Auto Correction setting",
-            });
-            notificationService.showErrorMessage(
-              "잘못된 자동 수정 설정입니다.",
-            );
-          }
-          break;
         case "setAutoTestRetryEnabled": // 자동 테스트 재시도 설정 저장 케이스 추가
           const autoTestRetryEnabledToSet = data.enabled;
           if (typeof autoTestRetryEnabledToSet === "boolean") {
@@ -1879,9 +1776,6 @@ export function openSettingsPanel(
             const autoTestRetryEnabled =
               await settingsManager.isAutoTestRetryEnabled();
             const testRetryCount = await settingsManager.getTestRetryCount();
-            const autoCorrectionEnabled =
-              await stateManager.getAutoCorrectionEnabled();
-            const errorRetryCount = await stateManager.getErrorRetryCount();
             const aiModel = await stateManager.getAiModel();
 
             const messageToSend = {
@@ -1895,8 +1789,6 @@ export function openSettingsPanel(
               remoteOllamaModel: remoteOllamaModel || "",
               autoTestRetryEnabled: autoTestRetryEnabled || false,
               testRetryCount: testRetryCount || 2,
-              autoCorrectionEnabled: autoCorrectionEnabled || false,
-              errorRetryCount: errorRetryCount || 2,
               aiModel: aiModel || "ollama",
             };
             safePostMessage(panel, messageToSend);
@@ -1923,9 +1815,6 @@ export function openSettingsPanel(
             const autoTestRetryEnabled =
               await settingsManager.isAutoTestRetryEnabled();
             const testRetryCount = await settingsManager.getTestRetryCount();
-            const autoCorrectionEnabled =
-              await stateManager.getAutoCorrectionEnabled();
-            const errorRetryCount = await stateManager.getErrorRetryCount();
             // 추가 토글 설정들 로드 (닫았다 열어도 유지되도록)
             const autoUpdateEnabled =
               await settingsManager.isAutoUpdateEnabled();
@@ -1956,8 +1845,6 @@ export function openSettingsPanel(
               remoteOllamaModel: remoteOllamaModel || "",
               autoTestRetryEnabled: autoTestRetryEnabled || false,
               testRetryCount: testRetryCount || 2,
-              autoCorrectionEnabled: autoCorrectionEnabled || false,
-              errorRetryCount: errorRetryCount || 2,
               // 추가된 토글 설정들
               autoUpdateEnabled: autoUpdateEnabled || false,
               autoDeleteFilesEnabled: autoDeleteFilesEnabled || false,
@@ -2700,9 +2587,6 @@ export function openSettingsPanel(
                 autoTestRetryEnabled:
                   await settingsManager.isAutoTestRetryEnabled(),
                 testRetryCount: await settingsManager.getTestRetryCount(),
-                autoCorrectionEnabled:
-                  await stateManager.getAutoCorrectionEnabled(),
-                errorRetryCount: await stateManager.getErrorRetryCount(),
                 aiModel: (await stateManager.getAiModel()) || "ollama",
                 ollamaServerType:
                   (await stateManager.getOllamaServerType()) || "local",
@@ -2922,14 +2806,6 @@ export function openSettingsPanel(
                 s.testRetryCount,
                 vscode.ConfigurationTarget.Global,
               );
-            }
-            if (typeof s.autoCorrectionEnabled === "boolean") {
-              await stateManager.saveAutoCorrectionEnabled(
-                s.autoCorrectionEnabled,
-              );
-            }
-            if (typeof s.errorRetryCount === "number") {
-              await stateManager.saveErrorRetryCount(s.errorRetryCount);
             }
 
             if (s.aiModel) {

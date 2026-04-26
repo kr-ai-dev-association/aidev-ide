@@ -274,9 +274,6 @@ export class StateManager {
     "agentgocoder.remoteOllamaModel";
   private readonly LANGUAGE_KEY = "agentgocoder.language";
   private readonly AUTO_UPDATE_ENABLED_KEY = "agentgocoder.autoUpdateEnabled";
-  private readonly ERROR_RETRY_COUNT_KEY = "agentgocoder.errorRetryCount";
-  private readonly AUTO_CORRECTION_ENABLED_KEY =
-    "agentgocoder.autoCorrectionEnabled";
 
   // 모델 라우팅 관련 키
   private readonly COMPACTOR_MODEL_TYPE_KEY = "agentgocoder.compactorModelType";
@@ -484,33 +481,6 @@ export class StateManager {
     return (
       this.context.workspaceState.get<boolean>(this.AUTO_UPDATE_ENABLED_KEY) ??
       false
-    );
-  }
-
-  // Error retry count
-  public async saveErrorRetryCount(count: number): Promise<void> {
-    await this.context.workspaceState.update(this.ERROR_RETRY_COUNT_KEY, count);
-  }
-
-  public async getErrorRetryCount(): Promise<number> {
-    return (
-      this.context.workspaceState.get<number>(this.ERROR_RETRY_COUNT_KEY) ?? 5
-    );
-  }
-
-  // Auto correction enabled
-  public async saveAutoCorrectionEnabled(enabled: boolean): Promise<void> {
-    await this.context.workspaceState.update(
-      this.AUTO_CORRECTION_ENABLED_KEY,
-      enabled,
-    );
-  }
-
-  public async getAutoCorrectionEnabled(): Promise<boolean> {
-    return (
-      this.context.workspaceState.get<boolean>(
-        this.AUTO_CORRECTION_ENABLED_KEY,
-      ) ?? false
     );
   }
 
