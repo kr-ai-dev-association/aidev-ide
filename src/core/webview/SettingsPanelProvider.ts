@@ -161,7 +161,6 @@ export function openSettingsPanel(
               await stateManager.getErrorFallbackModelName();
             const errorFallbackApiKeySet =
               await stateManager.hasErrorFallbackApiKey();
-            // duplicate removed
             const messageToSend = {
               command: "currentSettings",
               apiKey: apiKey || "",

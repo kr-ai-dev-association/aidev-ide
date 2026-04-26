@@ -111,20 +111,6 @@ export class StateManager {
   }
 
   /**
-   * 자동 에러 수정 설정을 가져옵니다
-   */
-  public getAutoCorrectErrors(): boolean {
-    return this.getState<boolean>("autoCorrectErrors") ?? false;
-  }
-
-  /**
-   * 자동 에러 수정 설정을 설정합니다
-   */
-  public setAutoCorrectErrors(enabled: boolean): void {
-    this.setState("autoCorrectErrors", enabled);
-  }
-
-  /**
    * 최근 액션을 추가합니다
    */
   public addRecentAction(action: RecentAction): void {
