@@ -18,8 +18,6 @@ export function bindToggleEvents(elements) {
     autoCorrectionToggle,
     autoExecuteToggle,
     autoToolToggle,
-    orchestrationToggle,
-    inlineCompletionToggle,
     vscode,
   } = elements;
 
@@ -116,16 +114,6 @@ export function bindToggleEvents(elements) {
     });
   }
 
-  // 오케스트레이션 토글
-  if (orchestrationToggle) {
-    orchestrationToggle.addEventListener("change", () => {
-      const enabled = orchestrationToggle.checked;
-      if (vscode) {
-        vscode.postMessage({ command: "setOrchestrationEnabled", enabled });
-      }
-    });
-  }
-
   // 명령어 자동 실행 토글
   if (autoExecuteToggle) {
     autoExecuteToggle.addEventListener("change", () => {
@@ -151,16 +139,6 @@ export function bindToggleEvents(elements) {
           command: "setBlockOutsideProjectEnabled",
           enabled,
         });
-      }
-    });
-  }
-
-  // 소스코드 자동완성 토글
-  if (inlineCompletionToggle) {
-    inlineCompletionToggle.addEventListener("change", () => {
-      const enabled = inlineCompletionToggle.checked;
-      if (vscode) {
-        vscode.postMessage({ command: "setInlineCompletionEnabled", enabled });
       }
     });
   }

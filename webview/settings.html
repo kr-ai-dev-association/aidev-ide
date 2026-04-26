@@ -1324,20 +1324,6 @@
             </div>
 
             <div class="section-container">
-              <h2>멀티 에이전트</h2>
-              <div class="toggle-switch-container" style="margin-bottom: 8px">
-                <input type="checkbox" id="orchestration-toggle" />
-                <label for="orchestration-toggle">Toggle</label>
-              </div>
-              <p id="orchestration-status" class="info-message"></p>
-              <p class="info-message">
-                복잡한 작업을 여러 에이전트가 병렬로 분담하여 처리합니다.
-                토큰 소모량이 단일 에이전트 대비 많아질 수 있습니다.
-                비활성화 시 단일 에이전트 방식으로 동작합니다.
-              </p>
-            </div>
-
-            <div class="section-container">
               <h2 id="auto-update-label">파일 자동 업데이트</h2>
               <p class="info-message">
                 LLM이 제안한 코드를 기반으로 파일을 자동으로 업데이트할지 여부를
@@ -1447,19 +1433,6 @@
                 <span data-i18n="errorRetryTimes">회</span>
               </div>
               <p id="error-retry-status" class="info-message" style="margin-top: 5px"></p>
-            </div>
-
-            <div class="section-container">
-              <h2>소스코드 자동완성</h2>
-              <div class="toggle-switch-container" style="margin-bottom: 8px">
-                <input type="checkbox" id="inline-completion-toggle" />
-                <label for="inline-completion-toggle">Toggle</label>
-              </div>
-              <p id="inline-completion-status" class="info-message"></p>
-              <p class="info-message">
-                입력 중 AI가 코드를 자동 완성합니다 (Ghost Text).
-                Tab 키로 완성을 수락합니다. 빠른 응답을 위해 AI 모델 탭의 라우팅 모델에서 전용 모델을 설정하는 것을 권장합니다.
-              </p>
             </div>
 
             <div class="section-container" id="error-report-section" style="display:none;">
@@ -1884,60 +1857,6 @@
                     </div>
                   </div>
                   <p id="error-fallback-model-status" class="info-message"></p>
-                </div>
-
-                <!-- 서브에이전트 모델 설정 -->
-                <div style="margin-bottom: 20px">
-                  <label><b>서브에이전트 모델</b></label>
-                  <p class="info-message">
-                    멀티 에이전트 오케스트레이션의 서브에이전트에 사용됩니다. 미설정 시 메인 모델이 사용됩니다.
-                  </p>
-                  <div class="api-key-input-group" style="margin-bottom: 10px">
-                    <select id="subagent-model-type-select">
-                      <option value="">메인 모델 사용</option>
-                      <option value="ollama">Ollama</option>
-                    </select>
-                  </div>
-                  <div id="subagent-submodel-container" style="display: none; margin-bottom: 10px">
-                    <div class="api-key-input-group">
-                      <select id="subagent-submodel-select"></select>
-                      <button id="save-subagent-model-button">모델 저장</button>
-                    </div>
-                  </div>
-                  <div id="subagent-apikey-container" style="display: none">
-                    <div class="api-key-input-group">
-                      <input type="password" id="subagent-api-key-input" placeholder="API 키를 입력하세요..." />
-                      <button id="save-subagent-api-key-button">API 키 저장</button>
-                    </div>
-                  </div>
-                  <p id="subagent-model-status" class="info-message"></p>
-                </div>
-
-                <!-- 소스코드 자동완성 모델 설정 -->
-                <div style="margin-bottom: 20px">
-                  <label><b>소스코드 자동완성 모델</b></label>
-                  <p class="info-message">
-                    소스코드 자동완성에 사용됩니다. starcoder2:3b · deepseek-coder:1.3b · qwen2.5-coder:1.5b-base 모델 권장.
-                  </p>
-                  <div class="api-key-input-group" style="margin-bottom: 10px">
-                    <select id="completion-model-type-select">
-                      <option value="">메인 모델 사용</option>
-                      <option value="ollama">Ollama</option>
-                    </select>
-                  </div>
-                  <div id="completion-submodel-container" style="display: none; margin-bottom: 10px">
-                    <div class="api-key-input-group">
-                      <select id="completion-submodel-select"></select>
-                      <button id="save-completion-model-button">모델 저장</button>
-                    </div>
-                  </div>
-                  <div id="completion-apikey-container" style="display: none">
-                    <div class="api-key-input-group">
-                      <input type="password" id="completion-api-key-input" placeholder="API 키를 입력하세요..." />
-                      <button id="save-completion-api-key-button">API 키 저장</button>
-                    </div>
-                  </div>
-                  <p id="completion-model-status" class="info-message"></p>
                 </div>
               </div>
             </div>

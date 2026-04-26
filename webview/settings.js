@@ -599,8 +599,6 @@ function populateRoutingModelOptions() {
     document.getElementById("compactor-model-type-select"),
     document.getElementById("command-model-type-select"),
     document.getElementById("intent-model-type-select"),
-    document.getElementById("subagent-model-type-select"),
-    document.getElementById("completion-model-type-select"),
     document.getElementById("error-fallback-model-type-select"),
   ];
 
@@ -960,15 +958,6 @@ const autoExecuteStatus = document.getElementById("auto-execute-status");
 const autoToolToggle = document.getElementById("auto-tool-toggle");
 const autoToolStatus = document.getElementById("auto-tool-status");
 
-const orchestrationToggle = document.getElementById("orchestration-toggle");
-const orchestrationStatus = document.getElementById("orchestration-status");
-const inlineCompletionToggle = document.getElementById(
-  "inline-completion-toggle",
-);
-const inlineCompletionStatus = document.getElementById(
-  "inline-completion-status",
-);
-
 const streamingToggle = document.getElementById("streaming-toggle");
 const streamingStatus = document.getElementById("streaming-status");
 
@@ -1004,8 +993,6 @@ bindToggleEvents({
   autoCorrectionToggle,
   autoExecuteToggle,
   autoToolToggle,
-  orchestrationToggle,
-  inlineCompletionToggle,
   vscode,
 });
 
@@ -2261,13 +2248,7 @@ window.addEventListener("message", (event) => {
         window.routingOllamaModelsCache = message.models;
 
         // 현재 ollama가 선택된 모든 라우팅 모델 셀렉트 업데이트
-        const prefixes = [
-          "compactor",
-          "command",
-          "intent",
-          "completion",
-          "error-fallback",
-        ];
+        const prefixes = ["compactor", "command", "intent", "error-fallback"];
         prefixes.forEach((prefix) => {
           const typeSelect = document.getElementById(
             `${prefix}-model-type-select`,
@@ -2383,18 +2364,6 @@ window.addEventListener("message", (event) => {
         autoToolToggle
       ) {
         autoToolToggle.checked = message.autoToolExecutionEnabled;
-      }
-      if (
-        typeof message.orchestrationEnabled === "boolean" &&
-        orchestrationToggle
-      ) {
-        orchestrationToggle.checked = message.orchestrationEnabled;
-      }
-      if (
-        typeof message.inlineCompletionEnabled === "boolean" &&
-        inlineCompletionToggle
-      ) {
-        inlineCompletionToggle.checked = message.inlineCompletionEnabled;
       }
       if (typeof message.streamingEnabled === "boolean" && streamingToggle) {
         streamingToggle.checked = message.streamingEnabled;
@@ -2609,16 +2578,6 @@ window.addEventListener("message", (event) => {
         message.intentModelName,
       );
       restoreRoutingModelUI(
-        "subagent",
-        message.subagentModelType,
-        message.subagentModelName,
-      );
-      restoreRoutingModelUI(
-        "completion",
-        message.completionModelType,
-        message.completionModelName,
-      );
-      restoreRoutingModelUI(
         "error-fallback",
         message.errorFallbackModelType,
         message.errorFallbackModelName,
@@ -2782,97 +2741,6 @@ window.addEventListener("message", (event) => {
           commandModelStatus.textContent = `Command API 키 저장 오류: ${message.error}`;
           commandModelStatus.className = "info-message error-message";
         }
-      }
-      break;
-    case "subagentModelSaved":
-      {
-        const saStatus = document.getElementById("subagent-model-status");
-        if (saStatus) {
-          saStatus.textContent = "서브에이전트 모델이 저장되었습니다.";
-          saStatus.className = "info-message success-message";
-        }
-      }
-      break;
-    case "subagentModelSaveError":
-      {
-        const saStatus = document.getElementById("subagent-model-status");
-        if (saStatus) {
-          saStatus.textContent = `서브에이전트 모델 저장 오류: ${message.error}`;
-          saStatus.className = "info-message error-message";
-        }
-      }
-      break;
-    case "subagentModelCleared":
-      {
-        const saStatus = document.getElementById("subagent-model-status");
-        const saTypeSelect = document.getElementById(
-          "subagent-model-type-select",
-        );
-        if (saTypeSelect) saTypeSelect.value = "";
-        if (saStatus) {
-          saStatus.textContent =
-            "서브에이전트 모델이 초기화되었습니다. 메인 모델이 사용됩니다.";
-          saStatus.className = "info-message success-message";
-        }
-      }
-      break;
-    case "subagentApiKeySaved":
-      {
-        const saStatus = document.getElementById("subagent-model-status");
-        if (saStatus) {
-          saStatus.textContent = "서브에이전트 API 키가 저장되었습니다.";
-          saStatus.className = "info-message success-message";
-        }
-      }
-      break;
-    case "completionModelSaved":
-      {
-        const cmStatus = document.getElementById("completion-model-status");
-        if (cmStatus) {
-          cmStatus.textContent = "자동완성 모델이 저장되었습니다.";
-          cmStatus.className = "info-message success-message";
-        }
-      }
-      break;
-    case "completionModelSaveError":
-      {
-        const cmStatus = document.getElementById("completion-model-status");
-        if (cmStatus) {
-          cmStatus.textContent = `자동완성 모델 저장 오류: ${message.error}`;
-          cmStatus.className = "info-message error-message";
-        }
-      }
-      break;
-    case "completionModelCleared":
-      {
-        const cmStatus = document.getElementById("completion-model-status");
-        const cmTypeSelect = document.getElementById(
-          "completion-model-type-select",
-        );
-        if (cmTypeSelect) cmTypeSelect.value = "";
-        if (cmStatus) {
-          cmStatus.textContent =
-            "자동완성 모델이 초기화되었습니다. 메인 모델이 사용됩니다.";
-          cmStatus.className = "info-message success-message";
-        }
-      }
-      break;
-    case "completionApiKeySaved":
-      {
-        const cmStatus = document.getElementById("completion-model-status");
-        if (cmStatus) {
-          cmStatus.textContent = "자동완성 API 키가 저장되었습니다.";
-          cmStatus.className = "info-message success-message";
-        }
-      }
-      break;
-    case "inlineCompletionEnabledSet":
-      if (inlineCompletionStatus) {
-        inlineCompletionStatus.textContent =
-          inlineCompletionToggle && inlineCompletionToggle.checked
-            ? "소스코드 자동완성이 활성화되었습니다."
-            : "소스코드 자동완성이 비활성화되었습니다.";
-        inlineCompletionStatus.className = "info-message success-message";
       }
       break;
     case "errorFallbackModelSaved":
@@ -3666,7 +3534,6 @@ document.addEventListener("DOMContentLoaded", () => {
         compactor: "clearCompactorModel",
         command: "clearCommandModel",
         intent: "clearIntentModel",
-        completion: "clearCompletionModel",
         "error-fallback": "clearErrorFallbackModel",
       };
       const deleteCommand = commandMap[prefix];
@@ -4067,144 +3934,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
       vscode.postMessage({
         command: "saveErrorFallbackApiKey",
-        modelType,
-        apiKey,
-      });
-      if (apiKeyInput) apiKeyInput.value = "";
-    });
-  }
-
-  // 서브에이전트 모델 타입 선택 변경 이벤트
-  const subagentTypeSelect = document.getElementById(
-    "subagent-model-type-select",
-  );
-  if (subagentTypeSelect) {
-    subagentTypeSelect.addEventListener("change", (e) => {
-      handleModelTypeChange("subagent", e.target.value);
-    });
-  }
-
-  // 서브에이전트 모델 저장 버튼
-  const saveSubagentModelButton = document.getElementById(
-    "save-subagent-model-button",
-  );
-  if (saveSubagentModelButton) {
-    saveSubagentModelButton.addEventListener("click", () => {
-      const typeSelect = document.getElementById("subagent-model-type-select");
-      const submodelSelect = document.getElementById(
-        "subagent-submodel-select",
-      );
-      const modelType = typeSelect ? typeSelect.value : "";
-      const modelName = submodelSelect ? submodelSelect.value : "";
-
-      if (!modelType) {
-        const statusEl = document.getElementById("subagent-model-status");
-        if (statusEl) {
-          statusEl.textContent = "모델 타입을 선택해주세요.";
-          statusEl.className = "info-message error-message";
-        }
-        return;
-      }
-
-      vscode.postMessage({
-        command: "saveSubagentModel",
-        modelType,
-        modelName,
-      });
-    });
-  }
-
-  // 서브에이전트 API 키 저장 버튼
-  const saveSubagentApiKeyButton = document.getElementById(
-    "save-subagent-api-key-button",
-  );
-  if (saveSubagentApiKeyButton) {
-    saveSubagentApiKeyButton.addEventListener("click", () => {
-      const typeSelect = document.getElementById("subagent-model-type-select");
-      const apiKeyInput = document.getElementById("subagent-api-key-input");
-      const modelType = typeSelect ? typeSelect.value : "";
-      const apiKey = apiKeyInput ? apiKeyInput.value : "";
-
-      if (!apiKey) {
-        const statusEl = document.getElementById("subagent-model-status");
-        if (statusEl) {
-          statusEl.textContent = "API 키를 입력해주세요.";
-          statusEl.className = "info-message error-message";
-        }
-        return;
-      }
-
-      vscode.postMessage({ command: "saveSubagentApiKey", modelType, apiKey });
-      if (apiKeyInput) apiKeyInput.value = "";
-    });
-  }
-
-  // 소스코드 자동완성 모델 타입 선택 변경 이벤트
-  const completionTypeSelect = document.getElementById(
-    "completion-model-type-select",
-  );
-  if (completionTypeSelect) {
-    completionTypeSelect.addEventListener("change", (e) => {
-      handleModelTypeChange("completion", e.target.value);
-    });
-  }
-
-  // 소스코드 자동완성 모델 저장 버튼
-  const saveCompletionModelButton = document.getElementById(
-    "save-completion-model-button",
-  );
-  if (saveCompletionModelButton) {
-    saveCompletionModelButton.addEventListener("click", () => {
-      const typeSelect = document.getElementById(
-        "completion-model-type-select",
-      );
-      const submodelSelect = document.getElementById(
-        "completion-submodel-select",
-      );
-      const modelType = typeSelect ? typeSelect.value : "";
-      const modelName = submodelSelect ? submodelSelect.value : "";
-
-      if (!modelType) {
-        const statusEl = document.getElementById("completion-model-status");
-        if (statusEl) {
-          statusEl.textContent = "모델 타입을 선택해주세요.";
-          statusEl.className = "info-message error-message";
-        }
-        return;
-      }
-
-      vscode.postMessage({
-        command: "saveCompletionModel",
-        modelType,
-        modelName,
-      });
-    });
-  }
-
-  // 소스코드 자동완성 API 키 저장 버튼
-  const saveCompletionApiKeyButton = document.getElementById(
-    "save-completion-api-key-button",
-  );
-  if (saveCompletionApiKeyButton) {
-    saveCompletionApiKeyButton.addEventListener("click", () => {
-      const typeSelect = document.getElementById(
-        "completion-model-type-select",
-      );
-      const apiKeyInput = document.getElementById("completion-api-key-input");
-      const modelType = typeSelect ? typeSelect.value : "";
-      const apiKey = apiKeyInput ? apiKeyInput.value : "";
-
-      if (!apiKey) {
-        const statusEl = document.getElementById("completion-model-status");
-        if (statusEl) {
-          statusEl.textContent = "API 키를 입력해주세요.";
-          statusEl.className = "info-message error-message";
-        }
-        return;
-      }
-
-      vscode.postMessage({
-        command: "saveCompletionApiKey",
         modelType,
         apiKey,
       });
