@@ -1114,27 +1114,6 @@ export class SettingsManager extends BaseManager {
   }
 
   /**
-   * 오케스트레이션 On/Off 상태를 읽습니다
-   */
-  public async isOrchestrationEnabled(): Promise<boolean> {
-    const config = vscode.workspace.getConfiguration("agentgocoder");
-    const globalValue = config.inspect<boolean>("orchestration")?.globalValue;
-    const value = globalValue ?? config.get<boolean>("orchestration") ?? false;
-    return value;
-  }
-
-  /**
-   * 오케스트레이션 On/Off 상태를 저장합니다
-   */
-  public async updateOrchestrationEnabled(enabled: boolean): Promise<void> {
-    await this.updateUserSetting(
-      "orchestration" as any,
-      enabled,
-      vscode.ConfigurationTarget.Global,
-    );
-  }
-
-  /**
    * 스트리밍 On/Off 상태를 읽습니다
    */
   public async isStreamingEnabled(): Promise<boolean> {

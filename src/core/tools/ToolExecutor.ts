@@ -7,9 +7,7 @@
  * - 프로젝트 외부 경로 차단
  * - 민감 파일 보호
  *
- * v10.1: 오케스트레이션 지원
- * - orchestration ON 시 읽기 도구 병렬 실행
- * - 쓰기 도구는 항상 순차 실행
+ * - 읽기 도구는 병렬 실행, 쓰기 도구는 순차 실행
  */
 
 import { ToolUse, ToolResponse, READ_ONLY_TOOLS } from "./types";
@@ -121,8 +119,7 @@ export class ToolExecutor {
   }
 
   /**
-   * 여러 툴 실행 (순차 또는 병렬)
-   * orchestration ON 시 읽기 도구를 병렬 실행
+   * 여러 툴 실행 (읽기 도구는 병렬, 쓰기 도구는 순차)
    * @param onToolComplete 각 도구 실행 완료 시 호출되는 콜백 (실시간 UI 업데이트용)
    * @param onToolStart 각 도구 실행 시작 시 호출되는 콜백 (진행 상태 표시용)
    */
