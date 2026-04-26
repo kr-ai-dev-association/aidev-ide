@@ -15,10 +15,8 @@ import { TerminalHistory } from "./TerminalHistory";
 import { ExecutionManager } from "../execution/ExecutionManager";
 import { TaskManager } from "../task/TaskManager";
 import { ErrorManager } from "../error/ErrorManager";
-import { AutoFix } from "../error/AutoFix";
 import { ErrorSource } from "../error/types";
 import { SettingsManager } from "../state/SettingsManager";
-import { SafeSettingsHelper } from "../../utils/SafeSettingsHelper";
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
@@ -1004,8 +1002,9 @@ export class TerminalManager {
    */
   private getCaptureOutputChannel(): vscode.OutputChannel {
     if (!TerminalManager.captureOutputChannel) {
-      TerminalManager.captureOutputChannel =
-        vscode.window.createOutputChannel("AgentGoCoder Terminal");
+      TerminalManager.captureOutputChannel = vscode.window.createOutputChannel(
+        "AgentGoCoder Terminal",
+      );
     }
     return TerminalManager.captureOutputChannel;
   }
@@ -1364,7 +1363,10 @@ export class TerminalManager {
       channel.appendLine(`Command: ${cleanCommand}`);
       channel.appendLine(`Working Directory: ${cwd || "(not set)"}`);
 
-      const terminal = TerminalManager.getAgentGoCoderTerminal(projectRoot, true);
+      const terminal = TerminalManager.getAgentGoCoderTerminal(
+        projectRoot,
+        true,
+      );
       if (!terminal.state.isInteractedWith) {
         terminal.show();
       }
@@ -1450,7 +1452,10 @@ export class TerminalManager {
         );
       }
 
-      const terminal = TerminalManager.getAgentGoCoderTerminal(projectRoot, true);
+      const terminal = TerminalManager.getAgentGoCoderTerminal(
+        projectRoot,
+        true,
+      );
 
       if (cwd) {
         terminal.sendText(`cd "${cwd}"`);
@@ -1509,46 +1514,9 @@ export class TerminalManager {
               }
               channel.show(true);
 
-              const errorOutput = `Exit code: ${res.code}\nStderr: ${res.stderr || ""}\nStdout: ${res.stdout || ""}`;
-              const allowAutoCorrection = true;
-
-              const isAutoCorrectionEnabled =
-                await SafeSettingsHelper.isAutoCorrectionEnabled();
-
-              let retrySuccess = false;
-
-              if (allowAutoCorrection && isAutoCorrectionEnabled) {
-                retrySuccess = await this.tryAutoFixWithCore(
-                  cleanCommand,
-                  errorOutput,
-                  cwd || "",
-                  terminal.name,
-                );
-              }
-
-              if (
-                !retrySuccess &&
-                allowAutoCorrection &&
-                isAutoCorrectionEnabled
-              ) {
-                retrySuccess = await this.handleCommandError(
-                  cleanCommand,
-                  errorOutput,
-                  cwd || "",
-                  async (correctedCommand: string) => {
-                    channel.appendLine(
-                      `\n===== Retrying with corrected command: ${correctedCommand} =====`,
-                    );
-                    await this.handleInteractiveCommand(correctedCommand);
-                  },
-                );
-              }
-
-              if (!retrySuccess) {
-                vscode.window.showErrorMessage(
-                  `agentgocoder: Long-running 명령 실패 (${cleanCommand})`,
-                );
-              }
+              vscode.window.showErrorMessage(
+                `agentgocoder: Long-running 명령 실패 (${cleanCommand})`,
+              );
             } else {
               channel.appendLine(`----- Long-running Command Completed -----`);
               channel.appendLine(`Command: ${cleanCommand}`);
@@ -1565,39 +1533,9 @@ export class TerminalManager {
             channel.appendLine(`Error: ${err?.message || String(err)}`);
             channel.appendLine(`Working Directory: ${cwd || "(not set)"}`);
 
-            const errorOutput = `Process error: ${err?.message || String(err)}`;
-            const isAutoCorrectionEnabled =
-              await SafeSettingsHelper.isAutoCorrectionEnabled();
-
-            let retrySuccess = false;
-            if (isAutoCorrectionEnabled) {
-              retrySuccess = await this.tryAutoFixWithCore(
-                cleanCommand,
-                errorOutput,
-                cwd || "",
-                terminal.name,
-              );
-            }
-
-            if (!retrySuccess && isAutoCorrectionEnabled) {
-              retrySuccess = await this.handleCommandError(
-                cleanCommand,
-                errorOutput,
-                cwd || "",
-                async (correctedCommand: string) => {
-                  channel.appendLine(
-                    `\n===== Retrying with corrected command: ${correctedCommand} =====`,
-                  );
-                  await this.handleInteractiveCommand(correctedCommand);
-                },
-              );
-            }
-
-            if (!retrySuccess) {
-              vscode.window.showErrorMessage(
-                `agentgocoder: Long-running 명령 오류 (${cleanCommand})`,
-              );
-            }
+            vscode.window.showErrorMessage(
+              `agentgocoder: Long-running 명령 오류 (${cleanCommand})`,
+            );
           });
         channel.appendLine(`----- Long-running Command Started -----`);
         channel.appendLine(`Command: ${cleanCommand}`);
@@ -1635,47 +1573,17 @@ export class TerminalManager {
         }
         channel.show(true);
 
-        const errorOutput = `Exit code: ${result.code}\nStderr: ${result.stderr || ""}\nStdout: ${result.stdout || ""}`;
         console.log(
           `[TerminalManager] 오류 감지: exitCode=${result.code}, hasErrorInStderr=${hasErrorInStderr}, hasErrorInStdout=${hasErrorInStdout}`,
         );
         console.log(
           `[TerminalManager] 오류 출력 길이: stderr=${(result.stderr || "").length}, stdout=${(result.stdout || "").length}`,
         );
-        const isAutoCorrectionEnabled =
-          await SafeSettingsHelper.isAutoCorrectionEnabled();
 
-        let retrySuccess = false;
-        if (isAutoCorrectionEnabled) {
-          retrySuccess = await this.tryAutoFixWithCore(
-            cleanCommand,
-            errorOutput,
-            cwd || "",
-          );
-        }
-
-        if (!retrySuccess && isAutoCorrectionEnabled) {
-          retrySuccess = await this.handleCommandError(
-            cleanCommand,
-            errorOutput,
-            cwd || "",
-            async (correctedCommand: string) => {
-              channel.appendLine(
-                `\n===== Retrying with corrected command: ${correctedCommand} =====`,
-              );
-              await this.handleInteractiveCommand(correctedCommand);
-            },
-          );
-        }
-
-        if (!retrySuccess) {
-          vscode.window.showErrorMessage(
-            `agentgocoder: 명령 실패 (${cleanCommand})`,
-          );
-          return false;
-        }
-
-        return true;
+        vscode.window.showErrorMessage(
+          `agentgocoder: 명령 실패 (${cleanCommand})`,
+        );
+        return false;
       }
 
       channel.appendLine(`----- Command Completed Successfully -----`);
@@ -1756,42 +1664,6 @@ export class TerminalManager {
   }
 
   // ===== 오류 수정 관련 메서드들 (terminal/terminalManager.ts에서 이동) =====
-
-  /**
-   * Core AutoFix를 사용하여 오류를 자동으로 수정합니다.
-   */
-  private async tryAutoFixWithCore(
-    failedCommand: string,
-    errorOutput: string,
-    cwd: string,
-    terminalName?: string,
-  ): Promise<boolean> {
-    try {
-      const errorManager = ErrorManager.getInstance();
-      const autoFixService = AutoFix.getInstance();
-
-      const parsedError = await errorManager.captureError(
-        ErrorSource.TERMINAL,
-        errorOutput,
-        {
-          command: failedCommand,
-          cwd,
-          terminalName,
-        },
-      );
-
-      const success = await autoFixService.tryAutoFix(parsedError, {
-        lastCommand: failedCommand,
-        cwd,
-        terminalName,
-      });
-
-      return !!success;
-    } catch (e) {
-      console.warn("[TerminalManager] tryAutoFixWithCore failed:", e);
-      return false;
-    }
-  }
 
   /**
    * 명령어 실행 오류를 LLM에게 전송하여 수정된 명령어와 파일 작업을 받아옵니다.
@@ -2564,313 +2436,6 @@ JSON 형식으로 응답해주세요:
       }
     } finally {
       this.isProcessingQueue = false;
-    }
-  }
-
-  /**
-   * 명령어 실행 오류를 처리하고 수정된 명령어로 재시도합니다.
-   */
-  public async handleCommandError(
-    failedCommand: string,
-    errorOutput: string,
-    cwd: string,
-    onRetry: (correctedCommand: string) => Promise<void>,
-  ): Promise<boolean> {
-    // 동일한 오류가 반복되는지 확인
-    if (
-      this.lastFailedCommand === failedCommand &&
-      this.lastErrorOutput === errorOutput
-    ) {
-      this.sameErrorRetryCount++;
-      console.log(
-        `[TerminalManager] 동일한 오류 반복 감지: ${this.sameErrorRetryCount}회`,
-      );
-
-      // 동일한 오류가 2회 이상 반복되면 재시도 중단
-      if (this.sameErrorRetryCount >= 2) {
-        console.log(
-          `[TerminalManager] 동일한 오류가 ${this.sameErrorRetryCount}회 반복되어 재시도 중단`,
-        );
-
-        if (this.currentWebview) {
-          const failureMessage = `❌ 오류 수정 실패: 동일한 오류가 반복되어 재시도를 중단했습니다. 수동 확인이 필요합니다.`;
-          this.currentWebview.postMessage({
-            command: "showErrorCorrectionFailure",
-            message: failureMessage,
-            retryCount: this.errorRetryCount,
-          });
-        }
-
-        // ProcessingSteps 숨김
-        if (this.currentWebview) {
-          try {
-            this.currentWebview.postMessage({
-              command: "hideProcessingSteps",
-              step: "error_correction",
-            });
-          } catch {}
-          try {
-            this.currentWebview.postMessage({ command: "hideLoading" });
-          } catch {}
-          try {
-            this.currentWebview.postMessage({ command: "hideAutoCorrecting" });
-          } catch {}
-        }
-
-        this.errorRetryCount = 0;
-        this.sameErrorRetryCount = 0;
-        this.lastFailedCommand = undefined;
-        this.lastErrorOutput = undefined;
-        return false;
-      }
-    } else {
-      // 다른 오류가 발생하면 카운터 리셋
-      this.sameErrorRetryCount = 0;
-      this.lastFailedCommand = failedCommand;
-      this.lastErrorOutput = errorOutput;
-    }
-
-    if (this.errorRetryCount >= TerminalManager.MAX_ERROR_RETRIES) {
-      console.log(
-        `[TerminalManager] 최대 재시도 횟수(${TerminalManager.MAX_ERROR_RETRIES}) 초과`,
-      );
-
-      // 최대 재시도 횟수 초과 시 실패 메시지 전송
-      if (this.currentWebview) {
-        const failureMessage = `❌ 오류 수정 실패: 최대 재시도 횟수(${TerminalManager.MAX_ERROR_RETRIES}) 초과. 수동 확인이 필요합니다.`;
-        this.currentWebview.postMessage({
-          command: "showErrorCorrectionFailure",
-          message: failureMessage,
-          retryCount: this.errorRetryCount,
-        });
-      }
-
-      // 최대 재시도 횟수 초과 시에만 종합 설명 출력
-      setTimeout(async () => {
-        await this.sendErrorCorrectionSummary();
-      }, 2000);
-
-      // ProcessingSteps 숨김
-      if (this.currentWebview) {
-        console.log(
-          "[TerminalManager] hideLoading 메시지 전송 (최대 재시도 초과)",
-        );
-        this.currentWebview.postMessage({ command: "hideLoading" });
-        this.currentWebview.postMessage({
-          command: "updateProcessingStatus",
-          step: "error_correction",
-          status: "자동 오류 수정 완료",
-        });
-        this.currentWebview.postMessage({ command: "hideAutoCorrecting" });
-        this.currentWebview.postMessage({
-          command: "hideProcessingSteps",
-          step: "error_correction",
-        });
-      }
-
-      this.errorRetryCount = 0;
-      this.sameErrorRetryCount = 0;
-      this.lastFailedCommand = undefined;
-      this.lastErrorOutput = undefined;
-      return false;
-    }
-
-    this.errorRetryCount++;
-    this.summarySent = false;
-    console.log(
-      `[TerminalManager] 오류 수정 시도 ${this.errorRetryCount}/${TerminalManager.MAX_ERROR_RETRIES}`,
-    );
-
-    const correctionResult = await this.getCorrectedCommand(
-      failedCommand,
-      errorOutput,
-      cwd,
-    );
-
-    if (!correctionResult) {
-      console.log("[TerminalManager] LLM에서 수정된 명령어를 받지 못함");
-      if (this.currentWebview) {
-        try {
-          this.currentWebview.postMessage({
-            command: "hideProcessingSteps",
-            step: "error_correction",
-          });
-        } catch {}
-        try {
-          this.currentWebview.postMessage({ command: "hideLoading" });
-        } catch {}
-        try {
-          this.currentWebview.postMessage({ command: "hideAutoCorrecting" });
-        } catch {}
-      }
-      return false;
-    }
-
-    const { correctedCommand, fileOperations } = correctionResult;
-    console.log(
-      `[TerminalManager] getCorrectedCommand 결과: correctedCommand=${correctedCommand ? "있음" : "null"}, fileOperations.length=${fileOperations.length}`,
-    );
-    if (fileOperations.length > 0) {
-      console.log(
-        `[TerminalManager] 파일 작업 목록:`,
-        fileOperations.map((op) => `${op.type} ${op.path}`),
-      );
-    }
-
-    // 파일 작업이 있는 경우 먼저 처리
-    if (fileOperations.length > 0) {
-      console.log(
-        `[TerminalManager] ${fileOperations.length}개의 파일 작업을 큐에 추가`,
-      );
-      const fileOpTokens = TerminalManager.buildFileOpTokens(fileOperations);
-      this.enqueueCommands(fileOpTokens, true);
-    }
-
-    // 컴파일 오류가 있고 correctedCommand가 null인 경우 파일 작업만 처리
-    const hasCompilationError =
-      /(package.*does not exist|cannot find symbol|Compilation failure|BUILD FAILURE|package org\.springframework|package lombok|package jakarta\.persistence|symbol:.*class.*Page|symbol:.*class.*Pageable|symbol:.*class.*Getter|symbol:.*class.*Setter|symbol:.*class.*Entity|symbol:.*class.*JpaRepository|symbol:.*variable.*Customizer)/i.test(
-        errorOutput,
-      );
-    if (!correctedCommand && fileOperations.length > 0) {
-      console.log(
-        `[TerminalManager] 컴파일 오류 감지: 파일 작업만 처리 (${fileOperations.length}개)`,
-      );
-
-      if (this.currentWebview) {
-        this.currentWebview.postMessage({
-          command: "updateProcessingStatus",
-          step: "error_correction",
-          status: `파일 수정 중 (${fileOperations.length}개 파일)`,
-        });
-        this.currentWebview.postMessage({
-          command: "showErrorCorrectionSuccess",
-          message: `파일 수정 작업이 큐에 추가되었습니다 (${fileOperations.length}개 파일)`,
-          retryCount: this.errorRetryCount,
-        });
-        this.currentWebview.postMessage({
-          command: "hideProcessingSteps",
-          step: "error_correction",
-        });
-      }
-
-      this.errorRetryCount = 0;
-      return true;
-    }
-
-    const isValidCorrected = async (
-      cmd: string | null | undefined,
-    ): Promise<boolean> => {
-      if (!cmd) return false;
-      const t = cmd.trim();
-      if (!t) return false;
-      if (t === "\\") return false;
-      if (t === '""' || t === "''") return false;
-
-      const osAdapter = this.executionManager.getOSAdapter();
-      if (osAdapter.osType === "win32" && /cmd\.exe/i.test(t)) {
-        const cmdMatch = t.match(/cmd\.exe\s*\/d\s*\/c\s*"([^"]*)"(?:\s*&&)/i);
-        if (cmdMatch) {
-          console.log(
-            "[TerminalManager] 명령어 검증 실패: PowerShell 환경에서 && 사용 감지",
-          );
-          return false;
-        }
-        if (/^\s*&&/.test(t)) {
-          console.log(
-            "[TerminalManager] 명령어 검증 실패: 명령 시작에 && 사용",
-          );
-          return false;
-        }
-      }
-
-      if (/[<>]/.test(t)) return false;
-      if (/Your(Command|ActualCommand)(Here)?/i.test(t)) return false;
-
-      if (/^```/.test(t)) return false;
-      if (t.length < 2) return false;
-      return true;
-    };
-
-    const isValid = await isValidCorrected(correctedCommand);
-    if (isValid && correctedCommand) {
-      console.log(
-        `[TerminalManager] 수정된 명령어로 재시도: ${correctedCommand}`,
-      );
-
-      if (this.currentWebview) {
-        this.currentWebview.postMessage({
-          command: "showErrorCorrection",
-          originalCommand: failedCommand,
-          correctedCommand: correctedCommand,
-          retryCount: this.errorRetryCount,
-        });
-        const successMessage = `✅ 오류 수정 성공: ${correctedCommand} 명령어로 정상 실행됨`;
-        console.log(
-          "[TerminalManager] showErrorCorrectionSuccess 메시지 전송:",
-          successMessage,
-        );
-        this.currentWebview.postMessage({
-          command: "showErrorCorrectionSuccess",
-          message: successMessage,
-          correctedCommand: correctedCommand,
-        });
-      }
-
-      try {
-        await onRetry(correctedCommand);
-        console.log("[TerminalManager] 수정된 명령어 재시도 완료");
-      } catch (error) {
-        console.error("[TerminalManager] 수정된 명령어 재시도 실패:", error);
-      }
-
-      setTimeout(async () => {
-        await this.sendErrorCorrectionSummary();
-      }, 2000);
-
-      if (this.currentWebview) {
-        console.log(
-          "[TerminalManager] hideLoading 메시지 전송 (오류 수정 성공)",
-        );
-        this.currentWebview.postMessage({ command: "hideLoading" });
-        this.currentWebview.postMessage({
-          command: "updateProcessingStatus",
-          step: "error_correction",
-          status: "자동 오류 수정 완료",
-        });
-        this.currentWebview.postMessage({ command: "hideAutoCorrecting" });
-        this.currentWebview.postMessage({
-          command: "hideProcessingSteps",
-          step: "error_correction",
-        });
-      }
-
-      return true;
-    } else {
-      if (correctedCommand) {
-        console.log(
-          `[TerminalManager] 명령어 수정 불가능 (검증 실패): ${correctedCommand.substring(0, 100)}...`,
-        );
-      } else {
-        console.log(
-          "[TerminalManager] 명령어 수정 불가능 (LLM이 명령어를 반환하지 않음)",
-        );
-      }
-      if (this.currentWebview) {
-        try {
-          this.currentWebview.postMessage({
-            command: "hideProcessingSteps",
-            step: "error_correction",
-          });
-        } catch {}
-        try {
-          this.currentWebview.postMessage({ command: "hideLoading" });
-        } catch {}
-        try {
-          this.currentWebview.postMessage({ command: "hideAutoCorrecting" });
-        } catch {}
-      }
-      this.errorRetryCount = 0;
-      return false;
     }
   }
 
