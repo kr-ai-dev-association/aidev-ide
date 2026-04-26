@@ -2,8 +2,32 @@
 
 VS Code용 AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.1.7**  
+> **현재 버전: v1.2.0**  
 > **브랜치:** `agentgocoder`
+
+---
+
+## v1.2.0 (2026-04-26)
+
+### Removed — 멀티 에이전트 / 소스코드 인라인 자동완성 기능 제거
+
+**제거된 기능:**
+
+- **멀티 에이전트(Orchestration)**: `agentgocoder.orchestration` 설정 및 관련 코드 전체 제거. ConversationService는 항상 단일 에이전트 경로(`ConversationManager.handleUserMessageAndRespond()`)로 동작.
+- **소스코드 인라인 자동완성(Ghost Text)**: `agentgocoder.inlineCompletion` 설정 및 VS Code `InlineCompletionItemProvider` 등록 제거.
+
+**제거된 모델 라우팅 슬롯:**
+
+- 서브에이전트 모델 (Orchestration 전용)
+- 소스코드 자동완성 모델 (Inline Completion 전용)
+- 나머지 4개 라우팅 슬롯(Compactor / Command / Intent / Error Fallback)은 그대로 유지.
+
+**삭제된 모듈:**
+
+- `src/core/orchestration/` (OrchestrationRouter, TaskSplitter, SubAgentLoop, ResultMerger, PromisePool, types, index)
+- `src/core/completion/InlineCompletionProvider.ts`
+
+**참고**: 사용자 SecretStorage / globalState에 저장된 `agentgocoder.subagent*` 및 `agentgocoder.completion*` 키는 코드에서 더 이상 참조하지 않으므로 무해한 잔존 데이터로 남는다 (자동 정리 안 함).
 
 ---
 
