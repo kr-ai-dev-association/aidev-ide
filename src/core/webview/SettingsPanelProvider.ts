@@ -131,8 +131,6 @@ export function openSettingsPanel(
               await settingsManager.isBlockOutsideProjectEnabled();
             const autoToolExecutionEnabled =
               await settingsManager.isAutoToolExecutionEnabled();
-            const orchestrationEnabled =
-              await settingsManager.isOrchestrationEnabled();
             const streamingEnabled = await settingsManager.isStreamingEnabled();
             const nativeToolCallingEnabled =
               await settingsManager.isNativeToolCallingEnabled();
@@ -166,18 +164,6 @@ export function openSettingsPanel(
               await stateManager.getErrorFallbackModelName();
             const errorFallbackApiKeySet =
               await stateManager.hasErrorFallbackApiKey();
-            const completionModelType =
-              await stateManager.getCompletionModelType();
-            const completionModelName =
-              await stateManager.getCompletionModelName();
-            const completionApiKeySet =
-              await stateManager.hasCompletionApiKey();
-            const subagentModelType = await stateManager.getSubagentModelType();
-            const subagentModelName = await stateManager.getSubagentModelName();
-            const subagentApiKeySet = await stateManager.hasSubagentApiKey();
-            const inlineCompletionEnabled = vscode.workspace
-              .getConfiguration("agentgocoder")
-              .get<boolean>("inlineCompletion", false);
             // duplicate removed
             const messageToSend = {
               command: "currentSettings",
@@ -199,7 +185,6 @@ export function openSettingsPanel(
               autoExecuteCommandsEnabled: autoExecuteCommandsEnabled, // 명령어 자동 실행 설정 추가
               blockOutsideProjectEnabled: blockOutsideProjectEnabled, // 프로젝트 외부 파일 차단
               autoToolExecutionEnabled: autoToolExecutionEnabled, // 도구 자동 실행 설정 추가
-              orchestrationEnabled: orchestrationEnabled || false, // 멀티 에이전트 설정
               streamingEnabled: streamingEnabled || false, // 스트리밍 설정 추가
               nativeToolCallingEnabled: nativeToolCallingEnabled, // 네이티브 툴 콜링 설정
               thinkingEnabled: thinkingEnabled, // Thinking 활성화 설정
@@ -217,13 +202,6 @@ export function openSettingsPanel(
               errorFallbackModelType: errorFallbackModelType || "",
               errorFallbackModelName: errorFallbackModelName || "",
               errorFallbackApiKeySet: errorFallbackApiKeySet,
-              completionModelType: completionModelType || "",
-              completionModelName: completionModelName || "",
-              completionApiKeySet: completionApiKeySet,
-              subagentModelType: subagentModelType || "",
-              subagentModelName: subagentModelName || "",
-              subagentApiKeySet: subagentApiKeySet,
-              inlineCompletionEnabled: inlineCompletionEnabled,
               chatTheme: chatTheme,
               extensionVersion: extensionVersion,
               personalBuildTestSettings: context.globalState.get<any[]>(
@@ -834,284 +812,6 @@ export function openSettingsPanel(
           }
           break;
 
-        case "saveCompletionModel": // 소스코드 자동완성 모델 저장
-          try {
-            const completionType = data.modelType;
-            const completionModelNameSave = data.modelName;
-            if (completionType) {
-              await stateManager.saveCompletionModelType(completionType);
-              if (completionModelNameSave) {
-                await stateManager.saveCompletionModelName(
-                  completionModelNameSave,
-                );
-              }
-              if (
-                (completionType.startsWith("group:") ||
-                  completionType === "admin") &&
-                completionModelNameSave
-              ) {
-                const aiModelSettings =
-                  settingsManager.getServerSettings("ai_model");
-                const preset = aiModelSettings.find(
-                  (s: any) => s.key === completionModelNameSave,
-                );
-                if (preset && preset.value) {
-                  const v = preset.value;
-                  const ch = v.customHeaders || v.custom_headers || {};
-                  const userApiKey = getProviderApiKey(completionModelNameSave);
-                  const adminConfig = {
-                    key: completionModelNameSave,
-                    provider: v.provider || "chat_completions",
-                    model: v.model || v.model_name || "",
-                    apiKey: userApiKey || v.api_key || v.apiKey || "",
-                    endpoint:
-                      v.baseUrl ||
-                      v.base_url ||
-                      v.endpoint ||
-                      v.apiEndpoint ||
-                      "",
-                    maxTokens: v.max_tokens || v.maxTokens || undefined,
-                    maxOutputTokens:
-                      v.maxOutputTokens || v.max_output_tokens || undefined,
-                    contextWindow:
-                      v.context_window || v.contextWindow || undefined,
-                    enabled: v.enabled !== false,
-                    authType: v.authType || v.auth_type || "bearer",
-                    authHeaderName:
-                      v.authHeaderName || v.auth_header_name || undefined,
-                    customHeaders:
-                      typeof ch === "string" ? JSON.parse(ch || "{}") : ch,
-                    defaultTemperature:
-                      v.defaultTemperature ?? v.default_temperature ?? 0.7,
-                    topP: v.topP ?? v.top_p ?? 0.9,
-                    streamingSupported:
-                      v.streamingSupported ?? v.streaming_supported ?? true,
-                  };
-                  await stateManager.saveCompletionAdminConfig(
-                    JSON.stringify(adminConfig),
-                  );
-                }
-              }
-              safePostMessage(panel, { command: "completionModelSaved" });
-              const typeLabel =
-                { ollama: "Ollama", admin: "Admin" }[
-                  completionType as string
-                ] || completionType;
-              const modelInfo = completionModelNameSave
-                ? ` (${completionModelNameSave})`
-                : "";
-              notificationService.showInfoMessage(
-                `AgentGoCoder: 자동완성 모델이 ${typeLabel}${modelInfo}로 설정되었습니다.`,
-              );
-            } else {
-              safePostMessage(panel, {
-                command: "completionModelSaveError",
-                error: "모델 타입을 선택해주세요.",
-              });
-            }
-          } catch (error: any) {
-            safePostMessage(panel, {
-              command: "completionModelSaveError",
-              error: error.message,
-            });
-            notificationService.showErrorMessage(
-              `자동완성 모델 저장 오류: ${error.message}`,
-            );
-          }
-          break;
-
-        case "saveCompletionApiKey": // 소스코드 자동완성 API 키 저장
-          try {
-            const completionApiKey = data.apiKey;
-            const completionApiType = data.modelType;
-            if (completionApiKey) {
-              await stateManager.saveCompletionApiKey(completionApiKey);
-              safePostMessage(panel, { command: "completionApiKeySaved" });
-              const typeLabel =
-                { admin: "Admin" }[completionApiType as string] || "";
-              notificationService.showInfoMessage(
-                `AgentGoCoder: 자동완성 ${typeLabel} API 키가 저장되었습니다.`,
-              );
-            } else {
-              safePostMessage(panel, {
-                command: "completionApiKeySaveError",
-                error: "API 키를 입력해주세요.",
-              });
-            }
-          } catch (error: any) {
-            safePostMessage(panel, {
-              command: "completionApiKeySaveError",
-              error: error.message,
-            });
-            notificationService.showErrorMessage(
-              `자동완성 API 키 저장 오류: ${error.message}`,
-            );
-          }
-          break;
-
-        case "clearCompletionModel": // 소스코드 자동완성 모델 초기화
-          try {
-            await stateManager.clearCompletionModelConfig();
-            safePostMessage(panel, { command: "completionModelCleared" });
-            notificationService.showInfoMessage(
-              "AgentGoCoder: 자동완성 모델이 초기화되었습니다. 메인 모델이 사용됩니다.",
-            );
-          } catch (error: any) {
-            safePostMessage(panel, {
-              command: "completionModelClearError",
-              error: error.message,
-            });
-          }
-          break;
-
-        case "saveSubagentModel": // 서브에이전트 모델 저장
-          try {
-            const subagentType = data.modelType;
-            const subagentModelNameSave = data.modelName;
-            if (subagentType) {
-              await stateManager.saveSubagentModelType(subagentType);
-              if (subagentModelNameSave) {
-                await stateManager.saveSubagentModelName(subagentModelNameSave);
-              }
-              if (
-                (subagentType.startsWith("group:") ||
-                  subagentType === "admin") &&
-                subagentModelNameSave
-              ) {
-                const aiModelSettings =
-                  settingsManager.getServerSettings("ai_model");
-                const preset = aiModelSettings.find(
-                  (s: any) => s.key === subagentModelNameSave,
-                );
-                if (preset && preset.value) {
-                  const v = preset.value;
-                  const ch = v.customHeaders || v.custom_headers || {};
-                  const userApiKey = getProviderApiKey(subagentModelNameSave);
-                  const adminConfig = {
-                    key: subagentModelNameSave,
-                    provider: v.provider || "chat_completions",
-                    model: v.model || v.model_name || "",
-                    apiKey: userApiKey || v.api_key || v.apiKey || "",
-                    endpoint:
-                      v.baseUrl ||
-                      v.base_url ||
-                      v.endpoint ||
-                      v.apiEndpoint ||
-                      "",
-                    maxTokens: v.max_tokens || v.maxTokens || undefined,
-                    maxOutputTokens:
-                      v.maxOutputTokens || v.max_output_tokens || undefined,
-                    contextWindow:
-                      v.context_window || v.contextWindow || undefined,
-                    enabled: v.enabled !== false,
-                    authType: v.authType || v.auth_type || "bearer",
-                    authHeaderName:
-                      v.authHeaderName || v.auth_header_name || undefined,
-                    customHeaders:
-                      typeof ch === "string" ? JSON.parse(ch || "{}") : ch,
-                    defaultTemperature:
-                      v.defaultTemperature ?? v.default_temperature ?? 0.7,
-                    topP: v.topP ?? v.top_p ?? 0.9,
-                    streamingSupported:
-                      v.streamingSupported ?? v.streaming_supported ?? true,
-                  };
-                  await stateManager.saveSubagentAdminConfig(
-                    JSON.stringify(adminConfig),
-                  );
-                }
-              }
-              safePostMessage(panel, { command: "subagentModelSaved" });
-              const typeLabel =
-                { ollama: "Ollama", admin: "Admin" }[subagentType as string] ||
-                subagentType;
-              const modelInfo = subagentModelNameSave
-                ? ` (${subagentModelNameSave})`
-                : "";
-              notificationService.showInfoMessage(
-                `AgentGoCoder: 서브에이전트 모델이 ${typeLabel}${modelInfo}로 설정되었습니다.`,
-              );
-            } else {
-              safePostMessage(panel, {
-                command: "subagentModelSaveError",
-                error: "모델 타입을 선택해주세요.",
-              });
-            }
-          } catch (error: any) {
-            safePostMessage(panel, {
-              command: "subagentModelSaveError",
-              error: error.message,
-            });
-            notificationService.showErrorMessage(
-              `서브에이전트 모델 저장 오류: ${error.message}`,
-            );
-          }
-          break;
-
-        case "saveSubagentApiKey": // 서브에이전트 API 키 저장
-          try {
-            const subagentApiKey = data.apiKey;
-            const subagentApiType = data.modelType;
-            if (subagentApiKey) {
-              await stateManager.saveSubagentApiKey(subagentApiKey);
-              safePostMessage(panel, { command: "subagentApiKeySaved" });
-              const typeLabel =
-                { admin: "Admin" }[subagentApiType as string] || "";
-              notificationService.showInfoMessage(
-                `AgentGoCoder: 서브에이전트 ${typeLabel} API 키가 저장되었습니다.`,
-              );
-            } else {
-              safePostMessage(panel, {
-                command: "subagentApiKeySaveError",
-                error: "API 키를 입력해주세요.",
-              });
-            }
-          } catch (error: any) {
-            safePostMessage(panel, {
-              command: "subagentApiKeySaveError",
-              error: error.message,
-            });
-            notificationService.showErrorMessage(
-              `서브에이전트 API 키 저장 오류: ${error.message}`,
-            );
-          }
-          break;
-
-        case "clearSubagentModel": // 서브에이전트 모델 초기화
-          try {
-            await stateManager.clearSubagentModelConfig();
-            safePostMessage(panel, { command: "subagentModelCleared" });
-            notificationService.showInfoMessage(
-              "AgentGoCoder: 서브에이전트 모델이 초기화되었습니다. 메인 모델이 사용됩니다.",
-            );
-          } catch (error: any) {
-            safePostMessage(panel, {
-              command: "subagentModelClearError",
-              error: error.message,
-            });
-          }
-          break;
-
-        case "setInlineCompletionEnabled": // 소스코드 자동완성 ON/OFF
-          try {
-            const inlineCompletionVal = data.enabled;
-            if (typeof inlineCompletionVal === "boolean") {
-              await vscode.workspace
-                .getConfiguration("agentgocoder")
-                .update(
-                  "inlineCompletion",
-                  inlineCompletionVal,
-                  vscode.ConfigurationTarget.Global,
-                );
-              safePostMessage(panel, { command: "inlineCompletionEnabledSet" });
-            }
-          } catch (error: any) {
-            safePostMessage(panel, {
-              command: "inlineCompletionEnabledSetError",
-              error: error.message,
-            });
-          }
-          break;
-
         case "saveOllamaApiUrl": // Ollama API URL 저장 케이스 추가
           const ollamaApiUrlToSave = data.ollamaApiUrl;
           if (ollamaApiUrlToSave && typeof ollamaApiUrlToSave === "string") {
@@ -1647,29 +1347,6 @@ export function openSettingsPanel(
             );
           }
           break;
-        case "setOrchestrationEnabled": {
-          // 오케스트레이션 설정
-          const orchestrationVal = data.enabled;
-          if (typeof orchestrationVal === "boolean") {
-            try {
-              await settingsManager.updateOrchestrationEnabled(
-                orchestrationVal,
-              );
-              safePostMessage(panel, { command: "orchestrationEnabledSet" });
-            } catch (error: any) {
-              safePostMessage(panel, {
-                command: "orchestrationEnabledSetError",
-                error: error.message,
-              });
-            }
-          } else {
-            safePostMessage(panel, {
-              command: "orchestrationEnabledSetError",
-              error: "Invalid setting",
-            });
-          }
-          break;
-        }
         case "setStreamingEnabled": {
           const streamingEnabledToSet = data.enabled;
           if (typeof streamingEnabledToSet === "boolean") {
@@ -2260,8 +1937,6 @@ export function openSettingsPanel(
               await settingsManager.isBlockOutsideProjectEnabled();
             const autoToolExecutionEnabled =
               await settingsManager.isAutoToolExecutionEnabled();
-            const orchestrationEnabled =
-              await settingsManager.isOrchestrationEnabled();
             const streamingEnabled = await settingsManager.isStreamingEnabled();
             const nativeToolCallingEnabled2 =
               await settingsManager.isNativeToolCallingEnabled();
@@ -2288,7 +1963,6 @@ export function openSettingsPanel(
               autoDeleteFilesEnabled: autoDeleteFilesEnabled || false,
               autoExecuteCommandsEnabled: autoExecuteCommandsEnabled ?? true,
               autoToolExecutionEnabled: autoToolExecutionEnabled ?? true,
-              orchestrationEnabled: orchestrationEnabled || false,
               streamingEnabled: streamingEnabled || false,
               nativeToolCallingEnabled: nativeToolCallingEnabled2,
               thinkingEnabled: thinkingEnabled2,
@@ -3014,17 +2688,11 @@ export function openSettingsPanel(
                   await settingsManager.isBlockOutsideProjectEnabled(),
                 autoToolExecutionEnabled:
                   await settingsManager.isAutoToolExecutionEnabled(),
-                orchestrationEnabled:
-                  await settingsManager.isOrchestrationEnabled(),
                 streamingEnabled: await settingsManager.isStreamingEnabled(),
                 nativeToolCallingEnabled:
                   await settingsManager.isNativeToolCallingEnabled(),
                 thinkingEnabled: await settingsManager.isThinkingEnabled(),
                 thinkingLevel: await settingsManager.getThinkingLevel(),
-                inlineCompletionEnabled: config.get<boolean>(
-                  "inlineCompletion",
-                  false,
-                ),
                 errorReportingEnabled: config.get<boolean>(
                   "errorReportingEnabled",
                   false,
@@ -3060,14 +2728,6 @@ export function openSettingsPanel(
                   (await stateManager.getErrorFallbackModelType()) || "",
                 errorFallbackModelName:
                   (await stateManager.getErrorFallbackModelName()) || "",
-                completionModelType:
-                  (await stateManager.getCompletionModelType()) || "",
-                completionModelName:
-                  (await stateManager.getCompletionModelName()) || "",
-                subagentModelType:
-                  (await stateManager.getSubagentModelType()) || "",
-                subagentModelName:
-                  (await stateManager.getSubagentModelName()) || "",
               },
               buildTestSettings: context.globalState.get<any[]>(
                 "personalBuildTestSettings",
@@ -3214,13 +2874,6 @@ export function openSettingsPanel(
                 vscode.ConfigurationTarget.Global,
               );
             }
-            if (typeof s.orchestrationEnabled === "boolean") {
-              await cfgImport.update(
-                "orchestration",
-                s.orchestrationEnabled,
-                vscode.ConfigurationTarget.Global,
-              );
-            }
             if (typeof s.streamingEnabled === "boolean") {
               await cfgImport.update(
                 "streamingEnabled",
@@ -3246,13 +2899,6 @@ export function openSettingsPanel(
               await cfgImport.update(
                 "thinkingLevel",
                 s.thinkingLevel,
-                vscode.ConfigurationTarget.Global,
-              );
-            }
-            if (typeof s.inlineCompletionEnabled === "boolean") {
-              await cfgImport.update(
-                "inlineCompletion",
-                s.inlineCompletionEnabled,
                 vscode.ConfigurationTarget.Global,
               );
             }
@@ -3332,18 +2978,6 @@ export function openSettingsPanel(
               await stateManager.saveErrorFallbackModelName(
                 s.errorFallbackModelName,
               );
-            }
-            if (s.completionModelType) {
-              await stateManager.saveCompletionModelType(s.completionModelType);
-            }
-            if (s.completionModelName) {
-              await stateManager.saveCompletionModelName(s.completionModelName);
-            }
-            if (s.subagentModelType) {
-              await stateManager.saveSubagentModelType(s.subagentModelType);
-            }
-            if (s.subagentModelName) {
-              await stateManager.saveSubagentModelName(s.subagentModelName);
             }
 
             if (Array.isArray(imported.buildTestSettings)) {

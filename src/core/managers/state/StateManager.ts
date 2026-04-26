@@ -294,14 +294,6 @@ export class StateManager {
     "agentgocoder.errorFallbackModelName";
   private readonly ERROR_FALLBACK_API_KEY_KEY =
     "agentgocoder.errorFallbackApiKey";
-  private readonly COMPLETION_MODEL_TYPE_KEY =
-    "agentgocoder.completionModelType";
-  private readonly COMPLETION_MODEL_NAME_KEY =
-    "agentgocoder.completionModelName";
-  private readonly COMPLETION_API_KEY_KEY = "agentgocoder.completionApiKey";
-  private readonly SUBAGENT_MODEL_TYPE_KEY = "agentgocoder.subagentModelType";
-  private readonly SUBAGENT_MODEL_NAME_KEY = "agentgocoder.subagentModelName";
-  private readonly SUBAGENT_API_KEY_KEY = "agentgocoder.subagentApiKey";
 
   // 라우팅 모델별 AdminModelConfig 저장 키 (group:/admin 선택 시)
   private readonly COMPACTOR_ADMIN_CONFIG_KEY =
@@ -310,10 +302,6 @@ export class StateManager {
   private readonly INTENT_ADMIN_CONFIG_KEY = "agentgocoder.intentAdminConfig";
   private readonly ERROR_FALLBACK_ADMIN_CONFIG_KEY =
     "agentgocoder.errorFallbackAdminConfig";
-  private readonly COMPLETION_ADMIN_CONFIG_KEY =
-    "agentgocoder.completionAdminConfig";
-  private readonly SUBAGENT_ADMIN_CONFIG_KEY =
-    "agentgocoder.subagentAdminConfig";
 
   /**
    * API Key를 저장합니다
@@ -1135,133 +1123,5 @@ export class StateManager {
 
   public async deleteErrorFallbackAdminConfig(): Promise<void> {
     await this.deleteSecret(this.ERROR_FALLBACK_ADMIN_CONFIG_KEY);
-  }
-
-  public async saveCompletionAdminConfig(configJson: string): Promise<void> {
-    await this.saveSecret(this.COMPLETION_ADMIN_CONFIG_KEY, configJson);
-  }
-
-  public async getCompletionAdminConfig(): Promise<string | undefined> {
-    return await this.getSecret(this.COMPLETION_ADMIN_CONFIG_KEY);
-  }
-
-  public async deleteCompletionAdminConfig(): Promise<void> {
-    await this.deleteSecret(this.COMPLETION_ADMIN_CONFIG_KEY);
-  }
-
-  // ===== 소스코드 자동완성 모델 관련 메서드들 =====
-
-  public async saveCompletionModelType(modelType: string): Promise<void> {
-    await this.saveSecret(this.COMPLETION_MODEL_TYPE_KEY, modelType);
-  }
-
-  public async getCompletionModelType(): Promise<string | undefined> {
-    return await this.getSecret(this.COMPLETION_MODEL_TYPE_KEY);
-  }
-
-  private async deleteCompletionModelType(): Promise<void> {
-    await this.deleteSecret(this.COMPLETION_MODEL_TYPE_KEY);
-  }
-
-  public async saveCompletionModelName(modelName: string): Promise<void> {
-    await this.saveSecret(this.COMPLETION_MODEL_NAME_KEY, modelName);
-  }
-
-  public async getCompletionModelName(): Promise<string | undefined> {
-    return await this.getSecret(this.COMPLETION_MODEL_NAME_KEY);
-  }
-
-  private async deleteCompletionModelName(): Promise<void> {
-    await this.deleteSecret(this.COMPLETION_MODEL_NAME_KEY);
-  }
-
-  public async saveCompletionApiKey(apiKey: string): Promise<void> {
-    await this.saveSecret(this.COMPLETION_API_KEY_KEY, apiKey);
-  }
-
-  public async getCompletionApiKey(): Promise<string | undefined> {
-    return await this.getSecret(this.COMPLETION_API_KEY_KEY);
-  }
-
-  public async hasCompletionApiKey(): Promise<boolean> {
-    const key = await this.getCompletionApiKey();
-    return !!key;
-  }
-
-  private async deleteCompletionApiKey(): Promise<void> {
-    await this.deleteSecret(this.COMPLETION_API_KEY_KEY);
-  }
-
-  public async clearCompletionModelConfig(): Promise<void> {
-    await Promise.all([
-      this.deleteCompletionModelType(),
-      this.deleteCompletionModelName(),
-      this.deleteCompletionApiKey(),
-      this.deleteCompletionAdminConfig(),
-    ]);
-  }
-
-  // ===== 서브에이전트 모델 라우팅 =====
-
-  public async saveSubagentModelType(modelType: string): Promise<void> {
-    await this.saveSecret(this.SUBAGENT_MODEL_TYPE_KEY, modelType);
-  }
-
-  public async getSubagentModelType(): Promise<string | undefined> {
-    return await this.getSecret(this.SUBAGENT_MODEL_TYPE_KEY);
-  }
-
-  private async deleteSubagentModelType(): Promise<void> {
-    await this.deleteSecret(this.SUBAGENT_MODEL_TYPE_KEY);
-  }
-
-  public async saveSubagentModelName(modelName: string): Promise<void> {
-    await this.saveSecret(this.SUBAGENT_MODEL_NAME_KEY, modelName);
-  }
-
-  public async getSubagentModelName(): Promise<string | undefined> {
-    return await this.getSecret(this.SUBAGENT_MODEL_NAME_KEY);
-  }
-
-  private async deleteSubagentModelName(): Promise<void> {
-    await this.deleteSecret(this.SUBAGENT_MODEL_NAME_KEY);
-  }
-
-  public async saveSubagentApiKey(apiKey: string): Promise<void> {
-    await this.saveSecret(this.SUBAGENT_API_KEY_KEY, apiKey);
-  }
-
-  public async getSubagentApiKey(): Promise<string | undefined> {
-    return await this.getSecret(this.SUBAGENT_API_KEY_KEY);
-  }
-
-  public async hasSubagentApiKey(): Promise<boolean> {
-    const key = await this.getSubagentApiKey();
-    return !!key;
-  }
-
-  private async deleteSubagentApiKey(): Promise<void> {
-    await this.deleteSecret(this.SUBAGENT_API_KEY_KEY);
-  }
-
-  public async saveSubagentAdminConfig(configJson: string): Promise<void> {
-    await this.saveSecret(this.SUBAGENT_ADMIN_CONFIG_KEY, configJson);
-  }
-
-  public async getSubagentAdminConfig(): Promise<string | undefined> {
-    return await this.getSecret(this.SUBAGENT_ADMIN_CONFIG_KEY);
-  }
-
-  public async deleteSubagentAdminConfig(): Promise<void> {
-    await this.deleteSecret(this.SUBAGENT_ADMIN_CONFIG_KEY);
-  }
-
-  public async clearSubagentModelConfig(): Promise<void> {
-    await Promise.all([
-      this.deleteSubagentModelType(),
-      this.deleteSubagentModelName(),
-      this.deleteSubagentApiKey(),
-      this.deleteSubagentAdminConfig(),
-    ]);
   }
 }
