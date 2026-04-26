@@ -616,10 +616,6 @@ export class SettingsManager extends BaseManager {
       autoExecuteCommands:
         ConfigurationService.get<boolean>("autoExecuteCommands", false) ??
         false,
-      autoCorrectErrors:
-        ConfigurationService.get<boolean>("autoCorrectErrors", true) ?? true,
-      maxErrorRetries:
-        ConfigurationService.get<number>("maxErrorRetries", 3) ?? 3,
 
       // UI 설정
       theme:
@@ -672,18 +668,6 @@ export class SettingsManager extends BaseManager {
         "dev_rules",
         "auto_execute_commands",
         localSettings.autoExecuteCommands,
-      );
-      localSettings.autoCorrectErrors = this.getEffectiveValue(
-        "autoCorrectErrors",
-        "dev_rules",
-        "auto_correction_enabled",
-        localSettings.autoCorrectErrors,
-      );
-      localSettings.maxErrorRetries = this.getEffectiveValue(
-        "maxErrorRetries",
-        "dev_rules",
-        "error_retry_count",
-        localSettings.maxErrorRetries,
       );
       // security_rules
       localSettings.maxContextSize = this.getEffectiveValue(

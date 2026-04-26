@@ -137,7 +137,5 @@
   "githubSectionDescription": "Consultez le code source et les informations les plus récentes de AIDEV-IDE.",
   "githubViewLink": "🌐 Voir sur GitHub",
   "githubIssuesLink": "🐛 Problèmes et Commentaires",
-  "githubStarLink": "⭐ Étoile et Soutien",
-  "stopErrorCorrectionLabel": "⏹️ Arrêter la correction automatique d'erreurs",
-  "stopErrorCorrectionTooltip": "Arrête immédiatement la correction automatique d'erreurs"
+  "githubStarLink": "⭐ Étoile et Soutien"
 }

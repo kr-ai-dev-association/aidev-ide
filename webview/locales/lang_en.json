@@ -152,7 +152,5 @@
   "githubSectionDescription": "Check out AgentGoCoder's source code and latest information.",
   "githubViewLink": "🌐 View on GitHub",
   "githubIssuesLink": "🐛 Issues & Feedback",
-  "githubStarLink": "⭐ Star & Support",
-  "stopErrorCorrectionLabel": "⏹️ Stop Auto Error Correction",
-  "stopErrorCorrectionTooltip": "Immediately stop automatic error correction"
+  "githubStarLink": "⭐ Star & Support"
 }

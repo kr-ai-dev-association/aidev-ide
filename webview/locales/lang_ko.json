@@ -159,7 +159,5 @@
   "outputLogOff": "끄기",
   "outputLogEnabled": "OUTPUT 로그 활성화",
   "outputLogStatusEnabled": "현재: OUTPUT 로그 활성화됨",
-  "outputLogStatusDisabled": "현재: OUTPUT 로그 비활성화됨",
-  "stopErrorCorrectionLabel": "⏹️ 자동 오류 수정 중단",
-  "stopErrorCorrectionTooltip": "자동 오류 수정을 즉시 중단합니다"
+  "outputLogStatusDisabled": "현재: OUTPUT 로그 비활성화됨"
 }

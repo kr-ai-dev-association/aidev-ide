@@ -141,7 +141,5 @@
   "githubSectionDescription": "查看 AIDEV-IDE 的源代码和最新信息。",
   "githubViewLink": "🌐 在 GitHub 上查看",
   "githubIssuesLink": "🐛 问题与反馈",
-  "githubStarLink": "⭐ 点赞与支持",
-  "stopErrorCorrectionLabel": "⏹️ 停止自动错误修正",
-  "stopErrorCorrectionTooltip": "立即停止自动错误修正"
+  "githubStarLink": "⭐ 点赞与支持"
 }

@@ -3,15 +3,15 @@ exports.id = 1;
 exports.ids = [1];
 exports.modules = {
 
-/***/ 615:
+/***/ 613:
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   SessionMemoryExtractor: () => (/* binding */ SessionMemoryExtractor)
 /* harmony export */ });
-/* harmony import */ var _MemoryManager__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(213);
-/* harmony import */ var _managers_state_UsageMetricsManager__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(81);
+/* harmony import */ var _MemoryManager__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(211);
+/* harmony import */ var _managers_state_UsageMetricsManager__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(96);
 /* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(22);
 /**
  * Session Memory Auto-extraction

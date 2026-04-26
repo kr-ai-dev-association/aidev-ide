@@ -193,8 +193,6 @@ export interface UserSettings {
 
   // 동작 설정
   autoExecuteCommands: boolean;
-  autoCorrectErrors: boolean;
-  maxErrorRetries: number;
 
   // UI 설정
   theme?: "light" | "dark" | "auto";

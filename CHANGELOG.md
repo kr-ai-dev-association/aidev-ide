@@ -2,8 +2,36 @@
 
 VS Code용 AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.2.0**  
+> **현재 버전: v1.2.1**  
 > **브랜치:** `agentgocoder`
+
+---
+
+## v1.2.1 (2026-04-26)
+
+### Removed — 자동 오류 수정 기능 제거
+
+**제거된 기능:**
+
+- **자동 오류 수정(Auto Error Correction)**: 터미널 명령 실패 시 LLM이 명령을 자동 수정·재시도하던 기능 전체 제거.
+  - `agentgocoder.autoCorrectionEnabled` 설정 제거
+  - `agentgocoder.errorRetryCount` 설정 제거 (자동 수정 시도 횟수)
+  - "자동 오류 수정" 토글 + 스피너 UI 제거
+  - "Stop Error Correction" 상태바 버튼 + `agentgocoder.stopErrorCorrection` 명령 제거
+
+**삭제된 모듈:**
+
+- `src/core/managers/error/AutoFix.ts` (자동 수정 싱글톤 서비스)
+- `src/core/managers/error/AutoErrorHandler.ts` (ErrorManager.onError 구독 → LLM 자동 수정)
+- `src/core/utils/SafeSettingsHelper.ts` (auto-correction 전용 helper, 빈 파일이 되어 삭제)
+- 관련 LLM 클라이언트 주입 / 상태 / 핸들러 코드 일괄 정리
+
+**유지된 기능:**
+
+- **자동 테스트 재시도(Auto Test Retry)**: `agentgocoder.autoTestRetryEnabled`, `agentgocoder.testRetryCount` — 별개 기능으로 그대로 유지. Smoke Test / Lint Check 실패 시 재시도하는 메커니즘.
+- **ErrorManager / ErrorParser / ErrorHistory / StackTraceAnalyzer**: 일반 진단·로깅 인프라로 다른 기능에서 사용. 그대로 유지.
+
+**참고**: 사용자 워크스페이스 state에 저장된 `agentgocoder.autoCorrection*` / `agentgocoder.errorRetryCount` 키는 코드에서 더 이상 참조하지 않으므로 무해한 잔존 데이터로 남는다 (자동 정리 안 함).
 
 ---
 
