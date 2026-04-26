@@ -16,8 +16,6 @@ import {
   SessionManager,
   SettingsManager,
   ProjectManager,
-  AutoFix,
-  AutoFixLlmClient,
   LLMManager,
 } from "./core";
 import { PromptBuilder } from "./core/managers/context/PromptBuilder";
@@ -224,84 +222,6 @@ export async function activate(context: vscode.ExtensionContext) {
     (currentAiModel as AiModelType) || defaultModelForPrompt,
   );
   promptBuilder.setUserOS(userOS);
-
-  // AutoFixService에 LLM 클라이언트 주입
-  try {
-    const autoFixService = AutoFix.getInstance();
-    const autoFixLlmClient: AutoFixLlmClient = async ({ error, context }) => {
-      const commandPart = context.lastCommand
-        ? `실패한 명령어:\n${context.lastCommand}\n\n`
-        : "";
-      const cwdPart = context.cwd ? `작업 디렉터리: ${context.cwd}\n\n` : "";
-      const terminalPart = context.terminalName
-        ? `터미널 이름: ${context.terminalName}\n\n`
-        : "";
-
-      const prompt =
-        "당신은 터미널 명령 오류를 빠르고 안전하게 수정하는 시니어 개발자입니다.\n" +
-        "주어진 정보(실패한 명령어, 작업 디렉터리, 오류 메시지)를 바탕으로, " +
-        "**수정된 단일 명령어 한 줄만** 제시하세요.\n\n" +
-        "규칙:\n" +
-        "- 설명 문장, 마크다운, 코드블록, 주석을 포함하지 마세요.\n" +
-        "- 오직 실제로 실행할 하나의 명령어만 출력하세요.\n" +
-        "- 필요하다면 && 로 여러 하위 명령을 연결할 수 있지만, 너무 복잡한 스크립트는 피하세요.\n" +
-        "- 사용자의 OS는 대소문자와 상관없이 감지되며, 현재 환경에 맞는 명령을 사용하세요.\n\n" +
-        commandPart +
-        cwdPart +
-        terminalPart +
-        `오류 요약 (카테고리: ${error.category}, 심각도: ${error.severity}):\n${error.message}\n\n` +
-        `전체 오류 출력:\n${error.rawOutput}\n`;
-
-      // ErrorManager를 통해 오류 수정 메시지 전송
-      const errorManager = ErrorManager.getInstance();
-      // AiModelType이 제대로 로드되었는지 확인
-      let defaultModelForError: AiModelType = "ollama" as AiModelType;
-      if (AiModelType && AiModelType.OLLAMA) {
-        defaultModelForError = AiModelType.OLLAMA;
-      } else {
-        // 동적 import도 정적 import와 동일한 모듈 경로를 사용합니다.
-        const typesModule = await import("./services/types");
-        if (typesModule.AiModelType) {
-          const ollamaValue = typesModule.AiModelType.OLLAMA;
-          if (ollamaValue) {
-            defaultModelForError = ollamaValue;
-          }
-        }
-      }
-      const raw = await errorManager.sendMessageForErrorCorrection(
-        prompt,
-        new LLMApiClient(
-          ollamaApi,
-          (currentAiModel as AiModelType) || defaultModelForError,
-        ),
-        undefined,
-      );
-      if (!raw) {
-        return { correctedCommand: null };
-      }
-
-      // 첫 번째 유효한 한 줄을 명령어로 사용
-      const line =
-        raw
-          .split("\n")
-          .map((l: string) => l.trim())
-          .filter(
-            (l: string) => !!l && !l.startsWith("#") && !l.startsWith("//"),
-          )[0] || raw.trim();
-
-      return {
-        correctedCommand: line || null,
-      };
-    };
-
-    autoFixService.configure({ llmClient: autoFixLlmClient });
-    // AutoFixService LLM client configured
-  } catch (e) {
-    console.warn(
-      "[Extension] Failed to configure AutoFixService LLM client:",
-      e,
-    );
-  }
 
   // ============================================
   // Manager 시스템 초기화
@@ -643,9 +563,6 @@ export async function activate(context: vscode.ExtensionContext) {
     await execManager.cleanup();
   });
 
-  const autoCorrectionEnabled = await stateManager.getAutoCorrectionEnabled();
-  const errorRetryCount = await settingsManager.getErrorRetryCount();
-
   // ChatViewProvider 인스턴스 생성 및 등록 (CODE 탭)
   const chatViewProvider = new ChatViewProvider(
     context.extensionUri,
@@ -757,40 +674,6 @@ export async function activate(context: vscode.ExtensionContext) {
         });
       },
     ),
-  );
-
-  // Status Bar에 자동 오류 수정 중단 버튼 추가
-  const stopErrorCorrectionButton = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Right,
-    100,
-  );
-  stopErrorCorrectionButton.text = "$(stop-circle)";
-  stopErrorCorrectionButton.tooltip = "자동 오류 수정 중단";
-  stopErrorCorrectionButton.command = "agentgocoder.stopErrorCorrection";
-  stopErrorCorrectionButton.show();
-  context.subscriptions.push(stopErrorCorrectionButton);
-
-  // 자동 오류 수정 중단 명령어 등록
-  context.subscriptions.push(
-    vscode.commands.registerCommand("agentgocoder.stopErrorCorrection", () => {
-      vscode.window.showInformationMessage(
-        "자동 오류 수정 중단 기능은 AutoFixService로 이동되었습니다.",
-      );
-    }),
-  );
-
-  // 설정 변경 시 TerminalManager에 반영
-  context.subscriptions.push(
-    vscode.workspace.onDidChangeConfiguration(async (event) => {
-      if (event.affectsConfiguration("agentgocoder.errorRetryCount")) {
-        const errorRetryCount = await settingsManager.getErrorRetryCount();
-      }
-      if (event.affectsConfiguration("agentgocoder.autoCorrectionEnabled")) {
-        const enabled = await stateManager.getAutoCorrectionEnabled();
-        // onDidChangeConfiguration: autoCorrectionEnabled
-      }
-      // debugEnabled 설정은 더 이상 사용하지 않음 (Run/Debug 이벤트로만 제어)
-    }),
   );
 
   // 진단/테스트 커맨드 등록 (diagnosticCommands.ts)

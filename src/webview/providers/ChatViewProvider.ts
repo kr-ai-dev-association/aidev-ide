@@ -91,14 +91,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       webviewView.webview.html = `<html><body><h1>Error initializing chat view</h1><p>${error instanceof Error ? error.message : String(error)}</p></body></html>`;
     }
 
-    // 터미널 매니저에 웹뷰 설정 (오류 수정 시스템용)
-    // LLMApiClient는 ConversationManager에서 관리되므로 여기서는 웹뷰만 설정
-    // LLMApiClient는 필요시 ConversationManager를 통해 가져올 수 있음
-    TerminalManager.getInstance().setErrorCorrectionServices(
-      undefined,
-      webviewView.webview,
-    );
-
     // 🆕 core TaskManager 사용
     // TaskManager를 초기화하여 실행 경로에서도 작업 큐가 생성되도록 함
     try {

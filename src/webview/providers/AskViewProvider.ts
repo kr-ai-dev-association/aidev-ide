@@ -5,7 +5,6 @@ import { PromptType, NotificationService } from "../../services"; // PromptType 
 import {
   SettingsManager,
   StateManager,
-  TerminalManager,
   ConversationService,
   ExecutionManager,
 } from "../../core";
@@ -44,13 +43,6 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.html = getHtmlContentWithUris(
       this.extensionUri,
       "ask",
-      webviewView.webview,
-    );
-
-    // 터미널 매니저에 웹뷰 설정 (오류 수정 시스템용)
-    // LLMApiClient는 ConversationManager에서 관리되므로 여기서는 웹뷰만 설정
-    TerminalManager.getInstance().setErrorCorrectionServices(
-      undefined,
       webviewView.webview,
     );
 
@@ -379,7 +371,9 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
         sender: "AgentGoCoder",
         text: warningMsg,
       });
-      this.notificationService.showWarningMessage(`AgentGoCoder: ${warningMsg}`);
+      this.notificationService.showWarningMessage(
+        `AgentGoCoder: ${warningMsg}`,
+      );
       hasWarnings = true;
       cleanedResponse = this.removeBashCommands(cleanedResponse);
     }
@@ -393,7 +387,9 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
         sender: "AgentGoCoder",
         text: warningMsg,
       });
-      this.notificationService.showWarningMessage(`AgentGoCoder: ${warningMsg}`);
+      this.notificationService.showWarningMessage(
+        `AgentGoCoder: ${warningMsg}`,
+      );
       hasWarnings = true;
       cleanedResponse = this.removeFileDirectives(cleanedResponse);
     }
