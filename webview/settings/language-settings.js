@@ -67,7 +67,11 @@ export function saveLanguage(lang, vscode) {
  * @param {Object} vscode - vscode API 객체
  * @param {Function} onLanguageChange - 언어 변경 시 콜백
  */
-export function bindLanguageSelectEvents(languageSelect, vscode, onLanguageChange) {
+export function bindLanguageSelectEvents(
+  languageSelect,
+  vscode,
+  onLanguageChange,
+) {
   if (!languageSelect) return;
 
   languageSelect.addEventListener("change", (e) => {
@@ -110,9 +114,12 @@ export function applyLanguage() {
 
   // AI 모델 설정 설명
   const aiModelSettingsDescription = document.querySelector(
-    "#api-key-section-title + p"
+    "#api-key-section-title + p",
   );
-  if (aiModelSettingsDescription && languageData["aiModelSettingsDescription"]) {
+  if (
+    aiModelSettingsDescription &&
+    languageData["aiModelSettingsDescription"]
+  ) {
     aiModelSettingsDescription.textContent =
       languageData["aiModelSettingsDescription"];
   }
@@ -121,22 +128,28 @@ export function applyLanguage() {
   applyText("gemini-api-key-label", languageData["geminiApiKeyLabel"]);
 
   // Gemini API 설명
-  const geminiApiDescription = document.querySelector("#gemini-api-key-label + p");
+  const geminiApiDescription = document.querySelector(
+    "#gemini-api-key-label + p",
+  );
   if (geminiApiDescription && languageData["geminiApiDescription"]) {
     geminiApiDescription.textContent = languageData["geminiApiDescription"];
   }
 
   // Gemini API 등록 방법 (링크 유지)
   const geminiApiRegistrationMethod = document.querySelector(
-    "#gemini-api-key-label + p + p"
+    "#gemini-api-key-label + p + p",
   );
-  if (geminiApiRegistrationMethod && languageData["geminiApiRegistrationMethod"]) {
-    const linkMatch = geminiApiRegistrationMethod.innerHTML.match(/<a[^>]*>([^<]*)<\/a>/);
+  if (
+    geminiApiRegistrationMethod &&
+    languageData["geminiApiRegistrationMethod"]
+  ) {
+    const linkMatch =
+      geminiApiRegistrationMethod.innerHTML.match(/<a[^>]*>([^<]*)<\/a>/);
     if (linkMatch) {
       const linkText = linkMatch[1];
       const newText = languageData["geminiApiRegistrationMethod"].replace(
         "Google AI Studio API 키 페이지",
-        `<a href="https://aistudio.google.com/app/apikey" target="_blank">${linkText}</a>`
+        `<a href="https://aistudio.google.com/app/apikey" target="_blank">${linkText}</a>`,
       );
       geminiApiRegistrationMethod.innerHTML = newText;
     } else {
@@ -146,13 +159,16 @@ export function applyLanguage() {
   }
 
   // Gemini 저장 버튼
-  applyText("save-gemini-api-key-button", languageData["saveGeminiApiKeyButton"]);
+  applyText(
+    "save-gemini-api-key-button",
+    languageData["saveGeminiApiKeyButton"],
+  );
 
   // 상태 텍스트 업데이트 (저장됨/미저장)
   updateStatusText(
     "gemini-api-key-status",
     languageData["geminiApiKeyStatusSaved"],
-    languageData["geminiApiKeyStatusNotSaved"]
+    languageData["geminiApiKeyStatusNotSaved"],
   );
 
   // 공통 저장 버튼들
@@ -178,7 +194,7 @@ export function applyLanguage() {
   updateStatusText(
     "banya-api-key-status",
     languageData["banyaApiKeyStatusSaved"],
-    languageData["banyaApiKeyStatusNotSaved"]
+    languageData["banyaApiKeyStatusNotSaved"],
   );
 
   // AI 모델 선택 관련
@@ -187,11 +203,26 @@ export function applyLanguage() {
 
   // Ollama 설정 관련
   applyText("ollama-server-type-label", languageData["ollamaServerTypeLabel"]);
-  applyText("local-ollama-api-url-label", languageData["localOllamaApiUrlLabel"]);
-  applyText("local-ollama-endpoint-label", languageData["localOllamaEndpointLabel"]);
-  applyText("remote-ollama-model-label", languageData["remoteOllamaModelLabel"]);
-  applyText("remote-ollama-api-url-label", languageData["remoteOllamaApiUrlLabel"]);
-  applyText("remote-ollama-endpoint-label", languageData["remoteOllamaEndpointLabel"]);
+  applyText(
+    "local-ollama-api-url-label",
+    languageData["localOllamaApiUrlLabel"],
+  );
+  applyText(
+    "local-ollama-endpoint-label",
+    languageData["localOllamaEndpointLabel"],
+  );
+  applyText(
+    "remote-ollama-model-label",
+    languageData["remoteOllamaModelLabel"],
+  );
+  applyText(
+    "remote-ollama-api-url-label",
+    languageData["remoteOllamaApiUrlLabel"],
+  );
+  applyText(
+    "remote-ollama-endpoint-label",
+    languageData["remoteOllamaEndpointLabel"],
+  );
   applyText("ollama-model-label", languageData["ollamaModelLabel"]);
 
   // 스트리밍 관련
@@ -202,10 +233,6 @@ export function applyLanguage() {
   // 자동 테스트 재시도 관련
   applyText("auto-test-retry-label", languageData["autoTestRetryLabel"]);
   applyText("test-retry-spinner-label", languageData["testRetrySpinnerLabel"]);
-
-  // 자동 오류 수정 관련
-  applyText("auto-correction-label", languageData["autoCorrectionLabel"]);
-  applyText("error-retry-spinner-label", languageData["errorRetrySpinnerLabel"]);
 
   // 자동 실행 관련
   applyText("auto-execute-label", languageData["autoExecuteLabel"]);
@@ -261,7 +288,9 @@ function updateStatusText(elementId, savedText, notSavedText) {
     if (savedText) {
       element.textContent = savedText;
     }
-  } else if (notSavedKeywords.some((keyword) => currentText.includes(keyword))) {
+  } else if (
+    notSavedKeywords.some((keyword) => currentText.includes(keyword))
+  ) {
     if (notSavedText) {
       element.textContent = notSavedText;
     }

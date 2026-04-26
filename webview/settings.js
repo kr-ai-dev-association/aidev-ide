@@ -947,11 +947,6 @@ const testRetryStatus = document.getElementById("test-retry-status");
 const autoTestRetryToggle = document.getElementById("auto-test-retry-toggle");
 const autoTestRetryStatus = document.getElementById("auto-test-retry-status");
 
-const errorRetrySpinner = document.getElementById("error-retry-spinner");
-const errorRetryStatus = document.getElementById("error-retry-status");
-const autoCorrectionToggle = document.getElementById("auto-correction-toggle");
-const autoCorrectionStatus = document.getElementById("auto-correction-status");
-
 const autoExecuteToggle = document.getElementById("auto-execute-toggle");
 const autoExecuteStatus = document.getElementById("auto-execute-status");
 
@@ -990,7 +985,6 @@ bindToggleEvents({
   nativeToolCallingToggle,
   thinkingToggle,
   autoTestRetryToggle,
-  autoCorrectionToggle,
   autoExecuteToggle,
   autoToolToggle,
   vscode,
@@ -999,7 +993,6 @@ bindToggleEvents({
 // 스피너 이벤트 바인딩 (모듈 함수 사용)
 bindSpinnerEvents({
   testRetrySpinner,
-  errorRetrySpinner,
   vscode,
 });
 
@@ -2343,9 +2336,6 @@ window.addEventListener("message", (event) => {
       ) {
         autoDeleteToggle.checked = message.autoDeleteFilesEnabled;
       }
-      if (typeof message.errorRetryCount === "number" && errorRetrySpinner) {
-        errorRetrySpinner.value = message.errorRetryCount;
-      }
       if (
         typeof message.autoExecuteCommandsEnabled === "boolean" &&
         autoExecuteToggle
@@ -2379,12 +2369,6 @@ window.addEventListener("message", (event) => {
       }
       if (message.thinkingLevel && thinkingLevelSelect) {
         thinkingLevelSelect.value = message.thinkingLevel;
-      }
-      if (
-        typeof message.autoCorrectionEnabled === "boolean" &&
-        autoCorrectionToggle
-      ) {
-        autoCorrectionToggle.checked = message.autoCorrectionEnabled;
       }
       if (
         typeof message.autoTestRetryEnabled === "boolean" &&
@@ -2851,22 +2835,12 @@ window.addEventListener("message", (event) => {
         autoUpdateToggle.checked = message.enabled;
       }
       break;
-    case "errorRetryCountChanged":
-      if (typeof message.count === "number" && errorRetrySpinner) {
-        errorRetrySpinner.value = message.count;
-      }
-      break;
     case "autoTestRetryEnabledSet":
       if (typeof message.enabled === "boolean" && autoTestRetryToggle) {
       }
       break;
     case "testRetryCountSet":
       if (typeof message.count === "number" && testRetrySpinner) {
-      }
-      break;
-    case "autoCorrectionStatusChanged":
-      if (typeof message.enabled === "boolean" && autoCorrectionToggle) {
-        autoCorrectionToggle.checked = message.enabled;
       }
       break;
     case "currentApiKeys":
@@ -3099,21 +3073,6 @@ window.addEventListener("message", (event) => {
       showStatus(
         ollamaServerTypeStatus,
         `Ollama 서버 타입 저장 실패: ${message.error}`,
-        "error",
-      );
-      break;
-    case "errorRetryCountSaved":
-      const errorRetryCountSavedText =
-        languageData["errorRetryCountSaved"] ||
-        "오류 수정 횟수가 저장되었습니다.";
-      showStatus(errorRetryStatus, errorRetryCountSavedText, "success");
-      break;
-    case "errorRetryCountSaveError":
-      const errorRetryCountSaveErrorText =
-        languageData["errorRetryCountSaveError"] || "오류 수정 횟수 저장 실패:";
-      showStatus(
-        errorRetryStatus,
-        `${errorRetryCountSaveErrorText} ${message.error}`,
         "error",
       );
       break;

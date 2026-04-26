@@ -15,7 +15,6 @@ export function bindToggleEvents(elements) {
     nativeToolCallingToggle,
     thinkingToggle,
     autoTestRetryToggle,
-    autoCorrectionToggle,
     autoExecuteToggle,
     autoToolToggle,
     vscode,
@@ -104,16 +103,6 @@ export function bindToggleEvents(elements) {
     });
   }
 
-  // 자동 오류 수정 토글
-  if (autoCorrectionToggle) {
-    autoCorrectionToggle.addEventListener("change", () => {
-      const enabled = autoCorrectionToggle.checked;
-      if (vscode) {
-        vscode.postMessage({ command: "setAutoCorrectionEnabled", enabled });
-      }
-    });
-  }
-
   // 명령어 자동 실행 토글
   if (autoExecuteToggle) {
     autoExecuteToggle.addEventListener("change", () => {
@@ -178,7 +167,7 @@ export function updateToggleState(
  * @param {Object} elements - DOM 요소들
  */
 export function bindSpinnerEvents(elements) {
-  const { testRetrySpinner, errorRetrySpinner, vscode } = elements;
+  const { testRetrySpinner, vscode } = elements;
 
   // 테스트 재시도 횟수 스피너
   if (testRetrySpinner) {
@@ -186,16 +175,6 @@ export function bindSpinnerEvents(elements) {
       const count = parseInt(testRetrySpinner.value, 10);
       if (!isNaN(count) && count >= 1 && count <= 10 && vscode) {
         vscode.postMessage({ command: "setTestRetryCount", count });
-      }
-    });
-  }
-
-  // 오류 수정 재시도 횟수 스피너
-  if (errorRetrySpinner) {
-    errorRetrySpinner.addEventListener("change", () => {
-      const count = parseInt(errorRetrySpinner.value, 10);
-      if (!isNaN(count) && count >= 1 && count <= 10 && vscode) {
-        vscode.postMessage({ command: "setErrorRetryCount", count });
       }
     });
   }

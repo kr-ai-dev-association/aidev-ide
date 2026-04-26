@@ -138,11 +138,6 @@
   "githubViewLink": "🌐 Auf GitHub anzeigen",
   "githubIssuesLink": "🐛 Probleme & Feedback",
   "githubStarLink": "⭐ Stern & Unterstützung",
-  "errorRetryLabel": "🔄 Anzahl der automatischen Fehlerkorrekturen",
-  "errorRetryDescription": "Legen Sie die maximale Anzahl der automatischen Korrekturversuche fest, wenn ein Fehler im Terminal auftritt. (1-10 Mal, Standard: 3 Mal)",
-  "errorRetrySpinnerLabel": "Maximale Anzahl der Fehlerkorrekturen:",
-  "errorRetryTimes": "Mal",
-  "errorRetryStatus": "Aktuell: Maximale Anzahl der Fehlerkorrekturen",
   "stopErrorCorrectionLabel": "⏹️ Automatische Fehlerkorrektur stoppen",
   "stopErrorCorrectionTooltip": "Stoppt die automatische Fehlerkorrektur sofort"
 }

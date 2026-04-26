@@ -142,11 +142,6 @@
   "githubViewLink": "🌐 在 GitHub 上查看",
   "githubIssuesLink": "🐛 问题与反馈",
   "githubStarLink": "⭐ 点赞与支持",
-  "errorRetryLabel": "🔄 自动错误修正次数",
-  "errorRetryDescription": "设置终端发生错误时自动尝试修正的最大次数。（1-10次，默认值：3次）",
-  "errorRetrySpinnerLabel": "最大错误修正次数：",
-  "errorRetryTimes": "次",
-  "errorRetryStatus": "当前：最大错误修正次数",
   "stopErrorCorrectionLabel": "⏹️ 停止自动错误修正",
   "stopErrorCorrectionTooltip": "立即停止自动错误修正"
 }

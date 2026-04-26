@@ -138,11 +138,6 @@
   "githubViewLink": "🌐 GitHubで見る",
   "githubIssuesLink": "🐛 問題とフィードバック",
   "githubStarLink": "⭐ スターとサポート",
-  "errorRetryLabel": "🔄 自動エラー修正回数",
-  "errorRetryDescription": "ターミナルでエラーが発生した際に自動的に修正を試行する最大回数を設定します。（1-10回、デフォルト: 3回）",
-  "errorRetrySpinnerLabel": "最大エラー修正回数:",
-  "errorRetryTimes": "回",
-  "errorRetryStatus": "現在: 最大エラー修正回数",
   "stopErrorCorrectionLabel": "⏹️ 自動エラー修正停止",
   "stopErrorCorrectionTooltip": "自動エラー修正を即座に停止します"
 }

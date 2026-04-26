@@ -138,11 +138,6 @@
   "githubViewLink": "🌐 Voir sur GitHub",
   "githubIssuesLink": "🐛 Problèmes et Commentaires",
   "githubStarLink": "⭐ Étoile et Soutien",
-  "errorRetryLabel": "🔄 Nombre de corrections d'erreurs automatiques",
-  "errorRetryDescription": "Définissez le nombre maximum de tentatives de correction automatique lorsqu'une erreur se produit dans le terminal. (1-10 fois, par défaut : 3 fois)",
-  "errorRetrySpinnerLabel": "Nombre maximum de corrections d'erreurs :",
-  "errorRetryTimes": "fois",
-  "errorRetryStatus": "Actuel : Nombre maximum de corrections d'erreurs",
   "stopErrorCorrectionLabel": "⏹️ Arrêter la correction automatique d'erreurs",
   "stopErrorCorrectionTooltip": "Arrête immédiatement la correction automatique d'erreurs"
 }

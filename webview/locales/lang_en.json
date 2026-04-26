@@ -153,11 +153,6 @@
   "githubViewLink": "🌐 View on GitHub",
   "githubIssuesLink": "🐛 Issues & Feedback",
   "githubStarLink": "⭐ Star & Support",
-  "errorRetryLabel": "🔄 Auto Error Correction Count",
-  "errorRetryDescription": "Set the maximum number of automatic correction attempts when errors occur in the terminal. (1-10 times, default: 3 times)",
-  "errorRetrySpinnerLabel": "Max error correction count:",
-  "errorRetryTimes": "times",
-  "errorRetryStatus": "Current: Max error correction count",
   "stopErrorCorrectionLabel": "⏹️ Stop Auto Error Correction",
   "stopErrorCorrectionTooltip": "Immediately stop automatic error correction"
 }
