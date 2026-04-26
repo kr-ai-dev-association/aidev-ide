@@ -1881,7 +1881,7 @@ export class ConversationManager implements IConversationHandler {
               cleanExecutionResponse,
             );
 
-            // __done__은 SubAgentLoop 전용 — ConversationManager plan item 실행 시
+            // __done__은 가상 완료 신호 — ConversationManager plan item 실행 시
             // ToolExecutor에 넘기면 "Unknown tool: __done__" 에러로 패널에 ❌ 표시됨
             // 여기서 필터링하여 ToolExecutor로 전달하지 않음
             const filteredExecutionCalls = toolCallsFromExecution.filter(

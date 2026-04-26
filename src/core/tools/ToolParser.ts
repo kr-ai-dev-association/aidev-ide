@@ -412,7 +412,7 @@ export class ToolParser {
    * Validate tool name (built-in + Registry dynamic registration)
    */
   private static isValidToolName(name: string): boolean {
-    if (name === "__done__") return true; // SubAgentLoop completion signal virtual tool
+    if (name === "__done__") return true; // completion signal virtual tool
     if (Object.values(Tool).includes(name as Tool)) return true;
     return ToolRegistry.getInstance().hasHandler(name);
   }
