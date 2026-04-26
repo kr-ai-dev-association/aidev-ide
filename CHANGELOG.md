@@ -2,8 +2,25 @@
 
 VS Code용 AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.2.1**  
+> **현재 버전: v1.2.2**  
 > **브랜치:** `agentgocoder`
+
+---
+
+## v1.2.2 (2026-04-26)
+
+### 설정 내보내기 / 가져오기 — 누락 항목 6개 추가
+
+기존 export/import에서 빠져 있던 다음 6개 config key를 양쪽에 추가:
+
+- `sourcePaths` — 컨텍스트 소스 경로 목록
+- `terminalDaemonEnabled` — 터미널 데몬 활성화
+- `validationCommand` — 코드 생성 후 검증 명령 (e.g. `tsc --noEmit`)
+- `formatterCommand` — 코드 생성 후 포맷터 명령 (e.g. `prettier --write .`)
+- `autoMcpToolExecution` — MCP 도구 자동 실행
+- `promptSuggestion` — 다음 작업 제안
+
+**유지:** 모델 라우팅 API 키 / Admin Config는 보안 목적으로 export 대상에서 의도적으로 제외.
 
 ---
 
