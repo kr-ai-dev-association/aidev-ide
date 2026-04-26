@@ -33,7 +33,6 @@ import {
   DIFF_VIEW_URI_SCHEME,
 } from "./core/managers/diff/DiffContentProvider";
 import { DiffManager } from "./core/managers/diff/DiffManager";
-import { InlineCompletionProvider } from "./core/completion/InlineCompletionProvider";
 import { DiffCodeLensProvider } from "./core/managers/diff/DiffCodeLensProvider";
 import { InlineDiffManager } from "./core/managers/diff/InlineDiffManager";
 import {
@@ -524,17 +523,6 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.languages.registerCodeLensProvider(
       { scheme: "file" },
       diffCodeLensProvider,
-    ),
-  );
-  // 소스코드 자동완성 Provider 등록 (Ghost Text / Tab Completion)
-  const inlineCompletionProvider = new InlineCompletionProvider(
-    llmManager,
-    stateManager,
-  );
-  context.subscriptions.push(
-    vscode.languages.registerInlineCompletionItemProvider(
-      { scheme: "file" },
-      inlineCompletionProvider,
     ),
   );
 
