@@ -208,6 +208,76 @@ export class SettingsManager extends BaseManager {
       this.applyRequiredSettings();
 
       console.log("[SettingsManager] Server settings synced successfully");
+
+      // admin MCP 설정 재병합 — MCPManager 는 init 1회만 mergeServerMCPConfigs
+      // 를 호출하므로, sync 이후 변경된 admin MCP 가 IDE 에 즉시 반영되도록
+      // 여기서 명시적으로 다시 트리거. (다른 카테고리는 매 사용 시 캐시 직접
+      // 조회하므로 이 hook 불필요. MCP 만 별도 adminServers 배열을 유지.)
+      try {
+        const { MCPManager } = await import("../../mcp/MCPManager");
+        const mcpMgr = MCPManager.getInstance();
+        await mcpMgr.reloadAdminServers();
+        console.log("[SettingsManager] MCP admin servers reloaded");
+
+        // 열려 있는 설정 webview 에 즉시 푸시 — 사용자가 패널을 닫았다 다시
+        // 열지 않아도 admin 변경분이 보이도록. webview 의 case "mcpServers"
+        // 핸들러가 이 unsolicited push 를 그대로 처리한다.
+        try {
+          const { broadcastToSettingsPanels } =
+            await import("../../webview/SettingsPanelProvider");
+          if (this._context) {
+            const { StateManager } = await import("./StateManager");
+            const stateManager = StateManager.getInstance(this._context);
+            const personalServers =
+              (await stateManager.getMcpServers()) as any[];
+            const liveServers = mcpMgr.getServers() as any[];
+            const adminServers = mcpMgr.getAdminServers();
+            // getMcpServers 핸들러와 동일한 라이브 상태 병합 로직
+            const mergedServers = personalServers.map((s: any) => {
+              const live = liveServers.find((ls: any) => ls.id === s.id);
+              if (live) {
+                return {
+                  ...s,
+                  status: live.status,
+                  tools: live.tools || s.tools,
+                };
+              }
+              return s;
+            });
+            broadcastToSettingsPanels({
+              command: "mcpServers",
+              servers: mergedServers,
+              adminServers,
+            });
+            console.log(
+              "[SettingsManager] MCP servers broadcast to settings panels",
+            );
+          }
+        } catch (broadcastErr) {
+          console.warn(
+            "[SettingsManager] MCP broadcast to settings panels failed (non-critical):",
+            broadcastErr,
+          );
+        }
+      } catch (mcpErr) {
+        console.warn(
+          "[SettingsManager] MCP reload after sync failed (non-critical):",
+          mcpErr,
+        );
+      }
+
+      // HotLoad 도 동일 회귀 — init 1회만 mergeServerHotLoadConfigs 가 호출되어
+      // admin 추가/수정분이 IDE 메모리에 반영 안 되던 문제 수정.
+      try {
+        const { HotLoadManager } = await import("../hotload/HotLoadManager");
+        await HotLoadManager.getInstance().reloadFromServer();
+        console.log("[SettingsManager] HotLoad reloaded from server");
+      } catch (hotLoadErr) {
+        console.warn(
+          "[SettingsManager] HotLoad reload after sync failed (non-critical):",
+          hotLoadErr,
+        );
+      }
     } catch (error: any) {
       console.warn(
         "[SettingsManager] Server sync failed (using cache):",

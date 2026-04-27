@@ -459,14 +459,9 @@ export class ConversationManager implements IConversationHandler {
             `🧩 [Skills] ${activeSkills.join(", ")}`,
           );
         }
-        // MCP
-        if (mcpCustomPrompts && mcpCustomPrompts.length > 0) {
-          WebviewBridge.receiveMessage(
-            webviewToRespond,
-            "System",
-            `🔌 [MCP] ${mcpCustomPrompts.length}개 서버 프롬프트 포함`,
-          );
-        }
+        // MCP 라벨은 dispatch 단계에서 emit 하지 않음 — 등록만 되고 실제 호출
+        // 안 된 경우에도 매번 표시되는 노이즈를 방지. 실제 MCP tool 이 성공
+        // 실행되는 시점에 MCPToolHandler.execute() 가 라벨을 송출함.
       }
 
       // 5. 작업 타입에 따른 실행 분기
@@ -4084,26 +4079,81 @@ export class ConversationManager implements IConversationHandler {
           extractJson: false,
         });
         // JSON plan이 포함되어 있으면 제거 (MCP 결과 해석 텍스트만 필요)
+        // investigation_done 토큰 정제 — quote 종류·marker 위치 무관하게 강제 제거.
+        // (이전엔 ASCII quote 만 매치해서 LLM 이 smart quote `"` `"` 로 출력하면
+        //  strip 실패 → 사용자 화면에 그대로 노출되던 회귀 수정.)
         cleanMCPResponse = cleanMCPResponse
           .replace(/```json[\s\S]*?\{\s*"plan"\s*:[\s\S]*?\}[\s\S]*?```/gi, "")
           .replace(/\{\s*"plan"\s*:\s*\[[\s\S]*?\]\s*\}/g, "")
+          // <investigation_done/> XML 태그
           .replace(/<investigation_done\s*\/>/gi, "")
-          .replace(/\{\s*["']investigation_done["']\s*:\s*true\s*\}/gi, "")
+          // markdown 코드블록 안에 감싸진 investigation_done JSON
+          .replace(
+            /```(?:json|JSON)?\s*\{[^{}]*investigation_done[^{}]*\}\s*```/gi,
+            "",
+          )
+          // 일반 JSON {{ ... investigation_done ... }} — quote 종류 무관 (ASCII / smart quote 둘 다)
+          .replace(/\{[^{}]*investigation_done[^{}]*\}/gi, "")
+          // 미닫힘 ```TEXT 같은 빈 코드 펜스 (LLM 이 종료 신호로 잘못 emit 한 경우)
+          .replace(/```(?:[A-Za-z]+)?\s*$/g, "")
           .trim();
 
         if (cleanMCPResponse && cleanMCPResponse.trim()) {
-          if (!isStreamingEnabled) {
-            // 비스트리밍 모드: 텍스트를 직접 전송
-            await WebviewBridge.streamText(
+          // 근본 fix — 스트리밍 / 비스트리밍 무관하게 동일 처리:
+          //   1) 진행 중이던 stream 명시적 종료 (cursor 닫기)
+          //   2) 오염된 마지막 메시지 제거 (investigation_done JSON 토큰 / 미닫힘
+          //      코드블록 잔재가 흘러간 chunks 포함)
+          //   3) receiveMessage 로 한 번에 정제 텍스트 출력 (새 cursor 안 생김)
+          // 이렇게 해야 cursor 가 깜박이지 않고 사용자에게 깨끗한 응답만 보임.
+          // 이중 endStream — webview state(streamingMessageElement) 가 끊어진
+          // 참조를 가진 채로 남으면 cursor 가 살아있는 것처럼 보일 수 있음.
+          // remove 전과 후 모두 endStream 호출하여 양쪽 모두 cleanup.
+          try {
+            WebviewBridge.endStreamingMessage(webviewToRespond);
+          } catch {
+            /* webview disposed */
+          }
+          try {
+            WebviewBridge.removeLastMessage(webviewToRespond);
+          } catch {
+            /* webview disposed */
+          }
+          try {
+            WebviewBridge.endStreamingMessage(webviewToRespond);
+          } catch {
+            /* webview disposed */
+          }
+          try {
+            WebviewBridge.receiveMessage(
               webviewToRespond,
               "CODEPILOT",
               cleanMCPResponse,
             );
+          } catch {
+            /* webview disposed */
           }
-          // 스트리밍 모드: shouldStreamToUI=true로 이미 스트리밍됨 (line 2210)
         }
 
         stateManager.transitionTo(AgentPhase.DONE, {});
+
+        // 종료 시그널 명시적 송출 — break 후엔 메인 루프가 끝나지만 webview
+        // 측에는 endStream/hideLoading/done 이벤트가 안 가서 스피너가 계속
+        // 깜박이던 회귀를 수정.
+        try {
+          WebviewBridge.endStreamingMessage(webviewToRespond);
+        } catch {
+          /* webview disposed */
+        }
+        try {
+          WebviewBridge.sendProcessingStep(webviewToRespond, "done");
+        } catch {
+          /* webview disposed */
+        }
+        try {
+          WebviewBridge.hideLoading(webviewToRespond);
+        } catch {
+          /* webview disposed */
+        }
         break;
       }
 
@@ -5997,12 +6047,10 @@ export class ConversationManager implements IConversationHandler {
       `[ConversationManager] Tool blocked by PreToolUseValidator: ${blockedMessages.join(", ")}`,
     );
 
-    // 채팅 패널에 차단 메시지 표시
-    if (webview) {
-      for (const msg of blockedMessages) {
-        WebviewBridge.receiveMessage(webview, "System", `🚫 [차단] ${msg}`);
-      }
-    }
+    // 차단 메시지 채팅 출력은 ToolExecutionCoordinator 가 이미 `🚫 [보안 차단]`
+    // 으로 송출함 (BLOCKED_BY_VALIDATOR 분기). 여기서 또 송출하면 동일 차단이
+    // 두 번 표시되는 회귀가 생기므로 ConversationManager 측 emit 은 제거.
+    // (로그는 디버깅용으로 유지)
 
     if (!hasSuccessful) {
       stateManager.transitionTo(AgentPhase.REVIEW);

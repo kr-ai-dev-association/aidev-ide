@@ -291,6 +291,8 @@ export class OrchestrationRouter {
                 `📋 [Rules] ${ruleNames.join(", ")}`,
               );
             }
+            // MCP 라벨은 split 직전에 emit 하지 않음 — 실제 MCP tool 이 호출되는
+            // 시점에 MCPToolHandler.execute() 가 라벨을 송출 (호출 안 되면 미표시).
           } catch (previewErr) {
             console.warn(
               "[OrchestrationRouter] context preview emit failed:",

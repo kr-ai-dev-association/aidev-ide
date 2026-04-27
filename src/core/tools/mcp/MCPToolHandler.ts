@@ -6,206 +6,248 @@
  * Conflict resolution is handled by ToolRegistry.registerMCP()
  */
 
-import * as vscode from 'vscode';
-import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
-import { ToolUse, ToolResponse, Tool } from '../types';
-import { MCPManager, MCPToolInfo } from '../../mcp';
+import * as vscode from "vscode";
+import { IToolHandler, ToolExecutionContext } from "../IToolHandler";
+import { ToolUse, ToolResponse, Tool } from "../types";
+import { MCPManager, MCPToolInfo } from "../../mcp";
 
 /**
  * Wraps MCP tools as IToolHandler
  */
 export class MCPToolHandler implements IToolHandler {
-    name: string;
-    readonly serverId: string;
-    readonly serverName: string;
-    private mcpToolName: string;
-    private toolInfo: MCPToolInfo;
-    private mcpManager: MCPManager;
+  name: string;
+  readonly serverId: string;
+  readonly serverName: string;
+  private mcpToolName: string;
+  private toolInfo: MCPToolInfo;
+  private mcpManager: MCPManager;
 
-    constructor(serverId: string, serverName: string, toolInfo: MCPToolInfo) {
-        // Use original tool name -- conflict resolution is handled by ToolRegistry
-        this.name = toolInfo.name;
-        this.serverId = serverId;
-        this.serverName = serverName;
-        this.mcpToolName = toolInfo.name;
-        this.toolInfo = toolInfo;
-        this.mcpManager = MCPManager.getInstance();
-    }
+  constructor(serverId: string, serverName: string, toolInfo: MCPToolInfo) {
+    // Use original tool name -- conflict resolution is handled by ToolRegistry
+    this.name = toolInfo.name;
+    this.serverId = serverId;
+    this.serverName = serverName;
+    this.mcpToolName = toolInfo.name;
+    this.toolInfo = toolInfo;
+    this.mcpManager = MCPManager.getInstance();
+  }
 
-    /**
-     * Called by Registry to update the name when disambiguated due to conflict
-     */
-    setRegisteredName(name: string): void {
-        this.name = name;
-    }
+  /**
+   * Called by Registry to update the name when disambiguated due to conflict
+   */
+  setRegisteredName(name: string): void {
+    this.name = name;
+  }
 
-    /**
-     * Returns tool description
-     */
-    getDescription(toolUse: ToolUse): string {
-        return `[MCP:${this.serverName}] ${this.toolInfo.description || this.mcpToolName}`;
-    }
+  /**
+   * Returns tool description
+   */
+  getDescription(toolUse: ToolUse): string {
+    return `[MCP:${this.serverName}] ${this.toolInfo.description || this.mcpToolName}`;
+  }
 
-    /**
-     * Executes tool
-     */
-    async execute(toolUse: ToolUse, context: ToolExecutionContext): Promise<ToolResponse> {
-        console.log(`[MCPToolHandler] Executing MCP tool: ${this.mcpToolName}`);
+  /**
+   * Executes tool
+   */
+  async execute(
+    toolUse: ToolUse,
+    context: ToolExecutionContext,
+  ): Promise<ToolResponse> {
+    console.log(`[MCPToolHandler] Executing MCP tool: ${this.mcpToolName}`);
 
-        // Check MCP tool auto-execution setting
-        const { SettingsManager } = await import('../../managers/state/SettingsManager');
-        const isAutoMcpEnabled = await SettingsManager.getInstance().isAutoMcpToolExecutionEnabled();
+    // Check MCP tool auto-execution setting
+    const { SettingsManager } =
+      await import("../../managers/state/SettingsManager");
+    const isAutoMcpEnabled =
+      await SettingsManager.getInstance().isAutoMcpToolExecutionEnabled();
 
-        // If auto-execution is OFF and tool is not approved, request user confirmation
-        if (!isAutoMcpEnabled && !this.mcpManager.isToolApproved(this.serverId, this.mcpToolName)) {
-            const approved = await this.requestApproval(context.webview);
-            if (!approved) {
-                return {
-                    success: false,
-                    message: `MCP tool execution denied by user: ${this.mcpToolName}`,
-                    error: { code: 'USER_DENIED', message: 'Tool execution denied by user' }
-                };
-            }
-            // Save approval
-            await this.mcpManager.approveTool(this.serverId, this.mcpToolName);
-        }
-
-        // Extract parameters
-        const args = this.extractArguments(toolUse.params);
-        console.log(`[MCPToolHandler] Tool: ${this.mcpToolName}, serverId: ${this.serverId}, args:`, JSON.stringify(args));
-
-        // Call MCP tool
-        const result = await this.mcpManager.callTool(this.serverId, this.mcpToolName, args);
-
-        if (!result.success) {
-            // Include error content for more detailed message if available
-            const errorDetail = result.error || 'Unknown error';
-            const contentText = result.content?.length > 0
-                ? this.formatResult(result.content)
-                : '';
-            const fullError = contentText
-                ? `${errorDetail}\n---\n${contentText}`
-                : errorDetail;
-
-            console.error(`[MCPToolHandler] Tool ${this.mcpToolName} failed: ${errorDetail}`);
-            return {
-                success: false,
-                message: `MCP tool execution failed (${this.mcpToolName}): ${fullError}`,
-                error: { code: 'MCP_ERROR', message: errorDetail }
-            };
-        }
-
-        // Format result
-        const message = this.formatResult(result.content);
-
+    // If auto-execution is OFF and tool is not approved, request user confirmation
+    if (
+      !isAutoMcpEnabled &&
+      !this.mcpManager.isToolApproved(this.serverId, this.mcpToolName)
+    ) {
+      const approved = await this.requestApproval(context.webview);
+      if (!approved) {
         return {
-            success: true,
-            message,
-            data: {
-                serverId: this.serverId,
-                toolName: this.mcpToolName,
-                content: result.content
-            }
+          success: false,
+          message: `MCP tool execution denied by user: ${this.mcpToolName}`,
+          error: {
+            code: "USER_DENIED",
+            message: "Tool execution denied by user",
+          },
         };
+      }
+      // Save approval
+      await this.mcpManager.approveTool(this.serverId, this.mcpToolName);
     }
 
-    /**
-     * Request user approval
-     */
-    private async requestApproval(webview?: vscode.Webview): Promise<boolean> {
-        const message = `Allow execution of MCP tool "${this.mcpToolName}"?\n\nDescription: ${this.toolInfo.description || '(no description)'}`;
+    // Extract parameters
+    const args = this.extractArguments(toolUse.params);
+    console.log(
+      `[MCPToolHandler] Tool: ${this.mcpToolName}, serverId: ${this.serverId}, args:`,
+      JSON.stringify(args),
+    );
 
-        const result = await vscode.window.showWarningMessage(
-            message,
-            { modal: true },
-            'Allow (auto-execute later)',
-            'Allow this time only',
-            'Deny'
+    // Call MCP tool
+    const result = await this.mcpManager.callTool(
+      this.serverId,
+      this.mcpToolName,
+      args,
+    );
+
+    if (!result.success) {
+      // Include error content for more detailed message if available
+      const errorDetail = result.error || "Unknown error";
+      const contentText =
+        result.content?.length > 0 ? this.formatResult(result.content) : "";
+      const fullError = contentText
+        ? `${errorDetail}\n---\n${contentText}`
+        : errorDetail;
+
+      console.error(
+        `[MCPToolHandler] Tool ${this.mcpToolName} failed: ${errorDetail}`,
+      );
+      return {
+        success: false,
+        message: `MCP tool execution failed (${this.mcpToolName}): ${fullError}`,
+        error: { code: "MCP_ERROR", message: errorDetail },
+      };
+    }
+
+    // Format result
+    const message = this.formatResult(result.content);
+
+    // 채팅 패널에 MCP 호출 사실 알림 — 실제 tool 이 성공 실행된 시점에만 표시
+    // (이전엔 dispatch 단계에서 등록만 되면 무조건 표시 → "사용 안 했는데
+    //  매번 라벨" 노이즈가 있던 회귀 수정).
+    try {
+      if (context.webview) {
+        const { WebviewBridge } = await import("../../webview/WebviewBridge");
+        WebviewBridge.receiveMessage(
+          context.webview,
+          "System",
+          `🔌 [MCP] ${this.serverName} → ${this.mcpToolName}`,
         );
-
-        if (result === 'Allow (auto-execute later)') {
-            return true;
-        } else if (result === 'Allow this time only') {
-            // Temporary approval (not saved)
-            return true;
-        }
-
-        return false;
+      }
+    } catch (mcpLabelErr) {
+      console.warn("[MCPToolHandler] MCP label emit failed:", mcpLabelErr);
     }
 
-    /**
-     * Extract parameters
-     */
-    private extractArguments(params: Record<string, string>): Record<string, any> {
-        const args: Record<string, any> = {};
+    return {
+      success: true,
+      message,
+      data: {
+        serverId: this.serverId,
+        toolName: this.mcpToolName,
+        content: result.content,
+      },
+    };
+  }
 
-        // Extract keys starting with 'args_' from params
-        // or extract based on inputSchema properties
-        for (const [key, value] of Object.entries(params)) {
-            if (key.startsWith('args_')) {
-                args[key.substring(5)] = this.parseValue(value);
-            } else if (key !== 'tool' && key !== 'server') {
-                args[key] = this.parseValue(value);
-            }
-        }
+  /**
+   * Request user approval
+   */
+  private async requestApproval(webview?: vscode.Webview): Promise<boolean> {
+    const message = `Allow execution of MCP tool "${this.mcpToolName}"?\n\nDescription: ${this.toolInfo.description || "(no description)"}`;
 
-        return args;
+    const result = await vscode.window.showWarningMessage(
+      message,
+      { modal: true },
+      "Allow (auto-execute later)",
+      "Allow this time only",
+      "Deny",
+    );
+
+    if (result === "Allow (auto-execute later)") {
+      return true;
+    } else if (result === "Allow this time only") {
+      // Temporary approval (not saved)
+      return true;
     }
 
-    /**
-     * Parse value (string to appropriate type)
-     */
-    private parseValue(value: string): any {
-        // Try JSON parsing
-        try {
-            return JSON.parse(value);
-        } catch {
-            // Return as string
-            return value;
-        }
+    return false;
+  }
+
+  /**
+   * Extract parameters
+   */
+  private extractArguments(
+    params: Record<string, string>,
+  ): Record<string, any> {
+    const args: Record<string, any> = {};
+
+    // Extract keys starting with 'args_' from params
+    // or extract based on inputSchema properties
+    for (const [key, value] of Object.entries(params)) {
+      if (key.startsWith("args_")) {
+        args[key.substring(5)] = this.parseValue(value);
+      } else if (key !== "tool" && key !== "server") {
+        args[key] = this.parseValue(value);
+      }
     }
 
-    /**
-     * Format result
-     */
-    private formatResult(content: { type: string; text?: string; data?: string }[]): string {
-        const parts: string[] = [];
+    return args;
+  }
 
-        for (const item of content) {
-            if (item.type === 'text' && item.text) {
-                parts.push(item.text);
-            } else if (item.type === 'image' && item.data) {
-                parts.push(`[Image: ${item.data.substring(0, 50)}...]`);
-            } else {
-                parts.push(JSON.stringify(item));
-            }
-        }
+  /**
+   * Parse value (string to appropriate type)
+   */
+  private parseValue(value: string): any {
+    // Try JSON parsing
+    try {
+      return JSON.parse(value);
+    } catch {
+      // Return as string
+      return value;
+    }
+  }
 
-        return parts.join('\n\n') || '(empty result)';
+  /**
+   * Format result
+   */
+  private formatResult(
+    content: { type: string; text?: string; data?: string }[],
+  ): string {
+    const parts: string[] = [];
+
+    for (const item of content) {
+      if (item.type === "text" && item.text) {
+        parts.push(item.text);
+      } else if (item.type === "image" && item.data) {
+        parts.push(`[Image: ${item.data.substring(0, 50)}...]`);
+      } else {
+        parts.push(JSON.stringify(item));
+      }
     }
 
-    /**
-     * Generate tool spec (for ToolSpecBuilder)
-     */
-    toToolSpec(): { name: string; description: string; parameters: any[] } {
-        const parameters: any[] = [];
+    return parts.join("\n\n") || "(empty result)";
+  }
 
-        if (this.toolInfo.inputSchema?.properties) {
-            for (const [name, prop] of Object.entries(this.toolInfo.inputSchema.properties)) {
-                const isRequired = this.toolInfo.inputSchema.required?.includes(name) || false;
-                parameters.push({
-                    name,
-                    required: isRequired,
-                    description: prop.description || name,
-                    type: prop.type || 'string'
-                });
-            }
-        }
+  /**
+   * Generate tool spec (for ToolSpecBuilder)
+   */
+  toToolSpec(): { name: string; description: string; parameters: any[] } {
+    const parameters: any[] = [];
 
-        return {
-            name: this.name,
-            description: `[MCP:${this.serverName}] ${this.toolInfo.description || this.mcpToolName}`,
-            parameters
-        };
+    if (this.toolInfo.inputSchema?.properties) {
+      for (const [name, prop] of Object.entries(
+        this.toolInfo.inputSchema.properties,
+      )) {
+        const isRequired =
+          this.toolInfo.inputSchema.required?.includes(name) || false;
+        parameters.push({
+          name,
+          required: isRequired,
+          description: prop.description || name,
+          type: prop.type || "string",
+        });
+      }
     }
+
+    return {
+      name: this.name,
+      description: `[MCP:${this.serverName}] ${this.toolInfo.description || this.mcpToolName}`,
+      parameters,
+    };
+  }
 }
