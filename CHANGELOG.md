@@ -2,7 +2,21 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.72**
+> **현재 버전: v1.0.75**
+
+---
+
+## v1.0.75 (2026-04-29)
+
+### fix(chat): admin 등록 모델 선택 시 인증 필드 누락 (Gemini 401 해결)
+
+`ChatViewProvider.setAdminModel` 핸들러가 admin 에서 등록한 커스텀 모델 적용 시 `authType` / `authHeaderName` / `customHeaders` / `maxOutputTokens` / `defaultTemperature` / `topP` 를 IDE 의 `AdminModelConfig` 에 매핑하지 않아, `providerUtils.buildRequest` 가 항상 `bearer` 폴백으로 동작 → Gemini 처럼 `Authorization: Bearer` 를 거부하는 프로바이더는 `401 ACCESS_TOKEN_TYPE_UNSUPPORTED` 발생.
+
+**원인**: 동일 파일의 `setSupportedModel` (super preset) 핸들러는 인증 필드를 모두 매핑하지만, `setAdminModel` (org admin 등록 모델) 핸들러에는 누락되어 있었음.
+
+**수정**: `setAdminModel` 의 `adminConfig` 빌드를 `setSupportedModel` 과 동일한 형태로 정렬. `authType` 기본값은 `'bearer'` 유지하되, admin 이 `query_param` / `custom_header` 를 등록한 경우 IDE 까지 정상 전달되도록 필드 추가.
+
+**영향**: admin 에서 Gemini 를 `URL 쿼리 파라미터` 로 등록한 모델이 IDE 채팅에서 정상 동작. Bearer 호환 프로바이더(OpenAI/Anthropic)는 기존 동작 유지.
 
 ---
 
