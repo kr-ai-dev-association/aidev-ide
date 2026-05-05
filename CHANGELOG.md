@@ -2,7 +2,41 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.76**
+> **현재 버전: v1.0.77**
+
+---
+
+## v1.0.77 (2026-05-05)
+
+### fix(llm): 사용자 로컬 API 키 모델별 분리 — 모델 간 키 오염 차단
+
+**배경**: globalState 슬롯 `codepilot.adminApiKey` 가 **모델 무관 단일 글로벌** 이라, 사용자가 한 번 어떤 모델용으로 입력한 키가 모든 admin/preset 모델에 강제 적용되던 사고. 예: 사용자가 OpenAI 모델용으로 `sk-...` 입력 → 이후 admin 이 Gemini 모델 푸시 → IDE 가 `sk-...` 를 Gemini 에 전송 → `400 API_KEY_INVALID`.
+
+**구조 변경**:
+- 옛 슬롯 (deprecated, 더 이상 read 안 함):
+  - `codepilot.adminApiKey` (단일 글로벌)
+- 새 슬롯 (모델별 분리):
+  - `codepilot.adminApiKey.<modelKey>` 마다 독립 저장
+
+**우선순위 (모델별 — 사용자 의도 존중)**:
+1. 사용자가 그 모델용으로 명시 입력한 로컬 키
+2. admin 이 그 모델에 푸시한 키
+3. 빈 값
+
+→ 사용자가 자체 키 입력했으면 그 모델만 우선. 다른 모델은 admin 키 그대로 사용.
+
+**적용 범위 (12 곳)**:
+- `src/webview/providers/ChatViewProvider.ts`: `setAdminModel` (adminKey), `setSupportedModel` (presetKey) — 2 곳
+- `src/core/webview/SettingsPanelProvider.ts`: 라우팅 모델 6 종 (compactor / command / intent / errorFallback / completion / subagent) + 지원 모델 (presetKey) + admin 모델 (adminKey) — 8 곳
+- `src/extension.ts`: 활성화 시점 머지 — 1 곳
+- `src/core/webview/SettingsPanelProvider.ts:saveAdminApiKey`: 저장 시 현재 선택된 모델 키로 분기 — 1 곳
+
+**기존 사용자 영향**:
+- 옛 글로벌 슬롯의 데이터는 더 이상 read 안 됨 → 자동으로 무시됨 (방치).
+- admin 이 키 푸시한 모델: 즉시 admin 키로 동작. 사용자가 옛날 입력한 stale 키 영향 없음.
+- admin 이 키 안 푼 모델 + 사용자가 자체 키 사용 의도: 해당 모델 한 번 다시 입력 필요. 입력은 모델별 슬롯에 저장.
+
+**진단 로그 추가**: `[setAdminModel]`, `[AdminModelApi] Config set:`, `[providerUtils.buildRequest]` 3 지점에서 apiKey prefix(처음 10자만), authType, urlPreview 노출 — 사용자가 어떤 키로 어디 호출하는지 DevTools 콘솔에서 즉시 확인 가능.
 
 ---
 

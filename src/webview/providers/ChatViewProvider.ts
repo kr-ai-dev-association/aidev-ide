@@ -492,10 +492,32 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             );
             if (adminSetting?.value) {
               const v = adminSetting.value;
+              // 모델별 분리된 사용자 로컬 키 — 다른 모델 키 오염 차단
               const chatAdminUserApiKey =
-                this.context.globalState.get<string>("codepilot.adminApiKey") ||
-                "";
+                this.context.globalState.get<string>(
+                  `codepilot.adminApiKey.${adminKey}`,
+                ) || "";
               const customHeaders = v.customHeaders || v.custom_headers || {};
+              // 진단: 서버 settings cache 에서 받은 raw value 출력
+              const rawApiKey = v.api_key || v.apiKey || "";
+              console.log(
+                "[setAdminModel] 서버 settings 캐시에서 받은 raw value",
+                {
+                  key: adminKey,
+                  provider: v.provider,
+                  model: v.model || v.model_name,
+                  endpoint: v.base_url || v.endpoint,
+                  authType: v.authType || v.auth_type,
+                  rawApiKeyPreview: rawApiKey
+                    ? `${rawApiKey.slice(0, 10)}...(len=${rawApiKey.length})`
+                    : "(empty)",
+                  rawApiKeyStartsWithGAAAAA: rawApiKey.startsWith("gAAAAA"),
+                  userLocalApiKeyPreview: chatAdminUserApiKey
+                    ? `${chatAdminUserApiKey.slice(0, 10)}...(len=${chatAdminUserApiKey.length})`
+                    : "(empty)",
+                  hasApiKey: v.hasApiKey,
+                },
+              );
               const adminConfig = {
                 key: adminKey,
                 provider: v.provider || "",
@@ -573,9 +595,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             if (presetSetting?.value) {
               const v = presetSetting.value;
               const customHeaders = v.customHeaders || v.custom_headers || {};
+              // 모델별 분리된 사용자 로컬 키
               const chatUserApiKey =
-                this.context.globalState.get<string>("codepilot.adminApiKey") ||
-                "";
+                this.context.globalState.get<string>(
+                  `codepilot.adminApiKey.${presetKey}`,
+                ) || "";
               const adminConfig = {
                 key: presetKey,
                 provider: v.provider || "chat_completions",

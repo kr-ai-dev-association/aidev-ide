@@ -413,8 +413,9 @@ export function openSettingsPanel(
                   const v = preset.value;
                   const ch = v.customHeaders || v.custom_headers || {};
                   const userApiKey =
-                    context.globalState.get<string>("codepilot.adminApiKey") ||
-                    "";
+                    context.globalState.get<string>(
+                      `codepilot.adminApiKey.${compactorModelName}`,
+                    ) || "";
                   const adminConfig = {
                     key: compactorModelName,
                     provider: v.provider || "chat_completions",
@@ -538,8 +539,9 @@ export function openSettingsPanel(
                   const v = preset.value;
                   const ch = v.customHeaders || v.custom_headers || {};
                   const userApiKey =
-                    context.globalState.get<string>("codepilot.adminApiKey") ||
-                    "";
+                    context.globalState.get<string>(
+                      `codepilot.adminApiKey.${commandModelName}`,
+                    ) || "";
                   const adminConfig = {
                     key: commandModelName,
                     provider: v.provider || "chat_completions",
@@ -662,8 +664,9 @@ export function openSettingsPanel(
                   const v = preset.value;
                   const ch = v.customHeaders || v.custom_headers || {};
                   const userApiKey =
-                    context.globalState.get<string>("codepilot.adminApiKey") ||
-                    "";
+                    context.globalState.get<string>(
+                      `codepilot.adminApiKey.${intentModelName}`,
+                    ) || "";
                   const adminConfig = {
                     key: intentModelName,
                     provider: v.provider || "chat_completions",
@@ -787,8 +790,9 @@ export function openSettingsPanel(
                   const v = preset.value;
                   const ch = v.customHeaders || v.custom_headers || {};
                   const userApiKey =
-                    context.globalState.get<string>("codepilot.adminApiKey") ||
-                    "";
+                    context.globalState.get<string>(
+                      `codepilot.adminApiKey.${errorFallbackModelName}`,
+                    ) || "";
                   const adminConfig = {
                     key: errorFallbackModelName,
                     provider: v.provider || "chat_completions",
@@ -893,8 +897,9 @@ export function openSettingsPanel(
                   const v = preset.value;
                   const ch = v.customHeaders || v.custom_headers || {};
                   const userApiKey =
-                    context.globalState.get<string>("codepilot.adminApiKey") ||
-                    "";
+                    context.globalState.get<string>(
+                      `codepilot.adminApiKey.${completionModelNameSave}`,
+                    ) || "";
                   const adminConfig = {
                     key: completionModelNameSave,
                     provider: v.provider || "chat_completions",
@@ -1018,8 +1023,9 @@ export function openSettingsPanel(
                   const v = preset.value;
                   const ch = v.customHeaders || v.custom_headers || {};
                   const userApiKey =
-                    context.globalState.get<string>("codepilot.adminApiKey") ||
-                    "";
+                    context.globalState.get<string>(
+                      `codepilot.adminApiKey.${subagentModelNameSave}`,
+                    ) || "";
                   const adminConfig = {
                     key: subagentModelNameSave,
                     provider: v.provider || "chat_completions",
@@ -1852,10 +1858,11 @@ export function openSettingsPanel(
                   const v = presetSetting.value;
                   const customHeaders =
                     v.customHeaders || v.custom_headers || {};
-                  // 사용자가 IDE에서 저장한 API 키 우선 사용
+                  // 사용자가 IDE에서 저장한 API 키 우선 사용 — 모델별 분리
                   const userApiKey =
-                    context.globalState.get<string>("codepilot.adminApiKey") ||
-                    "";
+                    context.globalState.get<string>(
+                      `codepilot.adminApiKey.${presetKey}`,
+                    ) || "";
                   const adminConfig = {
                     key: presetKey,
                     provider: v.provider || "chat_completions",
@@ -1932,8 +1939,9 @@ export function openSettingsPanel(
                   const customHeaders =
                     v.customHeaders || v.custom_headers || {};
                   const userApiKeyForAdmin =
-                    context.globalState.get<string>("codepilot.adminApiKey") ||
-                    "";
+                    context.globalState.get<string>(
+                      `codepilot.adminApiKey.${adminKey}`,
+                    ) || "";
                   const adminConfig = {
                     key: adminKey,
                     provider: v.provider || "chat_completions",
@@ -3557,14 +3565,33 @@ export function openSettingsPanel(
               });
               break;
             }
-            // globalState에 저장
-            await context.globalState.update("codepilot.adminApiKey", key);
 
-            // 현재 adminConfig에 API 키 반영 + LLMManager 업데이트
+            // 현재 adminConfig 의 모델 key 로 저장 (모델별 분리). 옛날 단일 글로벌
+            // 슬롯 "codepilot.adminApiKey" 는 deprecate — 더 이상 read 안 함.
             try {
               const configJson = await stateManager.getAdminModelConfig();
               if (configJson) {
                 const adminConfig = JSON.parse(configJson);
+                const modelKey = adminConfig.key;
+                if (modelKey) {
+                  await context.globalState.update(
+                    `codepilot.adminApiKey.${modelKey}`,
+                    key,
+                  );
+                  console.log(
+                    `[saveAdminApiKey] 모델별 슬롯 저장: codepilot.adminApiKey.${modelKey} (key len=${key.length})`,
+                  );
+                } else {
+                  console.warn(
+                    "[saveAdminApiKey] 현재 모델 미선택 — 키 저장 안 됨",
+                  );
+                  safePostMessage(panel, {
+                    command: "adminApiKeySaveError",
+                    error:
+                      "현재 모델이 선택되지 않았습니다. 먼저 admin 모델을 선택하세요.",
+                  });
+                  break;
+                }
                 adminConfig.apiKey = key;
                 await stateManager.saveAdminModelConfig(
                   JSON.stringify(adminConfig),

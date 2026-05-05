@@ -441,10 +441,13 @@ export async function activate(context: vscode.ExtensionContext) {
       const adminConfigJson = await stateManager.getAdminModelConfig();
       if (adminConfigJson) {
         const adminConfig = JSON.parse(adminConfigJson);
-        // 사용자가 IDE에서 저장한 API 키가 있으면 병합
-        const userAdminApiKey = context.globalState.get<string>(
-          "codepilot.adminApiKey",
-        );
+        // 사용자가 IDE에서 저장한 모델별 API 키 폴백 — 모델 키별로 분리 저장됨
+        const modelKeyForLocal = adminConfig.key;
+        const userAdminApiKey = modelKeyForLocal
+          ? context.globalState.get<string>(
+              `codepilot.adminApiKey.${modelKeyForLocal}`,
+            )
+          : undefined;
         if (userAdminApiKey && !adminConfig.apiKey) {
           adminConfig.apiKey = userAdminApiKey;
         }
