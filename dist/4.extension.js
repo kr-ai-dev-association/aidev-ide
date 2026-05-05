@@ -3,15 +3,15 @@ exports.id = 4;
 exports.ids = [4];
 exports.modules = {
 
-/***/ 897:
+/***/ 898:
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   PromptSuggestionService: () => (/* binding */ PromptSuggestionService)
 /* harmony export */ });
-/* harmony import */ var _state_UsageMetricsManager__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(77);
-/* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(23);
+/* harmony import */ var _state_UsageMetricsManager__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(78);
+/* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(24);
 /**
  * Prompt Suggestion Service
  * After each conversation completes, suggests 2-3 follow-up actions.

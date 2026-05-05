@@ -3,16 +3,16 @@ exports.id = 5;
 exports.ids = [5];
 exports.modules = {
 
-/***/ 898:
+/***/ 899:
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   SessionMemoryExtractor: () => (/* binding */ SessionMemoryExtractor)
 /* harmony export */ });
-/* harmony import */ var _MemoryManager__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(390);
-/* harmony import */ var _managers_state_UsageMetricsManager__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(77);
-/* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(23);
+/* harmony import */ var _MemoryManager__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(391);
+/* harmony import */ var _managers_state_UsageMetricsManager__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(78);
+/* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(24);
 /**
  * Session Memory Auto-extraction
  * Automatically extracts key information from conversations and saves to memory.
