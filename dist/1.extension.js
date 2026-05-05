@@ -3,7 +3,7 @@ exports.id = 1;
 exports.ids = [1];
 exports.modules = {
 
-/***/ 801:
+/***/ 802:
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -137,8 +137,8 @@ class ErrorReportingService {
         }
         const batch = this.queue.splice(0, this.MAX_QUEUE);
         try {
-            const { CodePilotApiClient } = await Promise.all(/* import() */[__webpack_require__.e(3), __webpack_require__.e(2)]).then(__webpack_require__.bind(__webpack_require__, 802));
-            const { AuthService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 759));
+            const { CodePilotApiClient } = await Promise.all(/* import() */[__webpack_require__.e(3), __webpack_require__.e(2)]).then(__webpack_require__.bind(__webpack_require__, 803));
+            const { AuthService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 760));
             const auth = AuthService.getInstance();
             if (!auth.isLoggedIn())
                 return;

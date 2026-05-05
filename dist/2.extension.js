@@ -3,7 +3,7 @@ exports.id = 2;
 exports.ids = [2];
 exports.modules = {
 
-/***/ 802:
+/***/ 803:
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -145,7 +145,7 @@ class CodePilotApiClient {
     static getAgent() {
         if (!CodePilotApiClient._agent) {
             try {
-                const { Agent } = __webpack_require__(803);
+                const { Agent } = __webpack_require__(804);
                 CodePilotApiClient._agent = new Agent({
                     connect: { timeout: CodePilotApiClient.TIMEOUT_MS },
                 });
@@ -162,7 +162,7 @@ class CodePilotApiClient {
         };
         // JWT 토큰 첨부
         try {
-            const { AuthService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 759));
+            const { AuthService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 760));
             const auth = AuthService.getInstance();
             const token = await auth.getAccessToken();
             if (token) {
@@ -178,7 +178,7 @@ class CodePilotApiClient {
             !url.includes("/auth/refresh/") &&
             !url.includes("/auth/logout/")) {
             try {
-                const { AuthService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 759));
+                const { AuthService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 760));
                 const auth = AuthService.getInstance();
                 const newToken = await auth.refreshAccessToken();
                 if (!newToken) {
@@ -202,7 +202,7 @@ class CodePilotApiClient {
             catch {
                 // 리프레시 자체가 예외로 실패한 경우에도 로그아웃 처리
                 try {
-                    const { AuthService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 759));
+                    const { AuthService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 760));
                     await AuthService.getInstance().logoutDueToTokenExpiry();
                 }
                 catch {
