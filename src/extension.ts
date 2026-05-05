@@ -81,6 +81,12 @@ let ollamaApi: OllamaApi;
 let notificationService: NotificationService;
 
 export async function activate(context: vscode.ExtensionContext) {
+  // 옛 단일 글로벌 apiKey 슬롯 cleanup — 모델별 슬롯 도입 (v1.0.77) 으로 deprecate.
+  // 동적 import 로 main 흐름 차단 X.
+  import("./utils/userApiKey")
+    .then((m) => m.cleanupLegacyApiKeySlot(context))
+    .catch(() => {});
+
   // punycode deprecation 경고 억제 (간접 의존성에서 발생, 기능에는 영향 없음)
   const originalEmitWarning = process.emitWarning;
   process.emitWarning = (warning: string | Error, ...args: any[]) => {
@@ -441,13 +447,9 @@ export async function activate(context: vscode.ExtensionContext) {
       const adminConfigJson = await stateManager.getAdminModelConfig();
       if (adminConfigJson) {
         const adminConfig = JSON.parse(adminConfigJson);
-        // 사용자가 IDE에서 저장한 모델별 API 키 폴백 — 모델 키별로 분리 저장됨
-        const modelKeyForLocal = adminConfig.key;
-        const userAdminApiKey = modelKeyForLocal
-          ? context.globalState.get<string>(
-              `codepilot.adminApiKey.${modelKeyForLocal}`,
-            )
-          : undefined;
+        // 모델별 슬롯에서 사용자 로컬 키 폴백
+        const { getUserApiKeyForModel } = await import("./utils/userApiKey");
+        const userAdminApiKey = getUserApiKeyForModel(context, adminConfig.key);
         if (userAdminApiKey && !adminConfig.apiKey) {
           adminConfig.apiKey = userAdminApiKey;
         }

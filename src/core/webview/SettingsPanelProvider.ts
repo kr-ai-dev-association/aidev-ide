@@ -13,6 +13,10 @@ import { TaskManager } from "../managers/task/TaskManager";
 import { ModelConnectionService } from "../managers/model/ModelConnectionService";
 import { LocaleService } from "../../webview/services";
 import { HotLoadManager } from "../managers/hotload";
+import {
+  getUserApiKeyForModel,
+  setUserApiKeyForModel,
+} from "../../utils/userApiKey";
 import { UsageMetricsManager } from "../managers/state/UsageMetricsManager";
 import { AuthService } from "../../services/auth/AuthService";
 import { DEFAULT_OLLAMA_URL } from "../config/ApiDefaults";
@@ -412,10 +416,10 @@ export function openSettingsPanel(
                 if (preset && preset.value) {
                   const v = preset.value;
                   const ch = v.customHeaders || v.custom_headers || {};
-                  const userApiKey =
-                    context.globalState.get<string>(
-                      `codepilot.adminApiKey.${compactorModelName}`,
-                    ) || "";
+                  const userApiKey = getUserApiKeyForModel(
+                    context,
+                    compactorModelName,
+                  );
                   const adminConfig = {
                     key: compactorModelName,
                     provider: v.provider || "chat_completions",
@@ -538,10 +542,10 @@ export function openSettingsPanel(
                 if (preset && preset.value) {
                   const v = preset.value;
                   const ch = v.customHeaders || v.custom_headers || {};
-                  const userApiKey =
-                    context.globalState.get<string>(
-                      `codepilot.adminApiKey.${commandModelName}`,
-                    ) || "";
+                  const userApiKey = getUserApiKeyForModel(
+                    context,
+                    commandModelName,
+                  );
                   const adminConfig = {
                     key: commandModelName,
                     provider: v.provider || "chat_completions",
@@ -663,10 +667,10 @@ export function openSettingsPanel(
                 if (preset && preset.value) {
                   const v = preset.value;
                   const ch = v.customHeaders || v.custom_headers || {};
-                  const userApiKey =
-                    context.globalState.get<string>(
-                      `codepilot.adminApiKey.${intentModelName}`,
-                    ) || "";
+                  const userApiKey = getUserApiKeyForModel(
+                    context,
+                    intentModelName,
+                  );
                   const adminConfig = {
                     key: intentModelName,
                     provider: v.provider || "chat_completions",
@@ -789,10 +793,10 @@ export function openSettingsPanel(
                 if (preset && preset.value) {
                   const v = preset.value;
                   const ch = v.customHeaders || v.custom_headers || {};
-                  const userApiKey =
-                    context.globalState.get<string>(
-                      `codepilot.adminApiKey.${errorFallbackModelName}`,
-                    ) || "";
+                  const userApiKey = getUserApiKeyForModel(
+                    context,
+                    errorFallbackModelName,
+                  );
                   const adminConfig = {
                     key: errorFallbackModelName,
                     provider: v.provider || "chat_completions",
@@ -896,10 +900,10 @@ export function openSettingsPanel(
                 if (preset && preset.value) {
                   const v = preset.value;
                   const ch = v.customHeaders || v.custom_headers || {};
-                  const userApiKey =
-                    context.globalState.get<string>(
-                      `codepilot.adminApiKey.${completionModelNameSave}`,
-                    ) || "";
+                  const userApiKey = getUserApiKeyForModel(
+                    context,
+                    completionModelNameSave,
+                  );
                   const adminConfig = {
                     key: completionModelNameSave,
                     provider: v.provider || "chat_completions",
@@ -1022,10 +1026,10 @@ export function openSettingsPanel(
                 if (preset && preset.value) {
                   const v = preset.value;
                   const ch = v.customHeaders || v.custom_headers || {};
-                  const userApiKey =
-                    context.globalState.get<string>(
-                      `codepilot.adminApiKey.${subagentModelNameSave}`,
-                    ) || "";
+                  const userApiKey = getUserApiKeyForModel(
+                    context,
+                    subagentModelNameSave,
+                  );
                   const adminConfig = {
                     key: subagentModelNameSave,
                     provider: v.provider || "chat_completions",
@@ -1859,10 +1863,7 @@ export function openSettingsPanel(
                   const customHeaders =
                     v.customHeaders || v.custom_headers || {};
                   // 사용자가 IDE에서 저장한 API 키 우선 사용 — 모델별 분리
-                  const userApiKey =
-                    context.globalState.get<string>(
-                      `codepilot.adminApiKey.${presetKey}`,
-                    ) || "";
+                  const userApiKey = getUserApiKeyForModel(context, presetKey);
                   const adminConfig = {
                     key: presetKey,
                     provider: v.provider || "chat_completions",
@@ -1938,10 +1939,10 @@ export function openSettingsPanel(
                   const v = adminSetting.value;
                   const customHeaders =
                     v.customHeaders || v.custom_headers || {};
-                  const userApiKeyForAdmin =
-                    context.globalState.get<string>(
-                      `codepilot.adminApiKey.${adminKey}`,
-                    ) || "";
+                  const userApiKeyForAdmin = getUserApiKeyForModel(
+                    context,
+                    adminKey,
+                  );
                   const adminConfig = {
                     key: adminKey,
                     provider: v.provider || "chat_completions",
@@ -3574,13 +3575,7 @@ export function openSettingsPanel(
                 const adminConfig = JSON.parse(configJson);
                 const modelKey = adminConfig.key;
                 if (modelKey) {
-                  await context.globalState.update(
-                    `codepilot.adminApiKey.${modelKey}`,
-                    key,
-                  );
-                  console.log(
-                    `[saveAdminApiKey] 모델별 슬롯 저장: codepilot.adminApiKey.${modelKey} (key len=${key.length})`,
-                  );
+                  await setUserApiKeyForModel(context, modelKey, key);
                 } else {
                   console.warn(
                     "[saveAdminApiKey] 현재 모델 미선택 — 키 저장 안 됨",

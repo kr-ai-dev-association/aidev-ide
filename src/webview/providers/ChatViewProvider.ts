@@ -16,6 +16,7 @@ import { ModelConnectionService } from "../../core/managers/model/ModelConnectio
 import { InlineDiffManager } from "../../core/managers/diff/InlineDiffManager";
 import { getAllExclusionPaths } from "../../core/utils/FileExclusionConstants";
 import { WebviewBridge } from "../../core/webview/WebviewBridge";
+import { getUserApiKeyForModel } from "../../utils/userApiKey";
 import { AuthService } from "../../services/auth/AuthService";
 
 /**
@@ -492,11 +493,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             );
             if (adminSetting?.value) {
               const v = adminSetting.value;
-              // 모델별 분리된 사용자 로컬 키 — 다른 모델 키 오염 차단
-              const chatAdminUserApiKey =
-                this.context.globalState.get<string>(
-                  `codepilot.adminApiKey.${adminKey}`,
-                ) || "";
+              const chatAdminUserApiKey = getUserApiKeyForModel(
+                this.context,
+                adminKey,
+              );
               const customHeaders = v.customHeaders || v.custom_headers || {};
               const adminConfig = {
                 key: adminKey,
@@ -575,11 +575,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             if (presetSetting?.value) {
               const v = presetSetting.value;
               const customHeaders = v.customHeaders || v.custom_headers || {};
-              // 모델별 분리된 사용자 로컬 키
-              const chatUserApiKey =
-                this.context.globalState.get<string>(
-                  `codepilot.adminApiKey.${presetKey}`,
-                ) || "";
+              const chatUserApiKey = getUserApiKeyForModel(
+                this.context,
+                presetKey,
+              );
               const adminConfig = {
                 key: presetKey,
                 provider: v.provider || "chat_completions",
