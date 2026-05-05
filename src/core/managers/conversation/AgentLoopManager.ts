@@ -742,10 +742,22 @@ export class AgentLoopManager {
           const currentSession = sessionManager.getCurrentSession();
 
           if (currentSession) {
+            // 파일 변경이 없는 정상 종료 케이스 — collectedUIMessages 의 마지막 summary
+            // (LLM 텍스트 응답) 사용. 그것도 없으면 명시적 완료 마커. 빈 문자열은 절대 X —
+            // SessionManager.wasLastSessionInterrupted() 가 빈 문자열을 인터럽트로 오감지하던
+            // 사고 차단 (defense in depth, SessionManager.result==="success" 체크와 함께).
+            const lastSummaryText = collectedUIMessages
+              .filter(
+                (m: any) => m?.type === "summary" && m?.sender === "CODEPILOT",
+              )
+              .map((m: any) => m?.text)
+              .filter((t: any) => typeof t === "string" && t.trim().length > 0)
+              .pop();
+
             const finalSummary =
               createdFiles.length > 0 || modifiedFiles.length > 0
                 ? `${createdFiles.length > 0 ? `생성된 파일: ${createdFiles.join(", ")}\n` : ""}${modifiedFiles.length > 0 ? `수정된 파일: ${modifiedFiles.join(", ")}` : ""}`
-                : "";
+                : lastSummaryText || "[작업 완료]";
 
             console.log(
               `[AgentLoopManager] Saving AGENT mode entry - userQuery: "${userQuery?.substring(0, 50)}..."`,
