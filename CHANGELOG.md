@@ -2,7 +2,34 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.75**
+> **현재 버전: v1.0.76**
+
+---
+
+## v1.0.76 (2026-05-05)
+
+### feat(llm): llama.cpp native provider 추가
+
+OpenAI-compat 엔드포인트 (`/v1/chat/completions`) 가 노출되지 않는 llama-server / 사내 wrapper 환경에서 native `/completion` 엔드포인트 직접 호출 지원.
+
+**배경**: 사내 LLM 서버 (예: gpt-oss-120b 호스팅) 가 llama.cpp native API 만 노출하는 경우, 기존 `OpenAICompatProvider` 가 `assertResponseField(data, 'choices')` 에서 실패 — 응답이 `{content: "..."}` 형식이라 `choices` 필드 없음.
+
+**수정**:
+
+- `src/services/llm/providers/LlamaCppProvider.ts` 신규 (~160 줄)
+  - `/completion` 엔드포인트 호출, `{prompt, n_predict, temperature, top_p, stream, stop}` body
+  - 멀티턴 messages 를 단순 role-prefix prompt 로 직렬화 (`System: ...\n\nUser: ...\n\nAssistant: `)
+  - 비스트리밍: `{content}` 직접 반환
+  - 스트리밍: SSE / NDJSON 양쪽 형식 대응 (`data:` 프리픽스 자동 제거)
+  - `cache_prompt: true` 로 멀티턴 prefix 캐시 활용
+- `src/services/llm/AdminModelApi.ts`
+  - `detectProvider` 에 `llama_cpp` / `llamacpp` / `llama.cpp` explicit 분기 추가
+  - 자동 감지: endpoint 가 `/completion` 으로 끝나면 (단 `/chat/completion` 제외) llama.cpp 로 라우팅
+  - `createProvider` 에 `LlamaCppProvider` 분기 추가
+
+**admin 사용법**: `/codepilot-admin` 의 AI 모델 등록 시 프로바이더 dropdown 에서 **"llama.cpp (native /completion)"** 선택. endpoint 는 `/completion` 끝나는 형태로 입력.
+
+**제약**: chat template 이 generic role-prefix 라 일부 instruction-tuned 모델에서 응답 품질 저하 가능. 정밀 chat template 필요한 경우 OpenAI-compat 엔드포인트 (`/v1/chat/completions`) + `Chat Completions` provider 사용 권장.
 
 ---
 
