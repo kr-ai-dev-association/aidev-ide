@@ -2,7 +2,48 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.77**
+> **현재 버전: v1.0.78**
+
+---
+
+## v1.0.78 (2026-05-08)
+
+### feat(settings): 관리자 / 개인 API Key 출처 토글
+
+**배경**: 한 모델에 admin 공유 키 + 사용자 개인 키 두 가지가 모두 등록될 수 있는데, 이전엔 개인 키 등록 시 무조건 개인 키가 우선 사용 — 사용자가 admin 공유 키를 다시 쓰려면 개인 키를 삭제해야 했다. 같은 모델 안에서 둘 사이를 자유롭게 스왑할 방법이 없었음.
+
+**UX**: 모델 설정 3 섹션 (지원 모델 / 팀 기본 / 프로젝트) 모두에 동일한 dropdown 추가:
+
+```
+모델           [모델 select]
+API Key        [관리자 API Key | 개인 API Key]   ← 새 dropdown
+개인 API Key   [입력]   [저장] [삭제]            ← 삭제 버튼 추가
+```
+
+- dropdown 옵션은 **등록된 키만 노출** — admin/personal 둘 다 없으면 "등록된 키 없음" placeholder.
+- 기본 선택: 사용자 마지막 선택 source > admin > personal 우선순위.
+- dropdown 변경 시 즉시 LLMManager 에 반영 (모델 재선택 불필요).
+
+**핵심 회귀 fix**:
+
+1. **개인 키 등록 시 admin 공유 키가 영구 손실되던 회귀 차단** — `saveAdminApiKey` 가 더 이상 `adminConfig.apiKey` 를 개인 키로 덮어쓰지 않음. 개인 키는 globalState 모델별 슬롯 (`codepilot.adminApiKey.<modelKey>`) 에만 저장.
+
+2. **dropdown 토글 즉시 반영 안 되던 회귀 fix** — `saveApiKeySource`/`saveAdminApiKey`/`deleteAdminApiKey` 가 `sharedApiKey` 를 stale `adminConfig.apiKey` (직전 saveAiModel 이 박아둔 resolved 값) 에서 가져와 admin 토글해도 개인 키가 사용되던 문제. **server preset (`ai_model` setting) 의 `v.api_key` 에서 fresh 조회** 하도록 수정. 모델 재선택 없이도 토글 즉시 정확한 키로 호출.
+
+3. **세팅 모델 선택 ↔ 채팅 패널 model selector 동기화** — `saveAiModel` 이 chat 패널에 `ollamaModels` (dropdown 갱신) 만 보내고 model selector button 의 label 은 stale 로 남던 문제. `ollamaModelChanged` 도 함께 broadcast — chat.js 가 admin/supported/ollama prefix 모두 처리해서 즉시 label 동기화.
+
+**기술 변경**:
+
+- `src/utils/userApiKey.ts`: `getApiKeySource` / `setApiKeySource` / `resolveApiKeyBySource` 헬퍼 추가. 슬롯 `codepilot.apiKeySource.<modelKey>` 에 사용자 선택 영구 보관.
+- `src/core/webview/SettingsPanelProvider.ts`:
+  - `saveAdminApiKey` 회귀 fix + `data.modelKey` 명시 수용 + 첫 등록 시 `apiKeySource="personal"` 자동 set
+  - 신규 핸들러 3개: `saveApiKeySource` / `getApiKeyAvailability` / `deleteAdminApiKey`
+  - `saveAiModel` 흐름: `resolveApiKeyBySource` 통해 admin/personal 동적 결정 + chat 패널에 `ollamaModelChanged` broadcast 추가
+- `src/extension.ts` (startup) / `src/webview/providers/ChatViewProvider.ts` (chat admin/supported 진입점): 모두 `resolveApiKeyBySource` 통과시켜 토글이 모든 진입점에서 일관 동작.
+- `webview/settings.html`: 3 섹션 모두 dropdown + `모델` / `API Key` / `개인 API Key` 라벨 + 삭제 버튼.
+- `webview/settings.js`: `renderKeySourceOptions` / `refreshKeySourceSelector` + 응답 핸들러 (`apiKeyAvailabilityLoaded` / `adminApiKeyDeleted` 등) + 모델 select change 시 dropdown 자동 refresh + admin/project 저장 버튼이 supported 와 동일한 `saveAdminApiKey` 명령으로 통일.
+
+**호환성**: 기존 `codepilot.adminApiKey.<modelKey>` 슬롯은 그대로 사용. apiKeySource 미설정 시 legacy default (개인 키 우선, 없으면 admin 공유) 유지 — 업데이트 후 기존 사용자에게 동작 변화 없음.
 
 ---
 

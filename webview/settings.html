@@ -1872,15 +1872,24 @@
                 <!-- 같은 그룹 내 서브모델 선택 -->
                 <div id="supported-model-subselect-group" style="display:none; margin-bottom: 15px">
                   <div class="api-key-input-group">
+                    <label for="supported-model-subselect">모델</label>
                     <select id="supported-model-subselect"></select>
                   </div>
+                </div>
+
+                <!-- API 키 출처 선택 (등록된 키만 옵션에 노출 — 어드민/개인 / 등록된 키 없음) -->
+                <div class="api-key-input-group" style="margin-bottom: 10px">
+                  <label for="supported-model-key-source">API Key</label>
+                  <select id="supported-model-key-source" data-key-source-section="supported"></select>
                 </div>
 
                 <!-- API 키 입력 (authType이 none이 아닌 경우) -->
                 <div id="supported-model-apikey-group">
                   <div class="api-key-input-group">
+                    <label for="supported-model-api-key-input">개인 API Key</label>
                     <input type="password" id="supported-model-api-key-input" placeholder="API 키를 입력하세요." />
-                    <button id="save-supported-model-api-key-button">API 키 저장</button>
+                    <button id="save-supported-model-api-key-button">저장</button>
+                    <button id="delete-supported-model-api-key-button" type="button">삭제</button>
                   </div>
                 </div>
                 <p id="supported-model-status" class="info-message"></p>
@@ -1891,11 +1900,18 @@
                 <h3>팀 기본 모델</h3>
                 <p class="info-message">팀 관리자가 등록한 AI 모델입니다.</p>
                 <div class="api-key-input-group" style="margin-bottom: 15px">
+                  <label for="admin-model-select">모델</label>
                   <select id="admin-model-select"></select>
                 </div>
+                <div class="api-key-input-group" style="margin-bottom: 10px">
+                  <label for="admin-model-key-source">API Key</label>
+                  <select id="admin-model-key-source" data-key-source-section="admin"></select>
+                </div>
                 <div class="api-key-input-group" style="margin-top: 10px">
+                  <label for="admin-model-api-key-input">개인 API Key</label>
                   <input type="password" id="admin-model-api-key-input" placeholder="API 키를 입력하세요." />
-                  <button id="save-admin-model-api-key-button">API 키 저장</button>
+                  <button id="save-admin-model-api-key-button">저장</button>
+                  <button id="delete-admin-model-api-key-button" type="button">삭제</button>
                 </div>
                 <p id="admin-model-status" class="info-message"></p>
               </div>
@@ -1905,11 +1921,18 @@
                 <h3>프로젝트 모델</h3>
                 <p class="info-message">프로젝트에 등록된 AI 모델입니다.</p>
                 <div class="api-key-input-group" style="margin-bottom: 15px">
+                  <label for="project-model-select">모델</label>
                   <select id="project-model-select"></select>
                 </div>
+                <div class="api-key-input-group" style="margin-bottom: 10px">
+                  <label for="project-model-key-source">API Key</label>
+                  <select id="project-model-key-source" data-key-source-section="project"></select>
+                </div>
                 <div class="api-key-input-group" style="margin-top: 10px">
+                  <label for="project-model-api-key-input">개인 API Key</label>
                   <input type="password" id="project-model-api-key-input" placeholder="API 키를 입력하세요." />
-                  <button id="save-project-model-api-key-button">API 키 저장</button>
+                  <button id="save-project-model-api-key-button">저장</button>
+                  <button id="delete-project-model-api-key-button" type="button">삭제</button>
                 </div>
                 <p id="project-model-status" class="info-message"></p>
               </div>

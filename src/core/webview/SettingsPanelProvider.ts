@@ -1862,13 +1862,23 @@ export function openSettingsPanel(
                   const v = presetSetting.value;
                   const customHeaders =
                     v.customHeaders || v.custom_headers || {};
-                  // 사용자가 IDE에서 저장한 API 키 우선 사용 — 모델별 분리
+                  // apiKey 결정 — apiKeySource 슬롯 보고 admin 공유 키 / 사용자
+                  // 로컬 키 동적 swap. 미설정 시 legacy default (personal 우선).
                   const userApiKey = getUserApiKeyForModel(context, presetKey);
+                  const sharedApiKeyForSupported = v.api_key || v.apiKey || "";
+                  const { resolveApiKeyBySource } =
+                    await import("../../utils/userApiKey");
+                  const resolvedApiKey = resolveApiKeyBySource(
+                    context,
+                    presetKey,
+                    sharedApiKeyForSupported,
+                    userApiKey,
+                  );
                   const adminConfig = {
                     key: presetKey,
                     provider: v.provider || "chat_completions",
                     model: v.model || v.model_name || "",
-                    apiKey: userApiKey || v.api_key || v.apiKey || "",
+                    apiKey: resolvedApiKey,
                     endpoint: v.base_url || v.endpoint || v.apiEndpoint || "",
                     maxTokens: v.max_tokens || v.maxTokens || undefined,
                     maxOutputTokens:
@@ -1939,15 +1949,26 @@ export function openSettingsPanel(
                   const v = adminSetting.value;
                   const customHeaders =
                     v.customHeaders || v.custom_headers || {};
+                  // apiKey 결정 — apiKeySource 슬롯 보고 admin 공유 키 / 사용자
+                  // 로컬 키 동적 swap. 미설정 시 legacy default (personal 우선).
                   const userApiKeyForAdmin = getUserApiKeyForModel(
                     context,
                     adminKey,
+                  );
+                  const sharedApiKeyForAdmin = v.api_key || v.apiKey || "";
+                  const { resolveApiKeyBySource: resolveAdminKey } =
+                    await import("../../utils/userApiKey");
+                  const resolvedAdminApiKey = resolveAdminKey(
+                    context,
+                    adminKey,
+                    sharedApiKeyForAdmin,
+                    userApiKeyForAdmin,
                   );
                   const adminConfig = {
                     key: adminKey,
                     provider: v.provider || "chat_completions",
                     model: v.model || v.model_name || "",
-                    apiKey: userApiKeyForAdmin || v.api_key || v.apiKey || "",
+                    apiKey: resolvedAdminApiKey,
                     endpoint: v.base_url || v.endpoint || v.apiEndpoint || "",
                     maxTokens: v.max_tokens || v.maxTokens || undefined,
                     maxOutputTokens:
@@ -2073,6 +2094,14 @@ export function openSettingsPanel(
                   current: chatModel,
                   adminModels: [],
                   supportedModels,
+                });
+                // populateModelDropdown 만으로는 model selector button 의 label 이
+                // 갱신 안 됨 (사용자 click 시에만 setModelLabel 호출). 모델 동기화
+                // 위해 ollamaModelChanged 도 함께 broadcast — chat.js 가 그 메시지로
+                // setModelLabel 호출 (admin/supported/ollama prefix 모두 처리).
+                chatViewProvider.postMessageToWebview({
+                  command: "ollamaModelChanged",
+                  model: chatModel,
                 });
               }
 
@@ -3566,43 +3595,306 @@ export function openSettingsPanel(
               });
               break;
             }
+            // modelKey 우선순위: data.modelKey 명시 (admin/project/supported
+            // 셀렉트가 보낸 값) → adminConfig.key fallback. 모든 personal key 가
+            // globalState `codepilot.adminApiKey.<modelKey>` 단일 슬롯에 저장.
+            let savedModelKey = (data.modelKey || "").trim();
+            if (!savedModelKey) {
+              try {
+                const configJson = await stateManager.getAdminModelConfig();
+                if (configJson) {
+                  const adminConfig = JSON.parse(configJson);
+                  if (adminConfig?.key) savedModelKey = adminConfig.key;
+                }
+              } catch {
+                /* ignore — savedModelKey 빈 채로 fall through */
+              }
+            }
+            if (!savedModelKey) {
+              safePostMessage(panel, {
+                command: "adminApiKeySaveError",
+                error:
+                  "현재 모델이 선택되지 않았습니다. 먼저 모델을 선택하세요.",
+              });
+              break;
+            }
 
-            // 현재 adminConfig 의 모델 key 로 저장 (모델별 분리). 옛날 단일 글로벌
-            // 슬롯 "codepilot.adminApiKey" 는 deprecate — 더 이상 read 안 함.
+            // 1) personal key 슬롯에만 저장 — adminConfig.apiKey 는 절대 안 건드림.
+            //    (이전 회귀: adminConfig.apiKey 를 personal 로 덮어써서 dropdown 에서
+            //     admin 선택해도 실제로는 personal 키가 사용됨.)
+            await setUserApiKeyForModel(context, savedModelKey, key);
+
+            // 2) 사용자가 personal 키를 방금 등록 → 후속 chat 호출 시 personal 사용
+            //    가정. apiKeySource 슬롯이 비어 있으면 "personal" 자동 set.
+            const { setApiKeySource, resolveApiKeyBySource } =
+              await import("../../utils/userApiKey");
+            try {
+              const curSource =
+                context.globalState.get<string>(
+                  `codepilot.apiKeySource.${savedModelKey}`,
+                ) || "";
+              if (!curSource) {
+                await setApiKeySource(context, savedModelKey, "personal");
+              }
+            } catch {
+              /* ignore — fallback 으로 legacy default 적용됨 */
+            }
+
+            // 3) 현재 활성 admin 모델이 이번에 키 등록한 모델과 같으면 LLMManager
+            //    config 즉시 갱신 (apiKey 슬롯 honor).
+            //    sharedApiKey 는 server preset 에서 fresh 조회 — adminConfig.apiKey
+            //    에서 가져오면 stale resolved 키 회귀.
             try {
               const configJson = await stateManager.getAdminModelConfig();
               if (configJson) {
                 const adminConfig = JSON.parse(configJson);
-                const modelKey = adminConfig.key;
-                if (modelKey) {
-                  await setUserApiKeyForModel(context, modelKey, key);
-                } else {
-                  console.warn(
-                    "[saveAdminApiKey] 현재 모델 미선택 — 키 저장 안 됨",
+                if (adminConfig?.key === savedModelKey) {
+                  const aiSettings =
+                    settingsManager.getServerSettings("ai_model") || [];
+                  const setting = aiSettings.find(
+                    (s: any) => s.key === savedModelKey,
                   );
-                  safePostMessage(panel, {
-                    command: "adminApiKeySaveError",
-                    error:
-                      "현재 모델이 선택되지 않았습니다. 먼저 admin 모델을 선택하세요.",
-                  });
-                  break;
+                  const v: any = setting?.value || {};
+                  const sharedApiKey = v.api_key || v.apiKey || "";
+                  adminConfig.apiKey = resolveApiKeyBySource(
+                    context,
+                    savedModelKey,
+                    sharedApiKey,
+                    key,
+                  );
+                  await stateManager.saveAdminModelConfig(
+                    JSON.stringify(adminConfig),
+                  );
+                  const { LLMManager } =
+                    await import("../managers/model/LLMManager");
+                  const llmManager = LLMManager.getInstance();
+                  llmManager.setAdminModelConfig(adminConfig);
                 }
-                adminConfig.apiKey = key;
-                await stateManager.saveAdminModelConfig(
-                  JSON.stringify(adminConfig),
-                );
-                const { LLMManager } =
-                  await import("../managers/model/LLMManager");
-                const llmManager = LLMManager.getInstance();
-                llmManager.setAdminModelConfig(adminConfig);
               }
-            } catch {}
+            } catch {
+              /* LLMManager 갱신 실패해도 globalState 저장은 유지 */
+            }
 
-            safePostMessage(panel, { command: "adminApiKeySaved" });
+            safePostMessage(panel, {
+              command: "adminApiKeySaved",
+              modelKey: savedModelKey,
+            });
           } catch (e: any) {
             safePostMessage(panel, {
               command: "adminApiKeySaveError",
               error: e?.message || "저장 실패",
+            });
+          }
+          break;
+        }
+
+        case "saveApiKeySource": {
+          // apiKeySource: "admin" | "personal" | "" (auto)
+          // 사용자가 settings UI 의 키 출처 selector 변경 시 호출. 모델별 슬롯에
+          // 저장 → 다음 setAdminModelConfig 호출부터 honor.
+          try {
+            const modelKey = (data.modelKey || "").trim();
+            const source = (data.source || "").trim();
+            if (!modelKey) {
+              safePostMessage(panel, {
+                command: "apiKeySourceSaveError",
+                error: "모델이 선택되지 않았습니다.",
+              });
+              break;
+            }
+            if (source !== "" && source !== "admin" && source !== "personal") {
+              safePostMessage(panel, {
+                command: "apiKeySourceSaveError",
+                error: `잘못된 source: ${source}`,
+              });
+              break;
+            }
+            const {
+              setApiKeySource: setSrc,
+              resolveApiKeyBySource: resolveSrc,
+            } = await import("../../utils/userApiKey");
+            await setSrc(context, modelKey, source);
+            // 즉시 반영 — 현재 활성 admin 모델이 같으면 LLMManager.config 갱신.
+            // ⚠️ sharedApiKey 는 server preset (ai_model setting) 에서 fresh 조회.
+            // adminConfig.apiKey 에서 가져오면 직전 saveAiModel/saveAdminApiKey 가
+            // 박아둔 resolved 키 (admin or personal) 가 들어있어, source 토글이
+            // 잘못된 fallback 으로 이어짐 (admin 선택해도 personal 사용 회귀).
+            try {
+              const configJson = await stateManager.getAdminModelConfig();
+              if (configJson) {
+                const adminConfig = JSON.parse(configJson);
+                if (adminConfig?.key === modelKey) {
+                  const aiSettings =
+                    settingsManager.getServerSettings("ai_model") || [];
+                  const setting = aiSettings.find(
+                    (s: any) => s.key === modelKey,
+                  );
+                  const v: any = setting?.value || {};
+                  const sharedApiKey = v.api_key || v.apiKey || "";
+                  const userApiKey = getUserApiKeyForModel(context, modelKey);
+                  adminConfig.apiKey = resolveSrc(
+                    context,
+                    modelKey,
+                    sharedApiKey,
+                    userApiKey,
+                  );
+                  // adminConfig 도 동기화 — 다음 호출에서 stale 안 보게.
+                  await stateManager.saveAdminModelConfig(
+                    JSON.stringify(adminConfig),
+                  );
+                  const { LLMManager } =
+                    await import("../managers/model/LLMManager");
+                  const llmManager = LLMManager.getInstance();
+                  llmManager.setAdminModelConfig(adminConfig);
+                }
+              }
+            } catch (e: any) {
+              console.warn(
+                "[Settings] apiKeySource refresh failed:",
+                e?.message || e,
+              );
+            }
+            safePostMessage(panel, {
+              command: "apiKeySourceSaved",
+              modelKey,
+              source,
+            });
+          } catch (e: any) {
+            safePostMessage(panel, {
+              command: "apiKeySourceSaveError",
+              error: e?.message || "저장 실패",
+            });
+          }
+          break;
+        }
+
+        case "getApiKeyAvailability": {
+          // 모델별로 어드민 공유 키 / 개인 키 등록 여부 + 현재 source 슬롯 반환.
+          // UI 가 dropdown 옵션을 동적으로 구성 (등록된 키만 노출, 없으면 placeholder).
+          try {
+            const modelKey = (data.modelKey || "").trim();
+            if (!modelKey) {
+              safePostMessage(panel, {
+                command: "apiKeyAvailabilityLoaded",
+                modelKey: "",
+                hasAdmin: false,
+                hasPersonal: false,
+                source: "",
+              });
+              break;
+            }
+            // 1) admin 공유 키 — server settings 의 ai_model 카테고리. 백엔드
+            //    secret masking 정책상 v.api_key 가 빈 문자열로 마스킹될 수 있어
+            //    boolean flag (hasApiKey) 우선 검사.
+            const aiSettings: any[] =
+              settingsManager.getServerSettings("ai_model") || [];
+            const setting = aiSettings.find((s: any) => s.key === modelKey);
+            const v: any = setting?.value || {};
+            const hasAdmin =
+              v.hasApiKey === true ||
+              (v.api_key || v.apiKey || "").toString().trim().length > 0;
+            // 2) personal 키 — globalState 모델별 슬롯
+            const personalKey = getUserApiKeyForModel(context, modelKey);
+            const hasPersonal = personalKey.trim().length > 0;
+            // 3) 사용자 마지막 source 선택
+            const source =
+              context.globalState.get<string>(
+                `codepilot.apiKeySource.${modelKey}`,
+              ) || "";
+            safePostMessage(panel, {
+              command: "apiKeyAvailabilityLoaded",
+              modelKey,
+              hasAdmin,
+              hasPersonal,
+              source,
+            });
+          } catch (e: any) {
+            console.warn(
+              "[Settings] getApiKeyAvailability failed:",
+              e?.message || e,
+            );
+            // catch 시에도 webview 가 영원히 "로딩 중" 멈추지 않도록 빈 응답.
+            safePostMessage(panel, {
+              command: "apiKeyAvailabilityLoaded",
+              modelKey: data.modelKey || "",
+              hasAdmin: false,
+              hasPersonal: false,
+              source: "",
+            });
+          }
+          break;
+        }
+
+        case "deleteAdminApiKey": {
+          // 개인 키 삭제 — codepilot.adminApiKey.<modelKey> 슬롯 비우기.
+          // (어드민 공유 키 자체는 server 측 admin 콘솔에서만 관리, IDE 에서 삭제 불가)
+          try {
+            const modelKey = (data.modelKey || "").trim();
+            if (!modelKey) {
+              safePostMessage(panel, {
+                command: "adminApiKeyDeleteError",
+                error: "모델이 선택되지 않았습니다.",
+              });
+              break;
+            }
+            await setUserApiKeyForModel(context, modelKey, "");
+            // source 가 personal 이었으면 초기화 (admin 으로 fallback).
+            try {
+              const curSource =
+                context.globalState.get<string>(
+                  `codepilot.apiKeySource.${modelKey}`,
+                ) || "";
+              if (curSource === "personal") {
+                await context.globalState.update(
+                  `codepilot.apiKeySource.${modelKey}`,
+                  "",
+                );
+              }
+            } catch {
+              /* ignore */
+            }
+            // 현재 활성 admin 모델이 같으면 LLMManager.config 즉시 갱신.
+            // sharedApiKey 는 server preset 에서 fresh 조회.
+            try {
+              const configJson = await stateManager.getAdminModelConfig();
+              if (configJson) {
+                const adminConfig = JSON.parse(configJson);
+                if (adminConfig?.key === modelKey) {
+                  const { resolveApiKeyBySource: resolveDel } =
+                    await import("../../utils/userApiKey");
+                  const aiSettings =
+                    settingsManager.getServerSettings("ai_model") || [];
+                  const setting = aiSettings.find(
+                    (s: any) => s.key === modelKey,
+                  );
+                  const v: any = setting?.value || {};
+                  const sharedApiKey = v.api_key || v.apiKey || "";
+                  adminConfig.apiKey = resolveDel(
+                    context,
+                    modelKey,
+                    sharedApiKey,
+                    "",
+                  );
+                  await stateManager.saveAdminModelConfig(
+                    JSON.stringify(adminConfig),
+                  );
+                  const { LLMManager } =
+                    await import("../managers/model/LLMManager");
+                  const llmManager = LLMManager.getInstance();
+                  llmManager.setAdminModelConfig(adminConfig);
+                }
+              }
+            } catch {
+              /* ignore */
+            }
+            safePostMessage(panel, {
+              command: "adminApiKeyDeleted",
+              modelKey,
+            });
+          } catch (e: any) {
+            safePostMessage(panel, {
+              command: "adminApiKeyDeleteError",
+              error: e?.message || "삭제 실패",
             });
           }
           break;

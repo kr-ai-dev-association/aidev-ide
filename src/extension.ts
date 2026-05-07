@@ -447,12 +447,18 @@ export async function activate(context: vscode.ExtensionContext) {
       const adminConfigJson = await stateManager.getAdminModelConfig();
       if (adminConfigJson) {
         const adminConfig = JSON.parse(adminConfigJson);
-        // 모델별 슬롯에서 사용자 로컬 키 폴백
-        const { getUserApiKeyForModel } = await import("./utils/userApiKey");
+        // 모델별 슬롯에서 사용자 로컬 키 + apiKeySource 슬롯 보고 admin/personal 결정.
+        // adminConfig.apiKey 자체는 admin 공유 키 캐시이므로 그걸 sharedApiKey 로 본다.
+        const { getUserApiKeyForModel, resolveApiKeyBySource } =
+          await import("./utils/userApiKey");
         const userAdminApiKey = getUserApiKeyForModel(context, adminConfig.key);
-        if (userAdminApiKey && !adminConfig.apiKey) {
-          adminConfig.apiKey = userAdminApiKey;
-        }
+        const sharedApiKey = adminConfig.apiKey || "";
+        adminConfig.apiKey = resolveApiKeyBySource(
+          context,
+          adminConfig.key,
+          sharedApiKey,
+          userAdminApiKey,
+        );
         // nativeToolCallingSupported 누락 시 서버 설정 캐시에서 보완
         if (
           adminConfig.nativeToolCallingSupported === undefined &&

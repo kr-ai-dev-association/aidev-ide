@@ -477,22 +477,10 @@ function populateAdminModelsInDropdown() {
   populateCustomModelSelect("project-model-select", projectModels, "project");
 
   // 선택된 모델의 공용 API 키 상태 표시
-  function updateCustomModelStatus(selectId, statusId) {
-    const select = document.getElementById(selectId);
+  // 공용 API 키 상태 텍스트는 표시하지 않음 — drop-down 의 항목 노출로 대체.
+  function updateCustomModelStatus(_selectId, statusId) {
     const status = document.getElementById(statusId);
-    if (!select || !status) return;
-    const selected = select.options[select.selectedIndex];
-    if (!selected) return;
-    if (selected.dataset.hasApiKey === "true") {
-      showStatus(
-        status,
-        "공용 API 키가 설정되어 있습니다. 별도 키 입력 없이 사용 가능합니다.",
-        "success",
-        0,
-      );
-    } else {
-      status.textContent = "";
-    }
+    if (status) status.textContent = "";
   }
 
   // 초기 상태 표시
@@ -1916,17 +1904,34 @@ if (aiModelSelect) {
         adminSettingsSection.style.display = "block";
       }
       updateStreamingToggle({}); // 제한 해제
+      // 섹션 표시 직후 dropdown 옵션 채움 — 사용자가 model select change 안 해도
+      // 초기 admin 모델 key 로 availability 조회.
+      const adminModelSel = document.getElementById("admin-model-select");
+      if (adminModelSel?.value) {
+        refreshKeySourceSelector(adminModelSel.value, "admin-model-key-source");
+      }
     } else if (selectedModel === "project") {
       hideAllModelSections();
       if (projectModelSection) {
         projectModelSection.style.display = "block";
       }
       updateStreamingToggle({}); // 제한 해제
+      const projectModelSel = document.getElementById("project-model-select");
+      if (projectModelSel?.value) {
+        refreshKeySourceSelector(
+          projectModelSel.value,
+          "project-model-key-source",
+        );
+      }
     } else if (selectedModel.startsWith("group:")) {
       hideAllModelSections();
       // 그룹 선택 → 지원 모델 설정 표시
       const groupName = selectedModel.substring("group:".length);
       showSupportedModelSettings(groupName);
+      const supSubSel = document.getElementById("supported-model-subselect");
+      if (supSubSel?.value) {
+        refreshKeySourceSelector(supSubSel.value, "supported-model-key-source");
+      }
     } else if (selectedModel === "ollama") {
       hideAllModelSections();
       updateStreamingToggle({}); // 제한 해제
@@ -1990,6 +1995,81 @@ if (aiModelSelect) {
 // 팀 기본 모델 서브 드롭다운 이벤트 리스너
 const adminModelSelect = document.getElementById("admin-model-select");
 const adminModelStatus = document.getElementById("admin-model-status");
+
+/**
+ * 모델 변경 시 키 출처 dropdown 을 backend 에서 받은 등록 여부 (admin/personal)
+ * 기반으로 동적 구성. 옵션:
+ *  - 어드민 키 등록 → "관리자 API Key" option
+ *  - 개인 키 등록 → "개인 API Key" option
+ *  - 둘 다 없음 → "등록된 키 없음" placeholder (disabled)
+ *  - 둘 다 있음 → admin 기본 선택 (사용자 마지막 선택 source 슬롯이 있으면 그 값)
+ */
+function refreshKeySourceSelector(modelKey, sourceSelectorId) {
+  const sel = document.getElementById(sourceSelectorId);
+  if (!sel || !modelKey) return;
+  // 즉시 fallback — admin 모델 select 의 dataset.hasApiKey 보고 admin 등록 여부
+  // 추정. 개인 키는 backend 응답 받기 전엔 모름 → admin 만 렌더하고 backend
+  // 응답 오면 personal 까지 합쳐서 다시 렌더 (멱등).
+  let inferredHasAdmin = false;
+  const section = sel.dataset.keySourceSection;
+  let modelKeySelectId;
+  if (section === "admin") modelKeySelectId = "admin-model-select";
+  else if (section === "project") modelKeySelectId = "project-model-select";
+  else if (section === "supported")
+    modelKeySelectId = "supported-model-subselect";
+  if (modelKeySelectId) {
+    const modelSel = document.getElementById(modelKeySelectId);
+    if (modelSel) {
+      const opt = Array.from(modelSel.options).find(
+        (o) => o.value === modelKey,
+      );
+      if (opt?.dataset.hasApiKey === "true") inferredHasAdmin = true;
+    }
+  }
+  // 1차 렌더 — admin 추정값 + personal=false 로. 응답 오면 정확한 값으로 재렌더.
+  renderKeySourceOptions(sel, inferredHasAdmin, false, "");
+  vscode.postMessage({ command: "getApiKeyAvailability", modelKey });
+  sel.dataset.pendingModelKey = modelKey;
+}
+
+function renderKeySourceOptions(sel, hasAdmin, hasPersonal, savedSource) {
+  // 옵션 재구성 — 등록된 키만 노출. 둘 다 없으면 disabled placeholder.
+  while (sel.firstChild) sel.removeChild(sel.firstChild);
+  if (!hasAdmin && !hasPersonal) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "등록된 키 없음";
+    opt.disabled = true;
+    opt.selected = true;
+    sel.appendChild(opt);
+    sel.disabled = true;
+    return;
+  }
+  sel.disabled = false;
+  if (hasAdmin) {
+    const opt = document.createElement("option");
+    opt.value = "admin";
+    opt.textContent = "관리자 API Key";
+    sel.appendChild(opt);
+  }
+  if (hasPersonal) {
+    const opt = document.createElement("option");
+    opt.value = "personal";
+    opt.textContent = "개인 API Key";
+    sel.appendChild(opt);
+  }
+  // 기본 선택 우선순위:
+  //  1) 사용자가 이전에 명시 선택한 source (있고 옵션에 있으면)
+  //  2) admin 키 있으면 admin
+  //  3) 개인 키만 있으면 personal
+  let target = "";
+  if (savedSource === "admin" && hasAdmin) target = "admin";
+  else if (savedSource === "personal" && hasPersonal) target = "personal";
+  else if (hasAdmin) target = "admin";
+  else if (hasPersonal) target = "personal";
+  sel.value = target;
+}
+
 function handleCustomModelChange(select, statusEl) {
   const selectedKey = select.value;
   if (!selectedKey) return;
@@ -2001,18 +2081,13 @@ function handleCustomModelChange(select, statusEl) {
   } catch (e) {
     console.warn("Failed to autosave model:", e);
   }
-  // 공용 API 키 상태 표시
-  if (statusEl) {
-    const opt = select.options[select.selectedIndex];
-    if (opt?.dataset.hasApiKey === "true") {
-      showStatus(
-        statusEl,
-        "공용 API 키가 설정되어 있습니다. 별도 키 입력 없이 사용 가능합니다.",
-        "success",
-      );
-    } else {
-      statusEl.textContent = "";
-    }
+  // 공용 API 키 상태 텍스트는 출력하지 않음 — drop-down 항목 노출로 대체.
+  if (statusEl) statusEl.textContent = "";
+  // 키 출처 selector 갱신 — admin / project 섹션 별 mapping
+  if (select.id === "admin-model-select") {
+    refreshKeySourceSelector(selectedKey, "admin-model-key-source");
+  } else if (select.id === "project-model-select") {
+    refreshKeySourceSelector(selectedKey, "project-model-key-source");
   }
 }
 
@@ -2030,19 +2105,27 @@ if (projectModelSelect) {
   );
 }
 
-// 커스텀 모델 API 키 저장 버튼
+// 모델별 personal API 키 저장 버튼 — admin/project/supported 섹션 모두 같은
+// `saveAdminApiKey` 명령으로 통일 (modelKey 명시). 핸들러가 한 슬롯
+// (`codepilot.adminApiKey.<modelKey>`) 에 저장하므로 getApiKeyAvailability 가
+// 같은 슬롯에서 읽고 dropdown 에 "개인 API Key" 옵션 노출.
 document
   .getElementById("save-admin-model-api-key-button")
   ?.addEventListener("click", () => {
     const input = document.getElementById("admin-model-api-key-input");
     const key = adminModelSelect?.value;
+    const apiKey = input?.value?.trim() || "";
+    if (!apiKey) {
+      showStatus(adminModelStatus, "API 키를 입력해주세요.", "error");
+      return;
+    }
     if (input && key) {
       vscode.postMessage({
-        command: "saveCustomModelApiKey",
+        command: "saveAdminApiKey",
         modelKey: key,
-        apiKey: input.value,
+        apiKey,
       });
-      showStatus(adminModelStatus, "API 키가 저장되었습니다.", "success");
+      showStatus(adminModelStatus, "API 키 저장 중...", "info");
       input.value = "";
     }
   });
@@ -2051,16 +2134,75 @@ document
   ?.addEventListener("click", () => {
     const input = document.getElementById("project-model-api-key-input");
     const key = projectModelSelect?.value;
+    const apiKey = input?.value?.trim() || "";
+    if (!apiKey) {
+      showStatus(projectModelStatus, "API 키를 입력해주세요.", "error");
+      return;
+    }
     if (input && key) {
       vscode.postMessage({
-        command: "saveCustomModelApiKey",
+        command: "saveAdminApiKey",
         modelKey: key,
-        apiKey: input.value,
+        apiKey,
       });
-      showStatus(projectModelStatus, "API 키가 저장되었습니다.", "success");
+      showStatus(projectModelStatus, "API 키 저장 중...", "info");
       input.value = "";
     }
   });
+
+// 삭제 버튼 — 3 섹션 공통. modelKey 명시.
+function bindDeleteApiKeyButton(buttonId, modelSel, statusEl) {
+  document.getElementById(buttonId)?.addEventListener("click", () => {
+    const mk =
+      typeof modelSel === "function" ? modelSel() : modelSel?.value || "";
+    if (!mk) {
+      if (statusEl)
+        showStatus(statusEl, "모델이 선택되지 않았습니다.", "error");
+      return;
+    }
+    vscode.postMessage({ command: "deleteAdminApiKey", modelKey: mk });
+    if (statusEl) showStatus(statusEl, "삭제 중...", "info");
+  });
+}
+bindDeleteApiKeyButton(
+  "delete-admin-model-api-key-button",
+  () => adminModelSelect?.value || "",
+  adminModelStatus,
+);
+bindDeleteApiKeyButton(
+  "delete-project-model-api-key-button",
+  () => projectModelSelect?.value || "",
+  projectModelStatus,
+);
+bindDeleteApiKeyButton(
+  "delete-supported-model-api-key-button",
+  () => currentSupportedModelKey || "",
+  supportedModelStatus,
+);
+
+// 키 출처 dropdown change — saveApiKeySource 호출.
+function bindKeySourceSelector(selectorId, modelKeyResolver) {
+  const sel = document.getElementById(selectorId);
+  if (!sel) return;
+  sel.addEventListener("change", () => {
+    const mk = modelKeyResolver();
+    const source = sel.value || "";
+    if (!mk) return;
+    vscode.postMessage({ command: "saveApiKeySource", modelKey: mk, source });
+  });
+}
+bindKeySourceSelector(
+  "admin-model-key-source",
+  () => adminModelSelect?.value || "",
+);
+bindKeySourceSelector(
+  "project-model-key-source",
+  () => projectModelSelect?.value || "",
+);
+bindKeySourceSelector(
+  "supported-model-key-source",
+  () => currentSupportedModelKey || "",
+);
 
 // 지원 모델 서브셀렉트 이벤트 리스너
 if (supportedModelSubselect) {
@@ -2081,6 +2223,8 @@ if (supportedModelSubselect) {
         model: `supported:${newKey}`,
       });
     }
+    // 키 출처 selector 갱신
+    refreshKeySourceSelector(newKey, "supported-model-key-source");
   });
 }
 
@@ -2099,8 +2243,12 @@ if (saveSupportedModelApiKeyButton) {
     }
     if (!currentSupportedModelKey) return;
 
-    // admin 모델 API 키 저장
-    vscode.postMessage({ command: "saveAdminApiKey", apiKey: apiKey });
+    // 지원 모델 personal API 키 저장 — modelKey 명시 (selector 의 현재 값).
+    vscode.postMessage({
+      command: "saveAdminApiKey",
+      modelKey: currentSupportedModelKey,
+      apiKey: apiKey,
+    });
 
     if (supportedModelStatus) {
       supportedModelStatus.textContent = "API 키 저장 중...";
@@ -2173,20 +2321,150 @@ window.addEventListener("message", (event) => {
         supportedModelStatus.className = "info-message error-message";
       }
       break;
-    case "adminApiKeySaved":
-      if (supportedModelStatus) {
-        supportedModelStatus.textContent = "API 키가 저장되었습니다.";
-        supportedModelStatus.className = "info-message success-message";
+    case "adminApiKeySaved": {
+      const savedKey = message.modelKey || "";
+      // 저장 응답 — 어떤 섹션이 저장 트리거를 보냈는지 modelKey 매칭으로 식별 후
+      // 그 섹션 status 만 갱신. 매칭 실패 시 모든 섹션 success 표기 (fallback).
+      const sectionMap = [
+        {
+          modelSelId: "admin-model-select",
+          status: adminModelStatus,
+          input: document.getElementById("admin-model-api-key-input"),
+        },
+        {
+          modelSelId: "project-model-select",
+          status: projectModelStatus,
+          input: document.getElementById("project-model-api-key-input"),
+        },
+        {
+          modelSelId: "supported-model-subselect",
+          status: supportedModelStatus,
+          input: supportedModelApiKeyInput,
+        },
+      ];
+      let matched = false;
+      sectionMap.forEach(({ modelSelId, status, input }) => {
+        const modelSel = document.getElementById(modelSelId);
+        const mk = modelSel?.value || "";
+        if (savedKey && savedKey === mk) {
+          if (status) showStatus(status, "API 키가 저장되었습니다.", "success");
+          if (input) input.value = "";
+          matched = true;
+        }
+      });
+      if (!matched) {
+        sectionMap.forEach(({ status, input }) => {
+          if (status) showStatus(status, "API 키가 저장되었습니다.", "success");
+          if (input) input.value = "";
+        });
       }
-      if (supportedModelApiKeyInput) {
-        supportedModelApiKeyInput.value = "";
+      // 키 저장 직후 dropdown optimistic 렌더 — backend availability 응답 못 받아도
+      // 사용자에게 "개인 API Key" 옵션 즉시 노출. backend 응답 시 정확한 값으로 재렌더 (멱등).
+      [
+        ["admin-model-key-source", "admin-model-select"],
+        ["project-model-key-source", "project-model-select"],
+        ["supported-model-key-source", "supported-model-subselect"],
+      ].forEach(([sourceSelId, modelSelId]) => {
+        const modelSel = document.getElementById(modelSelId);
+        const mk = modelSel?.value;
+        if (!mk) return;
+        if (savedKey && savedKey === mk) {
+          const sel = document.getElementById(sourceSelId);
+          if (sel) {
+            const opt = Array.from(modelSel.options).find(
+              (o) => o.value === mk,
+            );
+            const inferredHasAdmin = opt?.dataset.hasApiKey === "true";
+            renderKeySourceOptions(sel, inferredHasAdmin, true, "personal");
+          }
+        }
+        refreshKeySourceSelector(mk, sourceSelId);
+      });
+      break;
+    }
+    case "adminApiKeySaveError": {
+      const failedKey = message.modelKey || "";
+      const errMsg = `API 키 저장 실패: ${message.error || ""}`;
+      const sections = [
+        { modelSelId: "admin-model-select", status: adminModelStatus },
+        { modelSelId: "project-model-select", status: projectModelStatus },
+        {
+          modelSelId: "supported-model-subselect",
+          status: supportedModelStatus,
+        },
+      ];
+      let matched = false;
+      sections.forEach(({ modelSelId, status }) => {
+        const mk = document.getElementById(modelSelId)?.value || "";
+        if (failedKey && failedKey === mk && status) {
+          showStatus(status, errMsg, "error");
+          matched = true;
+        }
+      });
+      if (!matched) {
+        sections.forEach(({ status }) => {
+          if (status) showStatus(status, errMsg, "error");
+        });
       }
       break;
-    case "adminApiKeySaveError":
-      if (supportedModelStatus) {
-        supportedModelStatus.textContent = `API 키 저장 실패: ${message.error}`;
-        supportedModelStatus.className = "info-message error-message";
-      }
+    }
+    case "apiKeyAvailabilityLoaded": {
+      // backend 응답 — 어드민/개인 키 등록 여부 + 사용자 마지막 source 선택.
+      // 해당 섹션 selector 의 옵션을 동적으로 구성.
+      const mk = message.modelKey || "";
+      const hasAdmin = !!message.hasAdmin;
+      const hasPersonal = !!message.hasPersonal;
+      const savedSource = message.source || "";
+      [
+        "admin-model-key-source",
+        "project-model-key-source",
+        "supported-model-key-source",
+      ].forEach((id) => {
+        const sel = document.getElementById(id);
+        if (!sel) return;
+        if (sel.dataset.pendingModelKey === mk) {
+          renderKeySourceOptions(sel, hasAdmin, hasPersonal, savedSource);
+          delete sel.dataset.pendingModelKey;
+        }
+      });
+      break;
+    }
+    case "apiKeySourceSaved":
+      // backend 저장 완료 — silent.
+      break;
+    case "apiKeySourceSaveError":
+      console.warn("[Settings] apiKeySource save failed:", message.error);
+      break;
+    case "adminApiKeyDeleted": {
+      const mk = message.modelKey || "";
+      const sections = [
+        {
+          modelSelId: "admin-model-select",
+          status: adminModelStatus,
+          sourceSelId: "admin-model-key-source",
+        },
+        {
+          modelSelId: "project-model-select",
+          status: projectModelStatus,
+          sourceSelId: "project-model-key-source",
+        },
+        {
+          modelSelId: "supported-model-subselect",
+          status: supportedModelStatus,
+          sourceSelId: "supported-model-key-source",
+        },
+      ];
+      sections.forEach(({ modelSelId, status, sourceSelId }) => {
+        const cur = document.getElementById(modelSelId)?.value || "";
+        if (cur === mk && status) {
+          showStatus(status, "개인 API 키가 삭제되었습니다.", "success");
+        }
+        if (cur === mk) refreshKeySourceSelector(mk, sourceSelId);
+      });
+      break;
+    }
+    case "adminApiKeyDeleteError":
+      console.warn("[Settings] adminApiKey delete failed:", message.error);
       break;
     case "ollamaModels": {
       // console.log('[Settings] Received ollamaModels message:', message);
@@ -5180,8 +5458,6 @@ async function openAddPolicyFlow(category) {
   const btn = document.getElementById(`add-${cat}-button`);
   if (btn) btn.addEventListener("click", () => openAddPolicyFlow(cat));
 });
-
-
 
 // AgentPolicy 관련 메시지 핸들러 (다중 파일 지원)
 window.addEventListener("message", (event) => {

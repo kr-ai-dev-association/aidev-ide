@@ -497,12 +497,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 this.context,
                 adminKey,
               );
+              const sharedApiKeyForChatAdmin = v.api_key || v.apiKey || "";
+              const { resolveApiKeyBySource } =
+                await import("../../utils/userApiKey");
+              const resolvedAdminApiKey = resolveApiKeyBySource(
+                this.context,
+                adminKey,
+                sharedApiKeyForChatAdmin,
+                chatAdminUserApiKey,
+              );
               const customHeaders = v.customHeaders || v.custom_headers || {};
               const adminConfig = {
                 key: adminKey,
                 provider: v.provider || "",
                 model: v.model || v.model_name || "",
-                apiKey: chatAdminUserApiKey || v.api_key || v.apiKey || "",
+                apiKey: resolvedAdminApiKey,
                 endpoint: v.base_url || v.endpoint || "",
                 maxTokens: v.max_tokens || v.maxTokens || undefined,
                 maxOutputTokens:
@@ -579,11 +588,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 this.context,
                 presetKey,
               );
+              const sharedApiKeyForChatSupported = v.api_key || v.apiKey || "";
+              const { resolveApiKeyBySource: resolveSupportedKey } =
+                await import("../../utils/userApiKey");
+              const resolvedSupportedApiKey = resolveSupportedKey(
+                this.context,
+                presetKey,
+                sharedApiKeyForChatSupported,
+                chatUserApiKey,
+              );
               const adminConfig = {
                 key: presetKey,
                 provider: v.provider || "chat_completions",
                 model: v.model || v.model_name || "",
-                apiKey: chatUserApiKey || v.api_key || v.apiKey || "",
+                apiKey: resolvedSupportedApiKey,
                 endpoint: v.base_url || v.endpoint || "",
                 maxTokens: v.max_tokens || v.maxTokens || undefined,
                 maxOutputTokens:

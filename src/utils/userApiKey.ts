@@ -62,3 +62,61 @@ export async function cleanupLegacyApiKeySlot(
     /* 실패해도 사용자 영향 없음 — silent */
   }
 }
+
+/**
+ * 사용자가 settings UI 에서 명시 선택한 키 출처 슬롯.
+ *  - "admin"   → admin 공유 키 사용
+ *  - "personal" → 사용자 로컬 키 사용
+ *  - ""        → 미설정 (legacy default: personal 우선, 없으면 admin)
+ *
+ * 모델별 분리 슬롯: `codepilot.apiKeySource.<modelKey>`.
+ */
+const API_KEY_SOURCE_PREFIX = "codepilot.apiKeySource";
+
+export function getApiKeySource(
+  context: vscode.ExtensionContext,
+  modelKey: string,
+): string {
+  if (!modelKey) return "";
+  return (
+    context.globalState.get<string>(`${API_KEY_SOURCE_PREFIX}.${modelKey}`) ||
+    ""
+  );
+}
+
+export async function setApiKeySource(
+  context: vscode.ExtensionContext,
+  modelKey: string,
+  source: string,
+): Promise<void> {
+  if (!modelKey) return;
+  await context.globalState.update(
+    `${API_KEY_SOURCE_PREFIX}.${modelKey}`,
+    source,
+  );
+}
+
+/**
+ * adminConfig 적용 직전에 호출 — apiKeySource 슬롯 보고 admin 공유 키와 사용자
+ * 개인 키 중 무엇을 쓸지 결정해서 반환.
+ *
+ *  - source="admin"   → sharedApiKey
+ *  - source="personal" → userApiKey
+ *  - source=""        → personal 우선, 없으면 shared (legacy default)
+ *
+ * caller 가 이 반환값을 adminConfig.apiKey 로 박은 뒤 LLMManager.setAdminModelConfig
+ * 호출. 모든 호출처가 이 헬퍼를 통과하면 dropdown 토글이 모든 진입점에서 일관되게
+ * 동작.
+ */
+export function resolveApiKeyBySource(
+  context: vscode.ExtensionContext,
+  modelKey: string,
+  sharedApiKey: string,
+  userApiKey: string,
+): string {
+  const source = getApiKeySource(context, modelKey);
+  if (source === "admin") return sharedApiKey || "";
+  if (source === "personal") return userApiKey || "";
+  // legacy default — personal 우선, 없으면 shared.
+  return userApiKey || sharedApiKey || "";
+}
