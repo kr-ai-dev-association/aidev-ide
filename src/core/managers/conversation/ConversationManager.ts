@@ -5625,11 +5625,13 @@ export class ConversationManager implements IConversationHandler {
       return false;
     }
 
-    // execution 카테고리 또는 code 카테고리의 code_generate/code_modify 서브타입
+    // execution 카테고리 또는 code 카테고리의 code_generate/code_modify/code_remove 서브타입
     const isExecutionCategory = intent.category === "execution";
     const isCodeGenerateOrModify =
       intent.category === "code" &&
-      (intent.subtype === "code_generate" || intent.subtype === "code_modify");
+      (intent.subtype === "code_generate" ||
+        intent.subtype === "code_modify" ||
+        intent.subtype === "code_remove");
 
     // confidence >= MIN_EXECUTION_FIRST_CONFIDENCE 필수
     const hasHighConfidence =
@@ -6194,14 +6196,21 @@ export class ConversationManager implements IConversationHandler {
 
     const isCodeGenerateIntent = intent && intent.subtype === "code_generate";
 
-    if ((isCodeModifyIntent || isCodeGenerateIntent) && !hasFileToolInHistory) {
+    const isCodeRemoveIntent = intent && intent.subtype === "code_remove";
+
+    if (
+      (isCodeModifyIntent || isCodeGenerateIntent || isCodeRemoveIntent) &&
+      !hasFileToolInHistory
+    ) {
       console.log(
         `[ConversationManager] EXECUTION phase: ${intent!.subtype} intent requires write tool. Continuing.`,
       );
       accumulatedUserParts.push({
         text: isCodeModifyIntent
           ? getCodeModifyRequiresFileToolPrompt()
-          : `\n[System] 조사 결과를 바탕으로 실제 파일을 생성하세요. create_file, update_file 등의 도구를 사용하여 사용자가 요청한 코드를 작성하세요.`,
+          : isCodeRemoveIntent
+            ? `\n[System] You have inspected the relevant files. Now perform the actual deletion the user requested by calling update_file (to remove the referenced code blocks) or remove_file (to delete the whole file). Do not end the turn without a write/delete tool call.`
+            : `\n[System] 조사 결과를 바탕으로 실제 파일을 생성하세요. create_file, update_file 등의 도구를 사용하여 사용자가 요청한 코드를 작성하세요.`,
       });
       return {
         turnAction: { action: "continue" },

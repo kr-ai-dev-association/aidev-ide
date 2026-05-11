@@ -2,7 +2,25 @@
 
 VSCode AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.0.78**
+> **현재 버전: v1.0.79**
+
+---
+
+## v1.0.79 (2026-05-11)
+
+### fix(execution): `code_remove` intent 가 EXECUTION 첫 턴에 무반응으로 종료되던 버그
+
+**증상**: "사이드 메뉴 버튼 2 삭제해줘" 처럼 항목 1개 삭제를 요청하면 LLM 이 `ripgrep_search` / `read_file` 만 호출한 직후 세션이 아무 응답 없이 종료. 반면 "테스트2, 테스트3 삭제해줘" 처럼 2개 이상을 요청하면 정상 동작 — 동일 모델인데 항목 수에 따라 결과가 갈리던 회귀.
+
+**원인 두 가지가 맞물림**:
+
+1. **EXECUTION 종료 가드에서 `code_remove` 누락** (`ConversationManager.ts` 종료 분기) — 가드가 `code_modify` / `code_generate` 만 검사해서, `code_remove` intent 인데 첫 턴이 읽기 도구뿐이면 `hasFileToolInHistory=false` 인 채로 "All tasks completed. No file changes detected" 로 떨어져 즉시 REVIEW → DONE.
+
+2. **`isExecutionFirstTask` 헬퍼의 서브타입 화이트리스트에서 `code_remove` 누락** — code 카테고리 중 `code_generate`/`code_modify` 만 execution-first 로 인정되어, intent detector 가 단일 항목 요청에 `requiresPlan=false` 를 내면 INVESTIGATION 우회 경로조차 못 타고 EXECUTION 으로 직진. 2개 이상이면 intent 가 `requiresPlan=true` 를 자주 내서 INVESTIGATION 경로로 우회되어 우연히 성공했던 것.
+
+**fix**: 두 곳 모두 `code_remove` 를 동일하게 화이트리스트에 추가. 추가로 가드에 걸렸을 때 `code_remove` 전용 안내문 (`update_file` 또는 `remove_file` 사용하라는) 을 LLM 에 push.
+
+**영향**: 단일 / 다중 항목 삭제 모두 동일하게 EXECUTION 가드가 작동 → 첫 턴이 조사 도구만으로 끝나도 다음 턴에 실제 쓰기/삭제 도구 호출이 강제되어 무반응 종료 차단.
 
 ---
 
