@@ -2,8 +2,23 @@
 
 VS Code용 AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.2.2**  
+> **현재 버전: v1.2.3**  
 > **브랜치:** `agentgocoder`
+
+---
+
+## v1.2.3 (2026-06-10)
+
+### OpenAI 추론 모델(GPT-5 / o-시리즈) 호출 지원
+
+`OpenAICompatProvider`가 추론 모델을 자동 감지해 올바른 파라미터로 요청하도록 수정. 기존엔 모든 모델에 `max_tokens` + `temperature`/`top_p`를 보내, GPT-5·o-시리즈가 **400 에러**로 호출 불가했음.
+
+- **추론 모델 감지**: 모델 ID가 `o1`/`o3`/`o4`·`gpt-5*` 패턴(예: `gpt-5.5`, `gpt-5.4-mini`, `openai/gpt-5.1`)이면 추론 모델로 판별.
+- **`max_completion_tokens` 전환**: 추론 모델은 `max_tokens` 대신 `max_completion_tokens`를 요구 → 자동 전환.
+- **샘플링 파라미터 생략**: 추론 모델이 거부하는 `temperature`/`top_p`를 제외.
+- **비표준 `think` 차단**: 네이티브 툴 콜링 OFF 상태에서도 추론 모델엔 `think:false`를 보내지 않음.
+
+**영향 없음:** `gpt-4o`·`gpt-4o-mini`·`gpt-3.5-turbo` 등 일반 OpenAI 모델과 vllm·Groq·DeepSeek 등 다른 OpenAI 호환 엔드포인트는 기존 동작(`max_tokens` + `temperature`/`top_p`) 그대로 유지.
 
 ---
 
