@@ -97,6 +97,22 @@ export class SettingsManager extends BaseManager {
         ai_model: [
           // Google (Gemini) - OpenAI 호환 엔드포인트
           {
+            key: "gemini-3.5-flash",
+            source: "preset",
+            group: "gemini",
+            enforcement: "recommended",
+            value: {
+              name: "Gemini 3.5 Flash",
+              provider: "openai",
+              model: "gemini-3.5-flash",
+              baseUrl:
+                "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+              authType: "bearer",
+              streamingSupported: true,
+              contextWindow: 1048576,
+            },
+          },
+          {
             key: "gemini-3.1-pro-preview",
             source: "preset",
             group: "gemini",
@@ -121,6 +137,22 @@ export class SettingsManager extends BaseManager {
               name: "Gemini 3 Flash",
               provider: "openai",
               model: "gemini-3-flash-preview",
+              baseUrl:
+                "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+              authType: "bearer",
+              streamingSupported: true,
+              contextWindow: 1048576,
+            },
+          },
+          {
+            key: "gemini-3.1-flash-lite",
+            source: "preset",
+            group: "gemini",
+            enforcement: "recommended",
+            value: {
+              name: "Gemini 3.1 Flash-Lite",
+              provider: "openai",
+              model: "gemini-3.1-flash-lite",
               baseUrl:
                 "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
               authType: "bearer",
@@ -237,6 +269,21 @@ export class SettingsManager extends BaseManager {
             },
           },
           // Anthropic (Claude)
+          {
+            key: "claude-opus-4-8",
+            source: "preset",
+            group: "claude",
+            enforcement: "recommended",
+            value: {
+              name: "Claude Opus 4.8",
+              provider: "anthropic",
+              model: "claude-opus-4-8",
+              baseUrl: "https://api.anthropic.com",
+              authType: "x-api-key",
+              streamingSupported: true,
+              contextWindow: 200000,
+            },
+          },
           {
             key: "claude-opus-4-6",
             source: "preset",

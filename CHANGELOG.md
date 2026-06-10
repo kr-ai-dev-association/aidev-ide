@@ -2,8 +2,26 @@
 
 VS Code용 AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.2.3**  
+> **현재 버전: v1.2.4**  
 > **브랜치:** `agentgocoder`
+
+---
+
+## v1.2.4 (2026-06-10)
+
+### 최신 모델 추가 + 모델 직접 입력 간소화
+
+**추가된 프리셋 모델** (`settings.js` + `SettingsManager.ts`):
+
+- **Claude Opus 4.8** (`claude-opus-4-8`) — Anthropic 최신 플래그십 (2026-05-28 출시)
+- **Gemini 3.5 Flash** (`gemini-3.5-flash`) — Google 최신 GA 모델
+- **Gemini 3.1 Flash-Lite** (`gemini-3.1-flash-lite`) — 최저가 옵션
+
+**모델 ID 직접 입력 간소화 — 엔드포인트 자동채움:**
+
+- 사용자 모델 추가 폼에서 프로바이더(OpenAI / Gemini / Claude / vllm 등)를 선택하면 **엔드포인트가 자동으로 채워짐** → 모델 ID·이름·API 키만 입력하면 등록.
+- 새 LLM 버전이 나와도 **프리셋/확장 업데이트 없이** 사용자가 직접 모델을 추가 가능 (드롭다운 버전 프리셋 유지보수 부담 해소).
+- 편집 시 저장된 엔드포인트는 보존.
 
 ---
 

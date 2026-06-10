@@ -23,6 +23,20 @@ let cachedServerSettings = {
   ai_model: [
     // Google (Gemini) - OpenAI 호환 엔드포인트
     {
+      key: "gemini-3.5-flash",
+      source: "preset",
+      group: "gemini",
+      value: {
+        name: "Gemini 3.5 Flash",
+        provider: "openai",
+        model: "gemini-3.5-flash",
+        baseUrl:
+          "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        authType: "bearer",
+        streamingSupported: true,
+      },
+    },
+    {
       key: "gemini-3.1-pro-preview",
       source: "preset",
       group: "gemini",
@@ -44,6 +58,20 @@ let cachedServerSettings = {
         name: "Gemini 3 Flash",
         provider: "openai",
         model: "gemini-3-flash-preview",
+        baseUrl:
+          "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        authType: "bearer",
+        streamingSupported: true,
+      },
+    },
+    {
+      key: "gemini-3.1-flash-lite",
+      source: "preset",
+      group: "gemini",
+      value: {
+        name: "Gemini 3.1 Flash-Lite",
+        provider: "openai",
+        model: "gemini-3.1-flash-lite",
         baseUrl:
           "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         authType: "bearer",
@@ -145,6 +173,19 @@ let cachedServerSettings = {
       },
     },
     // Anthropic (Claude)
+    {
+      key: "claude-opus-4-8",
+      source: "preset",
+      group: "claude",
+      value: {
+        name: "Claude Opus 4.8",
+        provider: "anthropic",
+        model: "claude-opus-4-8",
+        baseUrl: "https://api.anthropic.com",
+        authType: "x-api-key",
+        streamingSupported: true,
+      },
+    },
     {
       key: "claude-opus-4-6",
       source: "preset",
@@ -6188,6 +6229,18 @@ window.addEventListener("message", (event) => {
     if (endpointInput) endpointInput.placeholder = ph.endpoint;
   }
 
+  /**
+   * 프로바이더 선택 시 엔드포인트를 실제 값으로 자동 채움.
+   * → 새 LLM 버전이 나와도 프리셋/확장 업데이트 없이 모델 ID만 입력하면 됨.
+   * 편집(populateForm)은 resetForm 직후 저장된 엔드포인트로 덮어쓰므로 영향 없음.
+   */
+  function applyProviderEndpoint() {
+    if (!providerSel || !endpointInput) return;
+    const preset =
+      PROVIDER_PLACEHOLDERS[providerSel.value] || PROVIDER_PLACEHOLDERS.custom;
+    endpointInput.value = preset.endpoint;
+  }
+
   function applyAuthTypeVisibility() {
     if (!authTypeSel || !authHeaderGroup) return;
     authHeaderGroup.style.display =
@@ -6216,6 +6269,7 @@ window.addEventListener("message", (event) => {
     if (formErrorEl) formErrorEl.textContent = "";
     applyAuthTypeVisibility();
     applyProviderPlaceholders();
+    applyProviderEndpoint();
   }
 
   function populateForm(m) {
@@ -6399,7 +6453,10 @@ window.addEventListener("message", (event) => {
     });
   }
   if (providerSel)
-    providerSel.addEventListener("change", applyProviderPlaceholders);
+    providerSel.addEventListener("change", () => {
+      applyProviderPlaceholders();
+      applyProviderEndpoint();
+    });
   if (authTypeSel)
     authTypeSel.addEventListener("change", applyAuthTypeVisibility);
 
