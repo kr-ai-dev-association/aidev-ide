@@ -502,9 +502,30 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             // 서버 설정에서 지원 모델 config 추출 및 적용
             const aiModelSettings =
               this.configurationService.getServerSettings("ai_model");
-            const presetSetting = aiModelSettings.find(
+            let presetSetting: any = aiModelSettings.find(
               (s: any) => s.key === presetKey,
             );
+            // 직접 입력 모델: custom::{group}::{modelId}
+            // → 그룹 프리셋의 엔드포인트/프로바이더/인증 기본값 + 입력한 modelId
+            if (presetKey.startsWith("custom::")) {
+              const body = presetKey.substring("custom::".length);
+              const sep = body.indexOf("::");
+              const grp = sep >= 0 ? body.substring(0, sep) : body;
+              const customModelId = sep >= 0 ? body.substring(sep + 2) : "";
+              const base = aiModelSettings.find(
+                (s: any) =>
+                  ((s as any).group || s.value?.group) === grp && s.value,
+              );
+              if (base && base.value && customModelId) {
+                presetSetting = {
+                  ...base,
+                  key: presetKey,
+                  value: { ...base.value, model: customModelId },
+                };
+              } else {
+                presetSetting = undefined;
+              }
+            }
             if (presetSetting?.value) {
               const v = presetSetting.value;
               const customHeaders = v.customHeaders || v.custom_headers || {};

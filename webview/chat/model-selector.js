@@ -69,7 +69,26 @@ export function populateModelDropdown(
   modelDropdown.innerHTML = "";
 
   // 지원 모델 (서버 프리셋 기반 — 그룹별 표시)
-  const supportedModelList = supportedModels || [];
+  let supportedModelList = supportedModels || [];
+  // 직접 입력 모델(supported:custom::{group}::{modelId})은 프리셋에 없으므로
+  // 현재 선택 항목을 깔끔한 라벨(모델 ID)로 합성해 끼워넣는다.
+  if (typeof current === "string" && current.startsWith("supported:custom::")) {
+    const inner = current.substring("supported:custom::".length);
+    const i = inner.indexOf("::");
+    const grp = i >= 0 ? inner.substring(0, i) : "";
+    const mid = i >= 0 ? inner.substring(i + 2) : inner;
+    if (mid && !supportedModelList.some((s) => s.name === current)) {
+      supportedModelList = [
+        ...supportedModelList,
+        {
+          key: current.substring("supported:".length),
+          name: current,
+          displayName: mid,
+          group: grp || "custom",
+        },
+      ];
+    }
+  }
   if (supportedModelList.length > 0) {
     const groups = {};
     supportedModelList.forEach((m) => {

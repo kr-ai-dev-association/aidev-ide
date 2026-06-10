@@ -57,9 +57,17 @@ export function openSettingsPanel(
 
       // 프로바이더별 API 키 조회 헬퍼
       const getProviderApiKey = (presetKey: string): string => {
-        const aiModels = settingsManager.getServerSettings("ai_model");
-        const preset = aiModels.find((s: any) => s.key === presetKey);
-        const group = (preset as any)?.group || "";
+        let group = "";
+        // 직접 입력 모델: custom::{group}::{modelId} → group 추출
+        if (typeof presetKey === "string" && presetKey.startsWith("custom::")) {
+          const body = presetKey.substring("custom::".length);
+          const i = body.indexOf("::");
+          group = i >= 0 ? body.substring(0, i) : body;
+        } else {
+          const aiModels = settingsManager.getServerSettings("ai_model");
+          const preset = aiModels.find((s: any) => s.key === presetKey);
+          group = (preset as any)?.group || "";
+        }
         if (group) {
           return (
             context.globalState.get<string>(`agentgocoder.apiKey.${group}`) ||
@@ -1337,9 +1345,31 @@ export function openSettingsPanel(
                 // 서버 설정에서 지원 모델 config 추출
                 const aiModelSettings =
                   settingsManager.getServerSettings("ai_model");
-                const presetSetting = aiModelSettings.find(
+                let presetSetting: any = aiModelSettings.find(
                   (s: any) => s.key === presetKey,
                 );
+
+                // 직접 입력 모델: custom::{group}::{modelId}
+                // → 그룹 프리셋의 엔드포인트/프로바이더/인증 기본값 + 입력한 modelId
+                if (presetKey.startsWith("custom::")) {
+                  const body = presetKey.substring("custom::".length);
+                  const sep = body.indexOf("::");
+                  const grp = sep >= 0 ? body.substring(0, sep) : body;
+                  const customModelId = sep >= 0 ? body.substring(sep + 2) : "";
+                  const base = aiModelSettings.find(
+                    (s: any) =>
+                      ((s as any).group || s.value?.group) === grp && s.value,
+                  );
+                  if (base && base.value && customModelId) {
+                    presetSetting = {
+                      ...base,
+                      key: presetKey,
+                      value: { ...base.value, model: customModelId },
+                    };
+                  } else {
+                    presetSetting = undefined;
+                  }
+                }
 
                 if (presetSetting && presetSetting.value) {
                   const v = presetSetting.value;
@@ -2512,7 +2542,17 @@ export function openSettingsPanel(
                 const currentPreset = aiModelSettings.find(
                   (s: any) => s.key === adminConfig.key,
                 );
-                const currentGroup = (currentPreset as any)?.group || "";
+                let currentGroup = (currentPreset as any)?.group || "";
+                // 직접 입력 모델(custom::{group}::{modelId})은 key에서 그룹 도출
+                if (
+                  !currentGroup &&
+                  typeof adminConfig.key === "string" &&
+                  adminConfig.key.startsWith("custom::")
+                ) {
+                  const body = adminConfig.key.substring("custom::".length);
+                  const i = body.indexOf("::");
+                  currentGroup = i >= 0 ? body.substring(0, i) : body;
+                }
                 if (currentGroup === provider) {
                   adminConfig.apiKey = key;
                   await stateManager.saveAdminModelConfig(

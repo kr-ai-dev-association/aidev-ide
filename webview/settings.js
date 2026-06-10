@@ -578,6 +578,12 @@ function populateSupportedModels() {
  * supported:key에서 해당 모델의 그룹명을 찾아 반환
  */
 function findGroupForSupportedKey(supportedKey) {
+  // 직접 입력 모델: custom::{group}::{modelId} → group 추출
+  if (typeof supportedKey === "string" && supportedKey.startsWith("custom::")) {
+    const body = supportedKey.substring("custom::".length);
+    const i = body.indexOf("::");
+    return i >= 0 ? body.substring(0, i) : null;
+  }
   const aiModels = cachedServerSettings["ai_model"] || [];
   const preset = aiModels.find(
     (s) => s.key === supportedKey && s.source === "preset",
@@ -818,14 +824,27 @@ function showSupportedModelSettings(groupName, selectedKey) {
     supportedModelSubselect.removeAttribute("data-pending-supported-key");
   }
 
-  // 선택할 모델 결정 (지정된 key 또는 첫번째)
-  const activePreset = resolvedKey
-    ? groupModels.find((s) => s.key === resolvedKey) || groupModels[0]
-    : groupModels[0];
+  currentSupportedGroup = groupName;
+
+  // 직접 입력 모델 복원 여부 (custom::{group}::{modelId})
+  const isCustom =
+    typeof resolvedKey === "string" && resolvedKey.startsWith("custom::");
+  let customModelId = "";
+  if (isCustom) {
+    const body = resolvedKey.substring("custom::".length);
+    const i = body.indexOf("::");
+    customModelId = i >= 0 ? body.substring(i + 2) : "";
+  }
+
+  // 선택할 모델 결정 (직접 입력이면 그룹 첫 프리셋을 기본값 기준으로 사용)
+  const activePreset =
+    !isCustom && resolvedKey
+      ? groupModels.find((s) => s.key === resolvedKey) || groupModels[0]
+      : groupModels[0];
   const v = activePreset.value || {};
 
   supportedModelSection.style.display = "block";
-  currentSupportedModelKey = activePreset.key;
+  currentSupportedModelKey = isCustom ? null : activePreset.key;
 
   // 제목: 그룹명
   if (supportedModelTitle) {
@@ -836,7 +855,7 @@ function showSupportedModelSettings(groupName, selectedKey) {
     supportedModelDesc.textContent = `${groupName} 모델의 API 설정을 구성하세요.`;
   }
 
-  // 모델 서브 셀렉트 (항상 표시)
+  // 모델 서브 셀렉트 (프리셋 + 직접 입력 옵션)
   if (supportedModelSubselect && supportedModelSubselectGroup) {
     supportedModelSubselectGroup.style.display = "block";
     supportedModelSubselect.innerHTML = "";
@@ -844,9 +863,22 @@ function showSupportedModelSettings(groupName, selectedKey) {
       const opt = document.createElement("option");
       opt.value = s.key;
       opt.textContent = s.value?.name || s.key;
-      if (s.key === activePreset.key) opt.selected = true;
+      if (!isCustom && s.key === activePreset.key) opt.selected = true;
       supportedModelSubselect.appendChild(opt);
     }
+    const customOpt = document.createElement("option");
+    customOpt.value = "__custom__";
+    customOpt.textContent = "+ 직접 입력…";
+    if (isCustom) customOpt.selected = true;
+    supportedModelSubselect.appendChild(customOpt);
+  }
+
+  // 직접 입력 칸 표시/값
+  if (supportedModelCustomGroup) {
+    supportedModelCustomGroup.style.display = isCustom ? "block" : "none";
+  }
+  if (supportedModelCustomId) {
+    supportedModelCustomId.value = isCustom ? customModelId : "";
   }
 
   // authType에 따라 API 키 입력 표시/숨김
@@ -1152,9 +1184,20 @@ const saveSupportedModelApiKeyButton = document.getElementById(
   "save-supported-model-api-key-button",
 );
 const supportedModelStatus = document.getElementById("supported-model-status");
+const supportedModelCustomGroup = document.getElementById(
+  "supported-model-custom-group",
+);
+const supportedModelCustomId = document.getElementById(
+  "supported-model-custom-id",
+);
+const applySupportedModelCustomButton = document.getElementById(
+  "apply-supported-model-custom-button",
+);
 
 // 현재 선택된 지원 모델 키 추적
 let currentSupportedModelKey = null;
+// 현재 지원 모델 섹션의 그룹명(claude/openai/gemini) — 직접 입력 시 사용
+let currentSupportedGroup = null;
 
 // Ollama 설정 그룹
 const ollamaSettingsGroup = document.getElementById("ollama-settings-group");
@@ -2081,6 +2124,25 @@ if (supportedModelSubselect) {
   supportedModelSubselect.addEventListener("change", () => {
     const newKey = supportedModelSubselect.value;
     if (!newKey) return;
+
+    // 직접 입력 모드: 입력칸 표시, 적용 버튼 누르기 전까지 저장 보류
+    if (newKey === "__custom__") {
+      if (supportedModelCustomGroup)
+        supportedModelCustomGroup.style.display = "block";
+      if (supportedModelCustomId) supportedModelCustomId.focus();
+      currentSupportedModelKey = null;
+      const aiModels = cachedServerSettings["ai_model"] || [];
+      const gm = aiModels.find(
+        (s) =>
+          s.source === "preset" &&
+          (s.group || "default") === currentSupportedGroup,
+      );
+      if (gm) updateSupportedModelApiKeySection(gm.value || {});
+      return;
+    }
+
+    if (supportedModelCustomGroup)
+      supportedModelCustomGroup.style.display = "none";
     currentSupportedModelKey = newKey;
     // 선택된 모델의 authType에 따라 API 키 섹션 업데이트
     const aiModels = cachedServerSettings["ai_model"] || [];
@@ -2093,6 +2155,33 @@ if (supportedModelSubselect) {
         command: "saveAiModel",
         model: `supported:${newKey}`,
       });
+    }
+  });
+}
+
+// 직접 입력 모델 적용
+if (applySupportedModelCustomButton) {
+  applySupportedModelCustomButton.addEventListener("click", () => {
+    const modelId = supportedModelCustomId
+      ? supportedModelCustomId.value.trim()
+      : "";
+    if (!modelId) {
+      if (supportedModelStatus) {
+        supportedModelStatus.textContent = "모델 ID를 입력해주세요.";
+        supportedModelStatus.className = "info-message error-message";
+      }
+      return;
+    }
+    if (!currentSupportedGroup) return;
+    if (!isLoadingSettings) {
+      vscode.postMessage({
+        command: "saveAiModel",
+        model: `supported:custom::${currentSupportedGroup}::${modelId}`,
+      });
+    }
+    if (supportedModelStatus) {
+      supportedModelStatus.textContent = `'${modelId}' 적용 중...`;
+      supportedModelStatus.className = "info-message";
     }
   });
 }
@@ -2110,14 +2199,14 @@ if (saveSupportedModelApiKeyButton) {
       }
       return;
     }
-    if (!currentSupportedModelKey) return;
+    if (!currentSupportedModelKey && !currentSupportedGroup) return;
 
-    // 프로바이더별 API 키 저장 (그룹명 포함)
+    // 프로바이더별 API 키 저장 (그룹명 포함; 직접 입력 시 currentSupportedGroup 사용)
     const aiModels = cachedServerSettings["ai_model"] || [];
     const currentPreset = aiModels.find(
       (s) => s.key === currentSupportedModelKey,
     );
-    const providerGroup = currentPreset?.group || "";
+    const providerGroup = currentPreset?.group || currentSupportedGroup || "";
     vscode.postMessage({
       command: "saveProviderApiKey",
       apiKey: apiKey,
