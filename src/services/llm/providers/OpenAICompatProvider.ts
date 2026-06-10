@@ -17,12 +17,28 @@ export class OpenAICompatProvider implements ILLMProvider {
   constructor(private config: AdminModelConfig) {}
 
   /**
-   * OpenAI 추론 모델(o-시리즈, GPT-5+) 여부.
-   * provider/model 접두사 형태(예: openai/gpt-5.1)도 허용한다.
-   * vllm·Groq·DeepSeek 등 다른 OpenAI 호환 모델명은 이 패턴에 걸리지 않으므로
-   * 기존 동작(max_tokens + temperature/top_p)이 그대로 유지된다.
+   * 요청 대상이 실제 OpenAI 또는 Azure OpenAI인지 여부.
+   * max_completion_tokens 규약은 OpenAI/Azure 전용이므로, 추론 모델 분기를
+   * 여기에만 한정한다. provider 라벨(openai/azure) 또는 엔드포인트 호스트로 판별.
+   */
+  private isOpenAIEndpoint(): boolean {
+    const provider = (this.config.provider || "").toLowerCase();
+    if (provider === "openai" || provider === "azure") return true;
+    const endpoint = (this.config.endpoint || "").toLowerCase();
+    return (
+      endpoint.includes("api.openai.com") ||
+      endpoint.includes("openai.azure.com")
+    );
+  }
+
+  /**
+   * OpenAI/Azure 추론 모델(o-시리즈, GPT-5+) 여부.
+   * 엔드포인트가 OpenAI/Azure일 때만 모델명 패턴(provider/model 접두사 형태 포함,
+   * 예: openai/gpt-5.1)으로 판별한다. vllm·Groq·DeepSeek 등 다른 호환 엔드포인트는
+   * 모델 이름이 `gpt-5`·`o3` 같아도 추론 모델로 오인하지 않고 기존 동작을 유지한다.
    */
   private isReasoningModel(): boolean {
+    if (!this.isOpenAIEndpoint()) return false;
     return /(?:^|\/)(o\d|gpt-5)/i.test(this.config.model || "");
   }
 
