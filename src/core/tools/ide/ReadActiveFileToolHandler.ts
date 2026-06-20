@@ -1,6 +1,6 @@
 /**
  * Read Active File Tool Handler
- * VSCode에서 현재 열린 파일 읽기
+ * Reads the currently open file in VSCode
  */
 
 import * as vscode from 'vscode';
@@ -11,7 +11,7 @@ export class ReadActiveFileToolHandler implements IToolHandler {
     readonly name = Tool.READ_ACTIVE_FILE;
 
     getDescription(toolUse: ToolUse): string {
-        return '현재 열린 파일 읽기';
+        return 'Read currently open file';
     }
 
     async execute(toolUse: ToolUse, context: ToolExecutionContext): Promise<ToolResponse> {
@@ -32,7 +32,7 @@ export class ReadActiveFileToolHandler implements IToolHandler {
             const lineCount = document.lineCount;
             const languageId = document.languageId;
 
-            // 파일이 너무 크면 트렁케이트
+            // Truncate if file is too large
             const MAX_LINES = 300;
             let displayContent = content;
             let truncated = false;
@@ -60,7 +60,7 @@ Use read_file with startLine/endLine parameters to read specific ranges.`;
                 truncated = true;
             }
 
-            // 선택 영역이 있으면 포함
+            // Include selection if present
             const selection = activeEditor.selection;
             let selectionInfo = '';
             if (!selection.isEmpty) {

@@ -9,6 +9,7 @@
 
 import { AiModelType, PromptType } from '../../../services';
 import { getGeneralAskPrompt } from './prompts/general/generalAsk';
+import { getPlanPrompt } from './prompts/plan/planPrompt';
 export { PromptType };
 import { PromptComposer, PromptComposerOptions } from './prompts/PromptComposer';
 import { ProjectManager } from '../project/ProjectManager';
@@ -33,6 +34,12 @@ export interface PromptBuilderOptions {
   frameworkRulesPrompt?: string; // v9.2.1: 동적 프레임워크 규칙 프롬프트
   hotLoadPrompt?: string; // Hot Load 프롬프트 (최우선 규칙)
   mcpCustomPrompts?: string; // MCP 서버별 커스텀 프롬프트 (결합된 문자열)
+  ragContext?: string; // 서버 RAG 검색 결과
+  memoryContext?: string; // 영속적 메모리 컨텍스트 (이전 대화에서 저장된 정보)
+  activeSkillKeys?: string[]; // IntentDetector가 선택한 활성 스킬 키 목록
+  subProjectStructure?: string; // 서브프로젝트 구조 (모노레포 경로 grounding)
+  repoMap?: string; // 프로젝트 파일 맵 (파일 경로 + 심볼)
+  nativeMode?: boolean; // 네이티브 API Function Call 모드 (코드 블록 형식 교육 제외)
 }
 
 export class PromptBuilder {
@@ -60,7 +67,26 @@ export class PromptBuilder {
         languageInstruction,
         selectedFilesContent: options.selectedFilesContent,
         terminalContextContent: options.terminalContextContent,
-        diagnosticsContextContent: options.diagnosticsContextContent
+        diagnosticsContextContent: options.diagnosticsContextContent,
+        hotLoadPrompt: options.hotLoadPrompt,
+        ragContext: options.ragContext,
+      });
+    }
+
+    if (promptType === PromptType.PLAN) {
+      return getPlanPrompt({
+        codebaseContext,
+        profileContext,
+        intentContext,
+        realTimeInfo,
+        gitContext,
+        languageInstruction,
+        selectedFilesContent: options.selectedFilesContent,
+        terminalContextContent: options.terminalContextContent,
+        diagnosticsContextContent: options.diagnosticsContextContent,
+        frameworkRulesPrompt: options.frameworkRulesPrompt,
+        hotLoadPrompt: options.hotLoadPrompt,
+        ragContext: options.ragContext,
       });
     }
 
@@ -71,6 +97,7 @@ export class PromptBuilder {
     const composerOptions: PromptComposerOptions = {
       userOS: this.userOS,
       modelType: this.modelType,
+      promptType: options.promptType,
       taskType: taskType,
       projectType: currentProject?.type,
       codebaseContext: codebaseContext, // 코드베이스 컨텍스트 포함
@@ -78,9 +105,15 @@ export class PromptBuilder {
       terminalContextContent: options.terminalContextContent, // 사용자가 선택한 터미널 히스토리 포함
       diagnosticsContextContent: options.diagnosticsContextContent, // 사용자가 선택한 Diagnostics 포함
       allowedTools: options.allowedTools, // 허용된 도구 전달
+      nativeMode: options.nativeMode, // 네이티브 Function Call 모드
       frameworkRulesPrompt: options.frameworkRulesPrompt, // v9.2.1: 동적 프레임워크 규칙
       hotLoadPrompt: options.hotLoadPrompt, // Hot Load 프롬프트
       mcpCustomPrompts: options.mcpCustomPrompts, // MCP 커스텀 프롬프트
+      ragContext: options.ragContext, // 서버 RAG 문서 컨텍스트
+      memoryContext: options.memoryContext, // 영속적 메모리 컨텍스트
+      activeSkillKeys: options.activeSkillKeys, // IntentDetector가 선택한 활성 스킬
+      subProjectStructure: options.subProjectStructure, // 서브프로젝트 구조
+      repoMap: options.repoMap, // 프로젝트 파일 맵
     };
 
     return PromptComposer.composeSystemPrompt(composerOptions);

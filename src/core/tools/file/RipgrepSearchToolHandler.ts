@@ -6,6 +6,7 @@
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
 import { ToolUse, ToolResponse, Tool } from '../types';
 import { FileSearcher } from '../../managers/context/file/FileSearcher';
+import { PreToolUseValidator } from '../PreToolUseValidator';
 import * as path from 'path';
 
 export class RipgrepSearchToolHandler implements IToolHandler {
@@ -34,23 +35,37 @@ export class RipgrepSearchToolHandler implements IToolHandler {
             };
         }
 
+        const outputMode = (toolUse.params.outputMode || 'content') as 'content' | 'files_with_matches' | 'count';
+        const multiline = toolUse.params.multiline === 'true';
+        const headLimit = toolUse.params.headLimit ? parseInt(toolUse.params.headLimit) : undefined;
+
         const searcher = FileSearcher.getInstance();
         const results = await searcher.searchFiles(pattern, searchPath, {
             include: include ? include.split(',').map(s => s.trim()) : (filePattern ? [filePattern] : undefined),
             exclude: exclude ? exclude.split(',').map(s => s.trim()) : undefined,
             caseSensitive,
             maxResults: toolUse.params.maxResults ? parseInt(toolUse.params.maxResults) : 100,
-            contextLines: toolUse.params.contextLines ? parseInt(toolUse.params.contextLines) : 2
+            contextLines: toolUse.params.contextLines ? parseInt(toolUse.params.contextLines) : 2,
+            outputMode,
+            multiline,
+            headLimit
         });
 
-        const formattedResults = searcher.formatResults(results, context.projectRoot);
+        // 은닉 파일 필터링
+        const filtered = results.filter(r => !PreToolUseValidator.isHiddenFile(r.file, context.projectRoot));
+        const hiddenCount = results.length - filtered.length;
+        if (hiddenCount > 0) {
+            console.log(`[RipgrepSearchToolHandler] Filtered ${hiddenCount} hidden file(s) from results`);
+        }
+
+        const formattedResults = searcher.formatResults(filtered, context.projectRoot);
 
         return {
             success: true,
-            message: `ripgrep found ${results.length} files with matches`,
-            data: { 
-                results: formattedResults,  // 포맷된 문자열 (LLM용)
-                rawResults: results  // 원본 SearchResult[] 배열 (파싱용)
+            message: `ripgrep found ${filtered.length} files with matches${hiddenCount > 0 ? ` (${hiddenCount} hidden files excluded)` : ''}`,
+            data: {
+                results: formattedResults,
+                rawResults: filtered
             }
         };
     }

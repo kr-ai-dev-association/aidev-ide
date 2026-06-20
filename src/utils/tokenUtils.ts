@@ -4,61 +4,163 @@ import { AgentConfig } from '../core/config/AgentConfig';
 
 // 모델별 토큰 제한
 export const MODEL_TOKEN_LIMITS = {
-    [AiModelType.GEMINI]: {
-        maxInputTokens: 1000000, // Gemini 3.0 Flash/Pro의 입력 토큰 제한
-        maxOutputTokens: 500000, // 현재 설정된 출력 토큰 제한
-        maxTotalTokens: 1500000  // 총 토큰 제한
-    },
     [AiModelType.OLLAMA]: {
         maxInputTokens: 128000,  // 일반 Ollama 모델의 보수적 기본값
-        maxOutputTokens: 128000,
+        maxOutputTokens: 65536,
         maxTotalTokens: 128000
     },
-    [AiModelType.BANYA]: {
-        maxInputTokens: 128000,  // Banya Solar 모델의 입력 토큰 제한
-        maxOutputTokens: 128000, // Banya Solar 모델의 출력 토큰 제한
-        maxTotalTokens: 128000   // 총 토큰 제한
+    [AiModelType.ADMIN]: {
+        maxInputTokens: 128000,  // 관리자 모델 기본값 (동적 업데이트 가능)
+        maxOutputTokens: 128000,
+        maxTotalTokens: 128000
     }
 };
 
 /**
+ * 관리자 모델의 토큰 제한을 동적으로 업데이트합니다.
+ * AdminModelConfig의 contextWindow, maxTokens 값을 반영합니다.
+ */
+export function updateAdminTokenLimits(contextWindow?: number, maxTokens?: number): void {
+    const adminLimits = MODEL_TOKEN_LIMITS[AiModelType.ADMIN];
+    if (contextWindow && contextWindow > 0) {
+        adminLimits.maxInputTokens = contextWindow;
+        adminLimits.maxTotalTokens = contextWindow;
+    }
+    if (maxTokens && maxTokens > 0) {
+        adminLimits.maxOutputTokens = maxTokens;
+    }
+}
+
+/**
+ * Ollama 모델의 토큰 제한을 동적으로 업데이트합니다.
+ * /api/show에서 가져온 context length를 반영합니다.
+ */
+export function updateOllamaTokenLimits(contextWindow: number): void {
+    const ollamaLimits = MODEL_TOKEN_LIMITS[AiModelType.OLLAMA];
+    if (contextWindow > 0) {
+        ollamaLimits.maxInputTokens = contextWindow;
+        ollamaLimits.maxTotalTokens = contextWindow;
+        console.log(`[tokenUtils] Ollama token limits updated: ${contextWindow}`);
+    }
+}
+
+/**
  * 텍스트의 대략적인 토큰 수를 계산합니다.
- * 대부분의 토큰화 모델에서 1 토큰 ≈ 4 문자 (영어 기준) 또는 1-2 문자 (한국어 기준)
- * @param text 토큰 수를 계산할 텍스트
- * @returns 대략적인 토큰 수
+ *
+ * BPE 토크나이저 (cl100k_base / o200k_base) 기준 실측 근사값:
+ *   - 영어 단어: ~1.3 토큰/단어 (평균 3.5 문자/토큰, 서브워드 분할 고려)
+ *   - 한국어/CJK: ~1.0 토큰/글자 (한 글자가 2-3 바이트 → 보통 1 토큰)
+ *   - 코드 기호: ~1.0 토큰/기호 (BPE에서 {, }, =>, ; 등은 대부분 개별 토큰)
+ *   - 공백/줄바꿈: 인접 공백이 합쳐지므로 ~2 공백/토큰
+ *   - 일반 구두점: ~1.5문자/토큰 (쉼표, 마침표 등 일부 합쳐짐)
+ *
+ * tiktoken WASM은 VSCode 확장 환경에서 로딩 이슈가 있어
+ * 문자 분류 기반 가중 추정을 사용합니다.
  */
 export function estimateTokens(text: string): number {
     if (!text) return 0;
 
-    // 한국어와 영어를 구분하여 계산
-    const koreanChars = (text.match(/[가-힣]/g) || []).length;
-    const englishChars = (text.match(/[a-zA-Z]/g) || []).length;
-    const otherChars = text.length - koreanChars - englishChars;
+    let cjkCount = 0;
+    let alphaNumCount = 0;
+    let whitespaceCount = 0;
+    let codeSymbolCount = 0;  // 코드 기호 (거의 1:1 토큰)
+    let punctCount = 0;       // 일반 구두점
 
-    // 한국어: 1-2 문자당 1 토큰, 영어: 4 문자당 1 토큰, 기타: 3 문자당 1 토큰
-    const koreanTokens = Math.ceil(koreanChars / 1.5);
-    const englishTokens = Math.ceil(englishChars / 4);
-    const otherTokens = Math.ceil(otherChars / 3);
+    for (let i = 0; i < text.length; i++) {
+        const code = text.charCodeAt(i);
+        if (
+            (code >= 0xAC00 && code <= 0xD7AF) || // 한국어 완성형
+            (code >= 0x3040 && code <= 0x30FF) || // 히라가나/가타카나
+            (code >= 0x4E00 && code <= 0x9FFF) || // CJK 통합 한자
+            (code >= 0x1100 && code <= 0x11FF) || // 한국어 자모
+            (code >= 0x3130 && code <= 0x318F)    // 한국어 호환 자모
+        ) {
+            cjkCount++;
+        } else if (
+            (code >= 0x41 && code <= 0x5A) || // A-Z
+            (code >= 0x61 && code <= 0x7A) || // a-z
+            (code >= 0x30 && code <= 0x39)    // 0-9
+        ) {
+            alphaNumCount++;
+        } else if (code === 0x20 || code === 0x09 || code === 0x0A || code === 0x0D) {
+            whitespaceCount++;
+        } else if (
+            // 코드 기호: BPE에서 거의 항상 개별 토큰
+            code === 0x7B || code === 0x7D || // { }
+            code === 0x28 || code === 0x29 || // ( )
+            code === 0x5B || code === 0x5D || // [ ]
+            code === 0x3B || code === 0x3A || // ; :
+            code === 0x3D || code === 0x3E || // = >
+            code === 0x3C || code === 0x21 || // < !
+            code === 0x7C || code === 0x26 || // | &
+            code === 0x40 || code === 0x23 || // @ #
+            code === 0x24 || code === 0x25 || // $ %
+            code === 0x5E || code === 0x7E || // ^ ~
+            code === 0x5C || code === 0x2F    // \ /
+        ) {
+            codeSymbolCount++;
+        } else {
+            punctCount++;
+        }
+    }
 
-    return koreanTokens + englishTokens + otherTokens;
+    // CJK: 1글자 ≈ 1토큰 (BPE에서 CJK 글자는 거의 항상 개별 토큰)
+    // 영숫자: ~3.5문자/토큰 (서브워드 분할 고려, 이전 4에서 하향)
+    // 공백: ~2문자/토큰 (연속 공백 병합)
+    // 코드 기호: ~1문자/토큰 (BPE에서 개별 토큰)
+    // 일반 구두점: ~1.5문자/토큰 (쉼표, 마침표 등 일부 합쳐짐)
+    const cjkTokens = cjkCount;
+    const alphaNumTokens = Math.ceil(alphaNumCount / 3.5);
+    const whitespaceTokens = Math.ceil(whitespaceCount / 2);
+    const codeSymbolTokens = codeSymbolCount;
+    const punctTokens = Math.ceil(punctCount / 1.5);
+
+    return cjkTokens + alphaNumTokens + whitespaceTokens + codeSymbolTokens + punctTokens;
 }
 
 /**
- * @deprecated estimateTokens() 사용 권장
+ * A-1: File-type-aware token estimation.
+ * Uses bytes-per-token ratios tuned per file type for better accuracy.
  */
-export function estimateTokenCount(text: string): number {
-    return estimateTokens(text);
+export function estimateTokensForFile(content: string, filePath?: string): number {
+    if (!filePath) return estimateTokens(content);
+
+    const ext = filePath.split('.').pop()?.toLowerCase();
+    const bytesPerToken = (() => {
+        switch (ext) {
+            case 'json':
+            case 'jsonl':
+            case 'jsonc':
+                return 2; // Dense punctuation
+            case 'yaml':
+            case 'yml':
+            case 'toml':
+                return 3; // Semi-structured
+            case 'md':
+            case 'txt':
+            case 'csv':
+                return 5; // Natural language / data
+            case 'cs':
+            case 'csproj':
+            case 'sln':
+                return 3; // C# verbose syntax (namespaces, attributes, XML in csproj)
+            default:
+                return 4; // Source code default
+        }
+    })();
+
+    return Math.ceil(Buffer.byteLength(content, 'utf8') / bytesPerToken);
 }
 
 /**
  * 시스템 프롬프트와 사용자 메시지의 총 토큰 수를 계산합니다.
  */
 export function calculateTotalTokens(systemPrompt: string, userParts: any[]): number {
-    let totalTokens = estimateTokenCount(systemPrompt);
+    let totalTokens = estimateTokens(systemPrompt);
 
     for (const part of userParts) {
         if (part.text) {
-            totalTokens += estimateTokenCount(part.text);
+            totalTokens += estimateTokens(part.text);
         }
         // 이미지 데이터는 토큰으로 계산하지 않음 (별도 처리)
     }
@@ -76,7 +178,7 @@ export function checkTokenLimit(
     actualModelName?: string
 ): { isExceeded: boolean; currentTokens: number; maxTokens: number; message: string } {
     // 안전 가드: 알 수 없는 모델 타입 대비
-    const limits = MODEL_TOKEN_LIMITS[modelType] || MODEL_TOKEN_LIMITS[AiModelType.OLLAMA] || MODEL_TOKEN_LIMITS[AiModelType.GEMINI];
+    const limits = MODEL_TOKEN_LIMITS[modelType] || MODEL_TOKEN_LIMITS[AiModelType.OLLAMA];
     const currentTokens = calculateTotalTokens(systemPrompt, userParts);
 
     const isExceeded = currentTokens > limits.maxInputTokens;
@@ -103,12 +205,10 @@ export function checkTokenLimit(
  */
 function getDefaultModelName(modelType: AiModelType): string {
     switch (modelType) {
-        case AiModelType.GEMINI:
-            return 'Gemini 3.0 Pro';
         case AiModelType.OLLAMA:
             return 'Ollama Local Model';
-        case AiModelType.BANYA:
-            return 'Banya Solar 100B';
+        case AiModelType.ADMIN:
+            return 'Admin Model';
         default:
             return 'Unknown Model';
     }
@@ -124,7 +224,7 @@ export function logTokenUsage(
     actualModelName?: string
 ): void {
     // 안전 가드: 알 수 없는 모델 타입 대비
-    const limits = MODEL_TOKEN_LIMITS[modelType] || MODEL_TOKEN_LIMITS[AiModelType.OLLAMA] || MODEL_TOKEN_LIMITS[AiModelType.GEMINI];
+    const limits = MODEL_TOKEN_LIMITS[modelType] || MODEL_TOKEN_LIMITS[AiModelType.OLLAMA];
     const currentTokens = calculateTotalTokens(systemPrompt, userParts);
     const usagePercentage = (currentTokens / limits.maxInputTokens) * 100;
 

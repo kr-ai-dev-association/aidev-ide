@@ -43,6 +43,9 @@ export interface SearchOptions {
     caseSensitive?: boolean;   // 대소문자 구분
     contextLines?: number;     // 주변 라인 수 (기본: 2)
     maxResults?: number;       // 최대 결과 수 (기본: 300)
+    outputMode?: 'content' | 'files_with_matches' | 'count';  // 출력 모드 (기본: content)
+    multiline?: boolean;       // 여러 줄 패턴 매칭 (기본: false)
+    headLimit?: number;        // 상위 N개 결과만 반환
 }
 
 /**
@@ -64,38 +67,47 @@ export class FileSearcher {
     }
 
     /**
-     * ripgrep 경로 찾기
+     * ripgrep 경로 찾기 (신버전/구버전 VS Code 모두 지원)
      */
     private async findRipgrep(): Promise<void> {
-        try {
-            // VS Code의 ripgrep 사용 시도
-            const vscodeRipgrep = path.join(
-                vscode.env.appRoot,
-                'resources',
-                'app',
-                'node_modules',
-                'vscode-ripgrep',
-                'bin',
-                process.platform === 'win32' ? 'rg.exe' : 'rg'
-            );
+        const rgBin = process.platform === 'win32' ? 'rg.exe' : 'rg';
+        const appRoot = vscode.env.appRoot;
 
+        // 시도할 경로 목록 (우선순위 순)
+        const candidatePaths = [
+            // 신버전 VS Code (@vscode/ripgrep)
+            path.join(appRoot, 'node_modules', '@vscode', 'ripgrep', 'bin', rgBin),
+            path.join(appRoot, 'resources', 'app', 'node_modules', '@vscode', 'ripgrep', 'bin', rgBin),
+            // 구버전 VS Code (vscode-ripgrep)
+            path.join(appRoot, 'resources', 'app', 'node_modules', 'vscode-ripgrep', 'bin', rgBin),
+            path.join(appRoot, 'node_modules', 'vscode-ripgrep', 'bin', rgBin),
+        ];
+
+        for (const candidate of candidatePaths) {
             try {
-                await fs.access(vscodeRipgrep);
-                this.ripgrepPath = vscodeRipgrep;
+                await fs.access(candidate);
+                this.ripgrepPath = candidate;
+                console.log(`[FileSearcher] ripgrep found at: ${candidate}`);
                 return;
             } catch {
-                // VS Code ripgrep 없음
+                // 해당 경로 없음, 다음 시도
             }
+        }
 
-            // 시스템 PATH에서 찾기
-            const { stdout } = await exec('which rg');
+        // 시스템 PATH에서 찾기 (Windows: where, Unix: which)
+        try {
+            const whichCmd = process.platform === 'win32' ? 'where rg' : 'which rg';
+            const { stdout } = await exec(whichCmd);
             if (stdout.trim()) {
-                this.ripgrepPath = stdout.trim();
+                this.ripgrepPath = stdout.trim().split(/\r?\n/)[0];
+                console.log(`[FileSearcher] ripgrep found in PATH: ${this.ripgrepPath}`);
                 return;
             }
-        } catch (error) {
-            console.warn('[FileSearcher] ripgrep not found, falling back to native search');
+        } catch {
+            // 시스템 PATH에도 없음
         }
+
+        console.warn('[FileSearcher] ripgrep not found, falling back to native search');
     }
 
     /**
@@ -126,11 +138,28 @@ export class FileSearcher {
         const maxResults = options?.maxResults ?? 300;
         const caseSensitive = options?.caseSensitive ?? false;
 
+        const outputMode = options?.outputMode || 'content';
+        const multiline = options?.multiline ?? false;
+
         const args: string[] = [
             '--json',
             '-e', pattern,
-            '--context', contextLines.toString(),
         ];
+
+        // output_mode별 플래그
+        if (outputMode === 'files_with_matches') {
+            args.push('-l');
+        } else if (outputMode === 'count') {
+            args.push('-c');
+        } else {
+            // content 모드에서만 context 적용
+            args.push('--context', contextLines.toString());
+        }
+
+        // multiline 지원
+        if (multiline) {
+            args.push('-U', '--multiline-dotall');
+        }
 
         if (!caseSensitive) {
             args.push('-i');
@@ -245,10 +274,14 @@ export class FileSearcher {
                     });
                 }
 
-                if (errorOutput && !results.length) {
+                // headLimit 적용
+                const headLimit = options?.headLimit;
+                const limited = headLimit && headLimit > 0 ? results.slice(0, headLimit) : results;
+
+                if (errorOutput && !limited.length) {
                     reject(new Error(`ripgrep error: ${errorOutput}`));
                 } else {
-                    resolve(results);
+                    resolve(limited);
                 }
             });
 
@@ -277,7 +310,7 @@ export class FileSearcher {
             for (const file of files.slice(0, maxResults)) {
                 try {
                     const content = await fs.readFile(file, 'utf-8');
-                    const lines = content.split('\n');
+                    const lines = content.split(/\r?\n/);
                     const matches: Match[] = [];
 
                     lines.forEach((line: string, index: number) => {
@@ -387,7 +420,7 @@ export class FileSearcher {
         const regex = new RegExp(
             '^' + pattern
                 .replace(/\*\*/g, '.*')
-                .replace(/\*/g, '[^/]*')
+                .replace(/\*/g, '[^\\\\/]*')
                 .replace(/\?/g, '.')
             + '$'
         );
@@ -404,7 +437,7 @@ export class FileSearcher {
     ): Promise<Match[]> {
         try {
             const content = await fs.readFile(filePath, 'utf-8');
-            const lines = content.split('\n');
+            const lines = content.split(/\r?\n/);
             const regex = new RegExp(pattern, 'gi');
             const context = contextLines ?? 2;
             const matches: Match[] = [];

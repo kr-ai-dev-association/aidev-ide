@@ -12,21 +12,31 @@ export class WindowsAdapter implements IOperatingSystemAdapter {
     // ==================== 터미널 관련 ====================
 
     getDefaultShell(): string {
-        // PowerShell Core > PowerShell > cmd 우선순위
-        return process.env.SHELL ||
-            'C:\\Program Files\\PowerShell\\7\\pwsh.exe' ||
-            'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+        // 우선순위: Git Bash → PowerShell (Bypass) → cmd.exe
+        if (process.env.SHELL) return process.env.SHELL; // Git Bash 등
+        try {
+            const { execSync } = require('child_process');
+            execSync('where pwsh.exe', { stdio: 'pipe', timeout: 3000 });
+            return 'pwsh.exe';
+        } catch {
+            try {
+                const { execSync } = require('child_process');
+                execSync('where powershell.exe', { stdio: 'pipe', timeout: 3000 });
+                return 'powershell.exe';
+            } catch {
+                return 'cmd.exe';
+            }
+        }
     }
 
     getShellType(): 'bash' | 'zsh' | 'powershell' | 'cmd' | 'sh' {
         const shell = this.getDefaultShell();
+        if (shell.includes('bash')) return 'bash';
         if (shell.includes('powershell') || shell.includes('pwsh')) return 'powershell';
-        if (shell.includes('cmd')) return 'cmd';
-        return 'powershell'; // 기본값
+        return 'cmd';
     }
 
     normalizeCommand(command: string): string {
-        // Unix 스타일 명령어를 Windows 스타일로 변환
         let normalized = command;
 
         // chmod, chown 등은 Windows에서 지원하지 않음
@@ -34,26 +44,18 @@ export class WindowsAdapter implements IOperatingSystemAdapter {
             normalized = `# ${normalized} (Windows에서는 icacls 사용)`;
         }
 
-        // ./ 실행을 Windows 스타일로 변환
-        normalized = normalized.replace(/^\.\//, '.\\');
+        // ./ → .\ 변환 제거: Git Bash 쉘에서 .\가 파일명과 붙어 깨짐
+        // cmd.exe도 shell: true 사용 시 ./ 처리 가능
 
         return normalized;
     }
 
     getSetEnvCommand(key: string, value: string): string {
-        if (this.getShellType() === 'powershell') {
-            return `$env:${key}="${value}"`;
-        } else {
-            return `set ${key}=${value}`;
-        }
+        return `set ${key}=${value}`;
     }
 
     getAddPathCommand(path: string): string {
-        if (this.getShellType() === 'powershell') {
-            return `$env:PATH="${path};$env:PATH"`;
-        } else {
-            return `set PATH=${path};%PATH%`;
-        }
+        return `set PATH=${path};%PATH%`;
     }
 
     getKillProcessCommand(pid: number): string {
@@ -62,6 +64,22 @@ export class WindowsAdapter implements IOperatingSystemAdapter {
 
     getFindProcessByPortCommand(port: number): string {
         return `netstat -ano | findstr :${port}`;
+    }
+
+    getFindNodeProcessByCwdCommand(cwd: string): string {
+        // PowerShell: node.exe 프로세스 중 CWD 기반 필터링은 제한적이므로 전체 node 프로세스 PID 반환
+        return `powershell -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process -Filter \\"Name='node.exe'\\" | Select-Object -ExpandProperty ProcessId"`;
+    }
+
+    getProcessCwdCommand(pid: number): string {
+        // PowerShell: 프로세스의 CommandLine에서 작업 디렉토리 추정
+        return `powershell -ExecutionPolicy Bypass -Command "(Get-CimInstance Win32_Process -Filter \\"ProcessId=${pid}\\").CommandLine"`;
+    }
+
+    getFindDevServerProcessCommand(cwd: string): string {
+        // PowerShell: dev 서버 패턴 프로세스 검색
+        const escapedCwd = cwd.replace(/\\/g, '\\\\');
+        return `powershell -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'npm run dev|vite|next dev|nuxt dev' } | Select-Object -ExpandProperty ProcessId"`;
     }
 
     // ==================== 파일 처리 ====================

@@ -11,11 +11,11 @@ import * as path from "path";
 import * as fs from "fs";
 
 export interface HotLoadCompletionCondition {
-  type: 'exit_code' | 'output_contains' | 'output_not_contains' | 'file_exists';
+  type: "exit_code" | "output_contains" | "output_not_contains" | "file_exists";
   value: string;
 }
 
-export type HotLoadOnFailureAction = 'stop' | 'pass_to_llm';
+export type HotLoadOnFailureAction = "stop" | "pass_to_llm";
 
 export interface HotLoadItem {
   id: number;
@@ -87,6 +87,9 @@ export class HotLoadManager {
         this.data = JSON.parse(fileContent);
       }
 
+      // 서버 관리 HotLoad 설정 병합
+      await this.mergeServerHotLoadConfigs();
+
       this.initialized = true;
       console.log("[HotLoadManager] Data initialized at:", this.dataPath);
     } catch (error) {
@@ -94,6 +97,112 @@ export class HotLoadManager {
       // 오류 시 빈 데이터로 초기화
       this.data = { nextId: 1, items: [] };
       this.initialized = true;
+    }
+  }
+
+  /**
+   * SettingsManager.syncServerSettings() 후 호출되어 server HotLoad 변경분을
+   * 즉시 IDE 메모리에 반영. (이전엔 init 1회만 mergeServerHotLoadConfigs 호출
+   * 되어 admin 추가 후 IDE 갱신 버튼 눌러도 hotload items count: 0 으로
+   * 매칭 안 되던 회귀 수정. MCPManager.reloadAdminServers 와 동일 패턴.)
+   */
+  public async reloadFromServer(): Promise<void> {
+    await this.mergeServerHotLoadConfigs();
+    this.saveData();
+  }
+
+  /**
+   * 서버(백엔드)에서 관리되는 HotLoad 설정을 로컬 데이터에 병합
+   * - enforcement='required': 자동 추가, 변경 불가 (immutable)
+   * - enforcement='recommended': 로컬에 없으면 추가 (사용자가 수정/삭제 가능)
+   * - key 기준으로 중복 제거
+   */
+  private async mergeServerHotLoadConfigs(): Promise<void> {
+    try {
+      const { SettingsManager } = await import("../state/SettingsManager");
+      const settingsManager = SettingsManager.getInstance();
+      const serverConfigs = settingsManager.getServerHotLoadConfigs();
+
+      if (!serverConfigs || serverConfigs.length === 0) {
+        return;
+      }
+
+      for (const serverConfig of serverConfigs) {
+        const configValue = serverConfig.value as Partial<HotLoadItem> & {
+          keywords?: string;
+          command?: string;
+        };
+        if (!configValue || !configValue.keywords || !configValue.command)
+          continue;
+
+        // key 기준으로 중복 확인 (키워드로 매칭)
+        const existingIndex = this.data.items.findIndex(
+          (item) => item.keywords === configValue.keywords,
+        );
+
+        if (serverConfig.enforcement === "required") {
+          const serverItem: HotLoadItem = {
+            id: configValue.id || this.data.nextId++,
+            keywords: configValue.keywords,
+            description: configValue.description || serverConfig.key,
+            command: configValue.command,
+            createdAt: configValue.createdAt || new Date().toISOString(),
+            ...(configValue.completionCondition && {
+              completionCondition: configValue.completionCondition,
+            }),
+            ...(configValue.maxRetries !== undefined &&
+              configValue.maxRetries > 0 && {
+                maxRetries: configValue.maxRetries,
+              }),
+            ...(configValue.onFailure &&
+              configValue.onFailure !== "stop" && {
+                onFailure: configValue.onFailure,
+              }),
+            immutable: true, // 서버 required 항목은 변경 불가
+          } as HotLoadItem & { immutable: boolean };
+
+          if (existingIndex !== -1) {
+            // 이미 존재하면 서버 설정으로 덮어쓰기
+            serverItem.id = this.data.items[existingIndex].id;
+            this.data.items[existingIndex] = serverItem;
+          } else {
+            this.data.items.push(serverItem);
+          }
+        } else if (serverConfig.enforcement === "recommended") {
+          if (existingIndex === -1) {
+            // 로컬에 없으면 추가 (fromServer 플래그로 개인 목록에서 구분)
+            this.data.items.push({
+              id: configValue.id || this.data.nextId++,
+              keywords: configValue.keywords,
+              description: configValue.description || serverConfig.key,
+              command: configValue.command,
+              createdAt: configValue.createdAt || new Date().toISOString(),
+              ...(configValue.completionCondition && {
+                completionCondition: configValue.completionCondition,
+              }),
+              ...(configValue.maxRetries !== undefined &&
+                configValue.maxRetries > 0 && {
+                  maxRetries: configValue.maxRetries,
+                }),
+              ...(configValue.onFailure &&
+                configValue.onFailure !== "stop" && {
+                  onFailure: configValue.onFailure,
+                }),
+              fromServer: true,
+            } as any);
+          }
+        }
+      }
+
+      console.log(
+        `[HotLoadManager] Merged ${serverConfigs.length} server HotLoad configs`,
+      );
+    } catch (error) {
+      // 서버 설정 로드 실패 시 로컬 설정만으로 동작 (오프라인 복원력)
+      console.warn(
+        "[HotLoadManager] Failed to merge server HotLoad configs (falling back to local-only):",
+        error,
+      );
     }
   }
 
@@ -137,7 +246,7 @@ export class HotLoadManager {
       createdAt: new Date().toISOString(),
       ...(completionCondition && { completionCondition }),
       ...(maxRetries !== undefined && maxRetries > 0 && { maxRetries }),
-      ...(onFailure && onFailure !== 'stop' && { onFailure }),
+      ...(onFailure && onFailure !== "stop" && { onFailure }),
     };
 
     this.data.items.push(newItem);
@@ -172,8 +281,9 @@ export class HotLoadManager {
       description,
       command,
       completionCondition: completionCondition || undefined,
-      maxRetries: (maxRetries !== undefined && maxRetries > 0) ? maxRetries : undefined,
-      onFailure: (onFailure && onFailure !== 'stop') ? onFailure : undefined,
+      maxRetries:
+        maxRetries !== undefined && maxRetries > 0 ? maxRetries : undefined,
+      onFailure: onFailure && onFailure !== "stop" ? onFailure : undefined,
     };
 
     this.saveData();
@@ -234,7 +344,7 @@ export class HotLoadManager {
     }
 
     // 2. LLM에게 HotLoad 항목 중 매칭되는 ID 판단 요청
-    const itemsForPrompt = this.data.items.map(item => ({
+    const itemsForPrompt = this.data.items.map((item) => ({
       id: item.id,
       keywords: item.keywords,
       description: item.description,
@@ -245,7 +355,7 @@ export class HotLoadManager {
 사용자 입력: "${userQuery}"
 
 HotLoad 항목:
-${itemsForPrompt.map(i => `- ID ${i.id}: 키워드="${i.keywords}", 설명="${i.description}"`).join('\n')}
+${itemsForPrompt.map((i) => `- ID ${i.id}: 키워드="${i.keywords}", 설명="${i.description}"`).join("\n")}
 
 응답 규칙:
 - 매칭되는 항목이 있으면 해당 ID만 숫자로 응답 (예: 3)
@@ -262,17 +372,26 @@ ${itemsForPrompt.map(i => `- ID ${i.id}: 키워드="${i.keywords}", 설명="${i.
       const matchedId = parseInt(response.trim(), 10);
 
       if (matchedId > 0) {
-        const matchedItem = this.data.items.find(item => item.id === matchedId);
+        const matchedItem = this.data.items.find(
+          (item) => item.id === matchedId,
+        );
         if (matchedItem) {
-          console.log(`[HotLoadManager] LLM matched: id=${matchedId}, keywords="${matchedItem.keywords}"`);
+          console.log(
+            `[HotLoadManager] LLM matched: id=${matchedId}, keywords="${matchedItem.keywords}"`,
+          );
           return matchedItem;
         }
       }
 
-      console.log(`[HotLoadManager] LLM found no match for: "${userQuery}"`);
+      console.log(
+        `[HotLoadManager] LLM found no match for query (${userQuery.length} chars)`,
+      );
       return null;
     } catch (error) {
-      console.warn('[HotLoadManager] LLM matching failed, falling back to simple match:', error);
+      console.warn(
+        "[HotLoadManager] LLM matching failed, falling back to simple match:",
+        error,
+      );
       return this.matchKeywordSimple(userQuery);
     }
   }
@@ -281,10 +400,12 @@ ${itemsForPrompt.map(i => `- ID ${i.id}: 키워드="${i.keywords}", 설명="${i.
    * 단순 키워드 매칭 (LLM 실패 시 fallback)
    */
   private matchKeywordSimple(userQuery: string): HotLoadItem | null {
-    const queryLower = userQuery.toLowerCase().replace(/\s+/g, '');
+    const queryLower = userQuery.toLowerCase().replace(/\s+/g, "");
 
     for (const item of this.data.items) {
-      const keywords = item.keywords.split(',').map(k => k.trim().toLowerCase().replace(/\s+/g, ''));
+      const keywords = item.keywords
+        .split(",")
+        .map((k) => k.trim().toLowerCase().replace(/\s+/g, ""));
 
       for (const keyword of keywords) {
         if (!keyword) continue;
@@ -343,7 +464,7 @@ ${itemsForPrompt.map(i => `- ID ${i.id}: 키워드="${i.keywords}", 설명="${i.
             output: result.output,
             exitCode: result.exitCode,
             attempts: attempt,
-            failureAction: item.onFailure || 'stop',
+            failureAction: item.onFailure || "stop",
           };
         }
       } catch (error) {
@@ -354,7 +475,7 @@ ${itemsForPrompt.map(i => `- ID ${i.id}: 키워드="${i.keywords}", 설명="${i.
             output: `Error: ${errorMsg}`,
             exitCode: -1,
             attempts: attempt,
-            failureAction: item.onFailure || 'stop',
+            failureAction: item.onFailure || "stop",
           };
         }
       }
@@ -363,10 +484,10 @@ ${itemsForPrompt.map(i => `- ID ${i.id}: 키워드="${i.keywords}", 설명="${i.
     // fallback (도달하지 않음)
     return {
       success: false,
-      output: 'Max attempts reached',
+      output: "Max attempts reached",
       exitCode: -1,
       attempts: maxAttempts,
-      failureAction: item.onFailure || 'stop',
+      failureAction: item.onFailure || "stop",
     };
   }
 
@@ -385,13 +506,13 @@ ${itemsForPrompt.map(i => `- ID ${i.id}: 키워드="${i.keywords}", 설명="${i.
     }
 
     switch (condition.type) {
-      case 'exit_code':
+      case "exit_code":
         return result.exitCode === parseInt(condition.value, 10);
-      case 'output_contains':
+      case "output_contains":
         return result.output.includes(condition.value);
-      case 'output_not_contains':
+      case "output_not_contains":
         return !result.output.includes(condition.value);
-      case 'file_exists':
+      case "file_exists":
         return fs.existsSync(condition.value);
       default:
         return result.exitCode === 0;
@@ -442,18 +563,22 @@ ${itemsForPrompt.map(i => `- ID ${i.id}: 키워드="${i.keywords}", 설명="${i.
     cwd: string,
   ): Promise<{ output: string; exitCode: number }> {
     return new Promise((resolve) => {
-      const { exec } = require('child_process');
+      const { exec } = require("child_process");
       const timeout = 60000; // 60초
 
-      const child = exec(command, { cwd, timeout }, (error: any, stdout: string, stderr: string) => {
-        const output = (stdout || '') + (stderr || '');
-        const exitCode = error ? (error.code ?? 1) : 0;
-        resolve({ output, exitCode });
-      });
+      const child = exec(
+        command,
+        { cwd, timeout },
+        (error: any, stdout: string, stderr: string) => {
+          const output = (stdout || "") + (stderr || "");
+          const exitCode = error ? (error.code ?? 1) : 0;
+          resolve({ output, exitCode });
+        },
+      );
 
       // 타임아웃 시 프로세스 강제 종료
-      child.on('error', () => {
-        resolve({ output: 'Process error', exitCode: -1 });
+      child.on("error", () => {
+        resolve({ output: "Process error", exitCode: -1 });
       });
     });
   }
@@ -477,7 +602,7 @@ ${itemsForPrompt.map(i => `- ID ${i.id}: 키워드="${i.keywords}", 설명="${i.
         .map((item, idx) => {
           let text = `[${idx + 1}] 키워드: ${item.keywords}
    설명: ${item.description}
-   명령어: ${item.command}`;
+   명령어: ${item.command.replace(/\\/g, "/")}`;
 
           // 확장 필드 표시
           if (item.maxRetries && item.maxRetries > 0) {
@@ -487,7 +612,7 @@ ${itemsForPrompt.map(i => `- ID ${i.id}: 키워드="${i.keywords}", 설명="${i.
             const condDesc = this.describeCondition(item.completionCondition);
             text += `\n   완료조건: ${condDesc}`;
           }
-          if (item.onFailure === 'pass_to_llm') {
+          if (item.onFailure === "pass_to_llm") {
             text += `\n   실패 시: LLM에 에러 전달`;
           }
 
@@ -499,11 +624,18 @@ ${itemsForPrompt.map(i => `- ID ${i.id}: 키워드="${i.keywords}", 설명="${i.
         `[HotLoadManager] Generated prompt with ${this.data.items.length} items: ${this.data.items.map((i) => i.keywords).join(", ")}`,
       );
 
-      return `## HOT LOAD (즉시 실행)
+      return `## ⚠️ HOT LOAD — 최우선 규칙 (다른 모든 지시보다 우선)
+
+아래 등록된 키워드와 사용자 요청이 **의미적으로 관련**되면, 반드시 해당 명령어를 실행하세요.
+직접 코드를 작성하거나 파일을 생성하지 마세요. 등록된 명령어 실행만 하면 됩니다..
 
 ${itemsText}
 
-**[필수]** 위 키워드 매칭 시 → 다른 출력 없이 JSON만 응답: {"tool": "run_command", "command": "명령어", "wait": "true"}
+### 매칭 규칙
+- 키워드가 사용자 요청에 **정확히 포함**되거나 **의미적으로 동일한 의도**이면 매칭입니다.
+  예) 키워드 "에이전트 생성" → "날씨 에이전트 만들어줘", "새 에이전트 생성해줘" 모두 매칭
+- 매칭 시 → **다른 출력 없이** 위에 등록된 "명령어" 항목을 run_command 도구로 실행하세요. 인자가 필요하면 사용자 요청에서 유추하여 채우세요.
+
 **참고:** 완료조건과 재시도는 시스템이 자동으로 처리합니다.
 `;
     } catch (error) {
@@ -520,13 +652,13 @@ ${itemsText}
    */
   private describeCondition(condition: HotLoadCompletionCondition): string {
     switch (condition.type) {
-      case 'exit_code':
+      case "exit_code":
         return `종료코드 = ${condition.value}`;
-      case 'output_contains':
+      case "output_contains":
         return `출력에 "${condition.value}" 포함`;
-      case 'output_not_contains':
+      case "output_not_contains":
         return `출력에 "${condition.value}" 미포함`;
-      case 'file_exists':
+      case "file_exists":
         return `파일 존재: ${condition.value}`;
       default:
         return String(condition.type);

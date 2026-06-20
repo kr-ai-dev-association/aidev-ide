@@ -23,18 +23,42 @@ const ALLOWED_TOOLS: Record<AgentPhase, Tool[]> = {
     [AgentPhase.INVESTIGATION]: [
         Tool.READ_FILE,
         Tool.LIST_FILES,
-        Tool.SEARCH_FILES,
-        Tool.RIPGREP_SEARCH
-    ], // Investigation에서는 조사 도구 허용 (파일 수정 없음, 조사 행위)
+        Tool.RIPGREP_SEARCH,
+        Tool.LIST_IMPORTS,
+        Tool.STAT_FILE,
+
+        Tool.READ_ACTIVE_FILE,
+        Tool.FETCH_URL,
+        Tool.LSP,
+        Tool.LIST_CODE_DEFINITIONS,
+        Tool.GLOB_SEARCH,
+
+        Tool.MEMORY_SAVE,
+        Tool.MEMORY_DELETE,
+        Tool.ASK_QUESTION,
+        Tool.WORK_PLAN,
+    ],
     [AgentPhase.EXECUTION]: [
         Tool.CREATE_FILE,
         Tool.UPDATE_FILE,
         Tool.REMOVE_FILE,
         Tool.READ_FILE,
         Tool.LIST_FILES,
-        Tool.SEARCH_FILES,
         Tool.RIPGREP_SEARCH,
-        Tool.RUN_COMMAND
+        Tool.RUN_COMMAND,
+        Tool.LIST_IMPORTS,
+        Tool.STAT_FILE,
+
+        Tool.READ_ACTIVE_FILE,
+        Tool.FETCH_URL,
+        Tool.LSP,
+        Tool.LIST_CODE_DEFINITIONS,
+        Tool.GLOB_SEARCH,
+
+        Tool.MEMORY_SAVE,
+        Tool.MEMORY_DELETE,
+        Tool.ASK_QUESTION,
+        Tool.WORK_PLAN,
     ],
     [AgentPhase.REVIEW]: [], // REVIEW 단계에서는 도구 사용 불가 (시스템이 요약 생성)
     [AgentPhase.DONE]: [] // DONE 단계에서는 도구 사용 불가
@@ -48,7 +72,7 @@ const FORBIDDEN_TOOLS: Record<AgentPhase, Tool[]> = {
         Tool.CREATE_FILE,
         Tool.UPDATE_FILE,
         Tool.REMOVE_FILE,
-        // Tool.READ_FILE, Tool.LIST_FILES, Tool.SEARCH_FILES, Tool.RIPGREP_SEARCH는 허용 (조사 행위, 부작용 없음)
+        // Tool.READ_FILE, Tool.LIST_FILES, Tool.RIPGREP_SEARCH는 허용 (조사 행위, 부작용 없음)
         Tool.RUN_COMMAND
     ], // Investigation에서는 조사 도구만 허용, 실행 도구 금지
     [AgentPhase.EXECUTION]: [], // EXECUTION에서는 모든 도구 허용
@@ -58,9 +82,16 @@ const FORBIDDEN_TOOLS: Record<AgentPhase, Tool[]> = {
         Tool.REMOVE_FILE,
         Tool.READ_FILE,
         Tool.LIST_FILES,
-        Tool.SEARCH_FILES,
         Tool.RIPGREP_SEARCH,
-        Tool.RUN_COMMAND
+        Tool.RUN_COMMAND,
+        Tool.LIST_IMPORTS,
+        Tool.STAT_FILE,
+
+        Tool.READ_ACTIVE_FILE,
+        Tool.FETCH_URL,
+        Tool.LSP,
+        Tool.LIST_CODE_DEFINITIONS,
+        Tool.GLOB_SEARCH,
     ], // REVIEW에서는 모든 도구 금지
     [AgentPhase.DONE]: [
         Tool.CREATE_FILE,
@@ -68,9 +99,16 @@ const FORBIDDEN_TOOLS: Record<AgentPhase, Tool[]> = {
         Tool.REMOVE_FILE,
         Tool.READ_FILE,
         Tool.LIST_FILES,
-        Tool.SEARCH_FILES,
         Tool.RIPGREP_SEARCH,
-        Tool.RUN_COMMAND
+        Tool.RUN_COMMAND,
+        Tool.LIST_IMPORTS,
+        Tool.STAT_FILE,
+
+        Tool.READ_ACTIVE_FILE,
+        Tool.FETCH_URL,
+        Tool.LSP,
+        Tool.LIST_CODE_DEFINITIONS,
+        Tool.GLOB_SEARCH,
     ] // DONE에서는 모든 도구 금지
 };
 
@@ -79,7 +117,7 @@ const FORBIDDEN_TOOLS: Record<AgentPhase, Tool[]> = {
  */
 const VALID_TRANSITIONS: Record<AgentPhase, AgentPhase[]> = {
     [AgentPhase.INVESTIGATION]: [AgentPhase.EXECUTION, AgentPhase.DONE], // EXECUTION 또는 DONE (파일 미존재 등 즉시 종료 케이스)
-    [AgentPhase.EXECUTION]: [AgentPhase.REVIEW], // EXECUTION 완료 시 REVIEW로 전환
+    [AgentPhase.EXECUTION]: [AgentPhase.REVIEW, AgentPhase.DONE], // EXECUTION 완료 시 REVIEW로 전환 (AGENT 모드: DONE 직접 전환)
     [AgentPhase.REVIEW]: [AgentPhase.DONE, AgentPhase.EXECUTION], // REVIEW 완료 시 DONE, 또는 미완료 시 EXECUTION으로 복귀
     [AgentPhase.DONE]: [] // DONE에서는 전환 불가 (최종 상태)
 };
@@ -109,7 +147,7 @@ const OUTPUT_CONTRACTS: Record<AgentPhase, OutputContract> = {
                 // 1. plan이 있으면 전환 가능 (계획 수립 완료)
                 // 2. 실행 도구가 나왔으면 전환 가능 (실행 의도가 명확함)
                 //
-                // 🔥 개선: 실행 도구 자체가 "실행 의도"의 증거이므로 plan 없이도 전환 허용
+                // 개선: 실행 도구 자체가 "실행 의도"의 증거이므로 plan 없이도 전환 허용
                 // - 단순 작업에서 LLM이 바로 create_file/update_file을 호출하는 경우
                 // - 불필요한 plan 수립 강요로 인한 턴 낭비 방지
                 const hasPlan = context.hasPlan || false;

@@ -87,10 +87,34 @@ function createCopyButton() {
 function createRunButton() {
   const button = document.createElement('button');
   button.classList.add('run-bash-button');
-  button.textContent = 'Run'; // 버튼 텍스트
-  button.title = 'Run commands'; // 툴팁
-
+  button.textContent = 'Run';
+  button.title = 'Run commands';
   return button;
+}
+
+// Stop 버튼을 생성하는 헬퍼 함수
+function createStopButton() {
+  const button = document.createElement('button');
+  button.classList.add('stop-bash-button');
+  button.textContent = 'Stop';
+  button.title = 'Stop running process';
+  button.style.display = 'none'; // 초기엔 숨김
+  return button;
+}
+
+// Stop 버튼에 이벤트 리스너를 등록하는 함수
+function attachStopButtonListener(stopButton, runButton) {
+  stopButton.addEventListener('click', () => {
+    console.log('[codeCopy.js] Stop button clicked');
+    if (vscode) {
+      vscode.postMessage({
+        command: 'stopBashCommand'
+      });
+    }
+    // Stop 숨기고 Run 복원
+    stopButton.style.display = 'none';
+    runButton.style.display = '';
+  });
 }
 
 // 개별 callout 박스에 executing 상태를 표시하는 함수
@@ -232,7 +256,7 @@ function extractGenericCommands(rawCode) {
 }
 
 // Run 버튼에 이벤트 리스너를 등록하는 함수
-function attachRunButtonListener(button, codeElement, lang) {
+function attachRunButtonListener(button, codeElement, lang, stopButton) {
   button.addEventListener('click', async () => {
     console.log('[codeCopy.js] Run button clicked');
     const codeText = codeElement.textContent || '';
@@ -264,14 +288,11 @@ function attachRunButtonListener(button, codeElement, lang) {
       console.error('[codeCopy.js] VS Code API not available');
     }
 
-    // 버튼 피드백
-    const originalText = button.textContent;
-    button.textContent = 'Running...';
-    button.disabled = true;
-    setTimeout(() => {
-      button.textContent = originalText;
-      button.disabled = false;
-    }, 2000);
+    // Run 숨기고 Stop 표시
+    button.style.display = 'none';
+    if (stopButton) {
+      stopButton.style.display = '';
+    }
   });
 }
 
@@ -406,11 +427,14 @@ function addCopyButtonsToCodeBlocks(bubbleElement) {
           buttonContainer.appendChild(copyButton);
           attachCopyButtonListener(copyButton, codeElement);
 
-          // Run 버튼 추가
+          // Run + Stop 버튼 추가
           const runButton = createRunButton();
+          const stopButton = createStopButton();
           buttonContainer.appendChild(runButton);
+          buttonContainer.appendChild(stopButton);
           const lang = isBash ? 'bash' : isPwsh ? 'powershell' : 'cmd';
-          attachRunButtonListener(runButton, codeElement, lang);
+          attachRunButtonListener(runButton, codeElement, lang, stopButton);
+          attachStopButtonListener(stopButton, runButton);
         }
       }
 
@@ -447,11 +471,14 @@ function addCopyButtonsToCodeBlocks(bubbleElement) {
         buttonContainer.appendChild(copyButton);
         attachCopyButtonListener(copyButton, codeElement);
 
-        // Run 버튼 추가
+        // Run + Stop 버튼 추가
         const runButton = createRunButton();
+        const stopButton = createStopButton();
         buttonContainer.appendChild(runButton);
+        buttonContainer.appendChild(stopButton);
         const lang = isBash ? 'bash' : isPwsh ? 'powershell' : 'cmd';
-        attachRunButtonListener(runButton, codeElement, lang);
+        attachRunButtonListener(runButton, codeElement, lang, stopButton);
+        attachStopButtonListener(stopButton, runButton);
 
         // 버튼 컨테이너를 <pre> 요소 바로 뒤에 삽입
         preElement.insertAdjacentElement('afterend', buttonContainer);

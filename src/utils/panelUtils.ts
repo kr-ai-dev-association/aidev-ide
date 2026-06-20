@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { debugLog } from './debugLogger';
 
 /**
  * webview가 유효한지 확인하고 안전하게 메시지를 보내는 함수
@@ -9,16 +8,6 @@ import { debugLog } from './debugLogger';
 export function safePostMessage(webview: vscode.Webview, message: any): boolean {
     try {
         if (webview) {
-            try {
-                const cmd = String(message?.command || '');
-                if (cmd) {
-                    const step = message?.step ? ` step=${message.step}` : '';
-                    const status = message?.status ? ` status=${String(message.status).slice(0, 200)}` : '';
-                    if (/updateProcessingStatus|hideProcessingSteps|hideLoading|hideAutoCorrecting|showRunExecution|hideRunExecution|showCalloutExecuting|hideCalloutExecuting|showErrorCorrection|showErrorCorrectionSuccess/i.test(cmd)) {
-                        debugLog(`PanelUtils: postMessage ${cmd}${step}${status}`);
-                    }
-                }
-            } catch { /* ignore debug log errors */ }
             webview.postMessage(message);
             return true;
         }
@@ -54,6 +43,23 @@ export function getHtmlContentWithUris(extensionUri: vscode.Uri, htmlFileName: s
 
         const commonStylesUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'styles.css'));
         const specificStylesUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', `${htmlFileName}.css`));
+
+        // 공통 로그인 화면 주입 ({{loginScreenHtml}} 플레이스홀더가 있는 경우)
+        if (htmlContent.includes('{{loginScreenHtml}}')) {
+            const loginPartialPath = vscode.Uri.joinPath(extensionUri, 'webview', 'shared', 'login-screen.html');
+            try {
+                let loginHtml = fs.readFileSync(loginPartialPath.fsPath, 'utf8');
+                // 페이지별 접두사 및 서브타이틀 치환
+                const loginPrefix = htmlFileName === 'settings' ? 'settings' : 'chat';
+                const loginSubtitle = 'AI 코딩 어시스턴트';
+                loginHtml = loginHtml
+                    .replace(/\{\{loginPrefix\}\}/g, loginPrefix)
+                    .replace(/\{\{loginSubtitle\}\}/g, loginSubtitle);
+                htmlContent = htmlContent.replace('{{loginScreenHtml}}', loginHtml);
+            } catch (loginError) {
+                console.warn('[HTML Loader] login-screen.html not found, skipping injection');
+            }
+        }
 
         htmlContent = htmlContent
             .replace(/\{\{nonce\}\}/g, nonce)

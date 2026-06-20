@@ -33,7 +33,7 @@ const extensionConfig = {
       {
         test: /\.ts$/, // rule for TypeScript files
         exclude: /node_modules/,
-        use: [{ loader: 'ts-loader' }] // use ts-loader for TypeScript
+        use: [{ loader: 'ts-loader', options: { compilerOptions: { noEmit: false } } }]
       }
       // Add other rules here for different file types (e.g., CSS, images) if needed by the extension's main code
     ]

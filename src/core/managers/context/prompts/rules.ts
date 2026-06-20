@@ -1,6 +1,6 @@
 /**
  * Rules Prompt Components
- * 규칙 프롬프트 컴포넌트 통합 파일
+ * Unified rules prompt component file
  */
 
 import { getFileCreationContext } from "./base";
@@ -9,39 +9,39 @@ import { ClassificationResult } from "../../conversation/handlers/ErrorClassifie
 // ==================== Execution First Rule ====================
 export function getExecutionFirstRulePrompt(): string {
   return (
-    `\n\n⚠️ **실행 우선 작업 규칙 (중요)**\n\n` +
-    `**현재 작업은 실행 우선(execution-first) 작업입니다.** 사용자 요청은 파일 생성, 코드 수정, 프로젝트 초기화 등 실행 작업입니다.\n\n` +
-    `**절대 금지:**\n` +
-    `- ❌ "kind": "investigation" 항목을 plan에 포함하는 것\n` +
-    `- ❌ 조사 작업을 계획에 추가하는 것\n` +
-    `- ❌ "요구사항 확인", "파일 구조 조사" 같은 investigation item 추가\n\n` +
-    `**필수 사항:**\n` +
-    `- ✅ plan에는 "kind": "execution" 항목만 포함하세요\n` +
-    `- ✅ 조사가 필요하면 시스템이 자동으로 처리합니다\n` +
-    `- ✅ 바로 실행 계획("kind": "execution")만 제시하세요\n\n` +
-    `**예시 (올바른 plan - JSON 형식):**\n` +
+    `\n\n**Execution-First Task Rules (Important)**\n\n` +
+    `**The current task is an execution-first task.** The user request involves execution tasks such as file creation, code modification, or project initialization.\n\n` +
+    `**Strictly Prohibited:**\n` +
+    `- Including "kind": "investigation" items in the plan\n` +
+    `- Adding investigation tasks to the plan\n` +
+    `- Adding investigation items like "check requirements", "investigate file structure"\n\n` +
+    `**Required:**\n` +
+    `- Only include "kind": "execution" items in the plan\n` +
+    `- The system will automatically handle any necessary investigation\n` +
+    `- Only present execution plans ("kind": "execution")\n\n` +
+    `**Example (correct plan - JSON format):**\n` +
     "```json\n" +
     `{\n` +
     `  "plan": [\n` +
     `    {\n` +
     `      "kind": "execution",\n` +
-    `      "title": "React TypeScript Vite 프로젝트 생성",\n` +
-    `      "detail": "package.json, tsconfig.json, vite.config.ts, index.html, src/main.tsx, src/App.tsx 등을 생성합니다."\n` +
+    `      "title": "Create initial project files",\n` +
+    `      "detail": "Create configuration files and source files needed for the project."\n` +
     `    }\n` +
     `  ]\n` +
     `}\n` +
     "```\n\n" +
-    `**잘못된 예시 (절대 금지):**\n` +
+    `**Incorrect example (strictly prohibited):**\n` +
     "```json\n" +
     `{\n` +
     `  "plan": [\n` +
     `    {\n` +
-    `      "kind": "investigation",  // ❌ execution-first에서는 금지!\n` +
-    `      "title": "요구사항 확인"\n` +
+    `      "kind": "investigation",  // Prohibited in execution-first!\n` +
+    `      "title": "Check requirements"\n` +
     `    },\n` +
     `    {\n` +
     `      "kind": "execution",\n` +
-    `      "title": "프로젝트 생성"\n` +
+    `      "title": "Create project"\n` +
     `    }\n` +
     `  ]\n` +
     `}\n` +
@@ -52,7 +52,7 @@ export function getExecutionFirstRulePrompt(): string {
 // ==================== Error Retry ====================
 
 /**
- * 수정된 파일 컨텍스트 정보 타입
+ * Type for modified file context information
  */
 export interface ModifiedFileContext {
   path: string;
@@ -60,333 +60,340 @@ export interface ModifiedFileContext {
 }
 
 /**
- * 자동 테스트 실패 시 오류 분석 및 수정 안내 프롬프트
- * 🔥 v9.2.2: 수정된 파일 내용을 포함하여 LLM이 최신 상태 기반으로 수정 가능
- * @param errorMessage 오류 메시지
- * @param modifiedFilesContext 이번 턴에 수정된 파일들의 최신 내용 (optional)
+ * Error analysis and fix guidance prompt for automated test failures
+ * v9.2.2: Includes modified file contents so the LLM can fix based on the latest state
+ * @param errorMessage Error message
+ * @param modifiedFilesContext Latest contents of files modified in this turn (optional)
  */
 export function getErrorRetryPrompt(errorMessage: string, modifiedFilesContext?: ModifiedFileContext[]): string {
-  let prompt = `\n[System] ⚠️ **자동 테스트가 실패했습니다.**\n\n**오류 내용:**\n\`\`\`\n${errorMessage}\n\`\`\`\n\n`;
+  let prompt = `\n[System] **Automated test failed.**\n\n**Error details:**\n\`\`\`\n${errorMessage}\n\`\`\`\n\n`;
 
-  // 🔥 수정된 파일의 최신 내용 포함 (코드 중복 방지)
+  // Include latest contents of modified files (to prevent code duplication)
   if (modifiedFilesContext && modifiedFilesContext.length > 0) {
-    prompt += `**⚠️ 중요: 아래는 이번 턴에 수정된 파일들의 최신 내용입니다.**\n`;
-    prompt += `**SEARCH 블록 작성 시 반드시 아래 내용을 기준으로 작성하세요.**\n\n`;
+    prompt += `**Important: Below are the latest contents of files modified in this turn.**\n`;
+    prompt += `**When writing SEARCH blocks, you MUST base them on the contents below.**\n\n`;
 
     for (const file of modifiedFilesContext) {
       const lines = file.content.split('\n');
-      const preview = lines.slice(0, 150).join('\n'); // 최대 150줄
+      const preview = lines.slice(0, 150).join('\n'); // Max 150 lines
       const isTruncated = lines.length > 150;
 
-      prompt += `**[${file.path}] 현재 내용:**\n\`\`\`\n${preview}${isTruncated ? '\n... (생략됨)' : ''}\n\`\`\`\n\n`;
+      prompt += `**[${file.path}] Current contents:**\n\`\`\`\n${preview}${isTruncated ? '\n... (truncated)' : ''}\n\`\`\`\n\n`;
     }
   }
 
   prompt +=
-    `**중요: { "tool": "..." } 형식으로만 응답하세요**\n\n` +
-    `**오류 유형별 수정 방법:**\n` +
-    `- TypeScript 오류 ("Cannot find module", "Property does not exist") → update_file로 파일 수정\n` +
-    `- 의존성 누락 ("Cannot find module 'xxx'") → run_command로 npm install\n` +
-    `- 빌드 오류 ("Command failed") → 설정 파일 수정\n\n` +
-    `**빌드/테스트 도구 설치 절대 금지:**\n` +
-    `- "tsc not found", "gradle not found", "mvn not found" 등 빌드 도구가 없는 경우\n` +
-    `- 절대 npm install -g typescript, brew install gradle 등 도구 설치 명령을 실행하지 마세요\n` +
-    `- 대신 사용자에게 설치를 권유하는 메시지만 출력하세요\n` +
-    `- 예: "TypeScript 컴파일러(tsc)가 설치되어 있지 않습니다. npm install -g typescript 로 설치해주세요."\n\n` +
-    `**절대 금지:**\n` +
-    `- 자연어 응답 (설명, 분석, "We need to..." 등)\n` +
-    `- XML 태그 형식\n` +
-    `- 빌드 도구 자동 설치 (tsc, gradle, mvn, cargo, go 등)\n\n` +
-    `**필수 출력 형식:**\n` +
+    `**Important: Respond only in { "tool": "..." } format**\n\n` +
+    `**Fix methods by error type:**\n` +
+    `- TypeScript errors ("Cannot find module", "Property does not exist") -> Fix file with update_file\n` +
+    `- Missing dependency ("Cannot find module 'xxx'") -> Run npm install with run_command\n` +
+    `- Build errors ("Command failed") -> Fix configuration files\n\n` +
+    `**Build/test tool installation strictly prohibited:**\n` +
+    `- When build tools are missing such as "tsc not found", "gradle not found", etc.\n` +
+    `- Never run tool installation commands like npm install -g typescript, brew install gradle, etc.\n` +
+    `- Instead, only output a message suggesting the user install it\n` +
+    `- Example: "TypeScript compiler (tsc) is not installed. Please install it with npm install -g typescript."\n\n` +
+    `**Strictly Prohibited:**\n` +
+    `- Natural language responses (explanations, analysis, "We need to..." etc.)\n` +
+    `- XML tag format\n` +
+    `- Automatic installation of build tools (tsc, gradle, mvn, cargo, go, etc.)\n\n` +
+    `**Required output format:**\n` +
     "```\n" +
     `{ "tool": "update_file", "path": "..." }\n` +
     `<file_content>\n` +
     `<<<<<<< SEARCH\n` +
-    `기존 코드 (위에 제공된 최신 파일 내용 기준)\n` +
+    `Existing code (based on the latest file contents provided above)\n` +
     `=======\n` +
-    `수정된 코드\n` +
+    `Modified code\n` +
     `>>>>>>> REPLACE\n` +
     `</file_content>\n` +
     "```\n\n" +
-    `**지금 바로 도구 호출을 출력하세요. 자연어 텍스트는 무시됩니다.**\n`;
+    `**Output tool calls immediately. Natural language text will be ignored.**\n`;
 
   return prompt;
 }
 
 export function getSimpleErrorRetryPrompt(errorMessage: string): string {
   return (
-    `\n[System] ⚠️ 자동 테스트가 실패했습니다. 다음 오류를 수정하세요:\n${errorMessage || "알 수 없는 오류"}\n\n${getFileCreationContext()}\n\n` +
-    `**의존성 설치 (허용):** npm install, pip install -r requirements.txt 등 프로젝트 의존성 설치는 가능합니다.\n\n` +
-    `**빌드/테스트 도구 설치 금지:**\n` +
-    `- "tsc not found", "gradle not found" 등 빌드 도구가 없는 경우 자동 설치하지 마세요\n` +
-    `- 대신 사용자에게 설치를 권유하세요 (예: "tsc가 없습니다. npm install -g typescript 로 설치해주세요.")\n`
+    `\n[System] Automated test failed. Fix the following error:\n${errorMessage || "Unknown error"}\n\n${getFileCreationContext()}\n\n` +
+    `**Dependency installation (allowed):** Project dependency installation such as npm install, pip install -r requirements.txt is allowed.\n\n` +
+    `**Build/test tool installation prohibited:**\n` +
+    `- When build tools are missing such as "tsc not found", "gradle not found", do not install them automatically\n` +
+    `- Instead, suggest the user install them (e.g., "tsc is not found. Please install it with npm install -g typescript.")\n`
   );
 }
 
 export function getTestRetryExceededMessage(
   maxTestFixAttempts: number,
   errorMessage: string,
+  giveUpReason?: 'exceeded' | 'non_retryable' | 'same_pattern' | 'disabled',
 ): string {
-  return `⚠️ 테스트 수정 시도 횟수 초과 (${maxTestFixAttempts}회). 최종 오류:\n${errorMessage || "알 수 없는 오류"}`;
+  const error = errorMessage || "Unknown error";
+  if (giveUpReason === 'non_retryable') {
+    return `Auto-fix not possible -- tool not installed or timeout. Final error:\n${error}`;
+  }
+  if (giveUpReason === 'same_pattern') {
+    return `Auto-fix stopped due to repeated identical errors. Final error:\n${error}`;
+  }
+  return `Test fix attempt limit exceeded (${maxTestFixAttempts} attempts). Final error:\n${error}`;
 }
 
 // ==================== Nudge Prompts ====================
 
 /**
- * Investigation 단계에서 도구 호출 유도 nudge
+ * Nudge to prompt tool calls during the Investigation phase
  */
 export function getInvestigationNudgePrompt(): string {
   return (
-    `\n[System] ⚠️ **도구 호출 필수 - 자연어 응답 금지**\n\n` +
-    `당신의 이전 응답이 자연어로 감지되어 무시되었습니다.\n` +
-    `**반드시 아래 형식으로만 응답하세요.**\n\n` +
-    `**조사 도구 호출 예시:**\n` +
+    `\n[System] **Tool call required - natural language responses prohibited**\n\n` +
+    `Your previous response was detected as natural language and was ignored.\n` +
+    `**You must respond only in the format below.**\n\n` +
+    `**Investigation tool call example:**\n` +
     "```\n" +
     `{ "tool": "read_file", "path": "src/App.tsx" }\n` +
     "```\n\n" +
-    `**계획 제출 예시:**\n` +
+    `**Plan submission example:**\n` +
     "```json\n" +
     `{\n` +
     `  "plan": [\n` +
-    `    { "kind": "execution", "title": "버튼 컴포넌트 추가", "detail": "src/App.tsx에 버튼 추가" }\n` +
+    `    { "kind": "execution", "title": "Add button component", "detail": "Add button to src/App.tsx" }\n` +
     `  ]\n` +
     `}\n` +
     "```\n\n" +
-    `**절대 금지:** 설명, 생각, 분석 텍스트 출력\n` +
-    `**지금 바로 도구 호출을 출력하세요.**`
+    `**Strictly prohibited:** Explanations, thoughts, analysis text output\n` +
+    `**Output tool calls immediately.**`
   );
 }
 
 /**
- * Execution 단계에서 도구 호출 유도 nudge
+ * Nudge to prompt tool calls during the Execution phase
  */
 export function getExecutionNudgePrompt(): string {
   return (
-    `\n[System] ⚠️ **도구 호출 필수 - 자연어 응답 금지**\n\n` +
-    `당신의 이전 응답이 자연어로 감지되어 무시되었습니다.\n` +
-    `**반드시 아래 형식으로만 응답하세요. 다른 텍스트는 절대 출력하지 마세요.**\n\n` +
-    `**올바른 형식 예시:**\n` +
+    `\n[System] **Tool call required - natural language responses prohibited**\n\n` +
+    `Your previous response was detected as natural language and was ignored.\n` +
+    `**You must respond only in the format below. Do not output any other text.**\n\n` +
+    `**Correct format example:**\n` +
     "```\n" +
     `{ "tool": "read_file", "path": "src/App.tsx" }\n` +
     "```\n\n" +
-    `**파일 생성 예시:**\n` +
+    `**File creation example:**\n` +
     "```\n" +
     `{ "tool": "create_file", "path": "src/App.tsx" }\n` +
     `<file_content>\n` +
-    `import React from 'react';\n` +
     `export default function App() { return <div>Hello</div>; }\n` +
     `</file_content>\n` +
     "```\n\n" +
-    `**절대 금지:**\n` +
-    `- "버튼이 추가되었습니다" 같은 설명\n` +
-    `- XML 태그 형식\n` +
-    `- 생각, 분석, 계획 텍스트\n\n` +
-    `**지금 바로 도구 호출을 출력하세요. 다른 모든 텍스트는 무시됩니다.**`
+    `**Strictly prohibited:**\n` +
+    `- Explanations like "The button has been added"\n` +
+    `- XML tag format\n` +
+    `- Thoughts, analysis, planning text\n\n` +
+    `**Output tool calls immediately. All other text will be ignored.**`
   );
 }
 
 /**
- * EXECUTION phase에서 도구 호출 없이 plan만 다시 제출했을 때 강제 프롬프트
- * 파일 생성/수정 없이 완료 처리되는 것을 방지
+ * Force prompt when only a plan is resubmitted without tool calls during the EXECUTION phase
+ * Prevents completion without file creation/modification
  */
 export function getExecutionNoToolCallWarningPrompt(planItemTitle: string): string {
   return (
-    `\n[System] ⚠️ **실행 도구 호출 필수 - plan 재제출 금지**\n\n` +
-    `당신은 현재 실행(EXECUTION) 단계에 있습니다.\n` +
-    `작업 "${planItemTitle}"을(를) 완료하려면 **반드시 파일 도구를 호출**해야 합니다.\n\n` +
-    `**❌ 금지된 응답:**\n` +
-    `- { "plan": [...] } ← plan은 이미 수립되었습니다. 다시 제출하지 마세요.\n` +
-    `- 자연어 설명, 분석 텍스트\n\n` +
-    `**✅ 필수 응답 형식:**\n` +
-    `파일 생성:\n` +
+    `\n[System] **Execution tool call required - plan resubmission prohibited**\n\n` +
+    `You are currently in the EXECUTION phase.\n` +
+    `To complete the task "${planItemTitle}", you **must call a file tool**.\n\n` +
+    `**Prohibited responses:**\n` +
+    `- { "plan": [...] } -- The plan has already been established. Do not resubmit it.\n` +
+    `- Natural language explanations, analysis text\n\n` +
+    `**Required response format:**\n` +
+    `File creation:\n` +
     "```\n" +
-    `{ "tool": "create_file", "path": "파일경로" }\n` +
+    `{ "tool": "create_file", "path": "file_path" }\n` +
     `<file_content>\n` +
-    `파일 내용\n` +
+    `File contents\n` +
     `</file_content>\n` +
     "```\n\n" +
-    `파일 수정:\n` +
+    `File modification:\n` +
     "```\n" +
-    `{ "tool": "update_file", "path": "파일경로" }\n` +
+    `{ "tool": "update_file", "path": "file_path" }\n` +
     `<file_content>\n` +
     `<<<<<<< SEARCH\n` +
-    `기존 코드\n` +
+    `Existing code\n` +
     `=======\n` +
-    `새 코드\n` +
+    `New code\n` +
     `>>>>>>> REPLACE\n` +
     `</file_content>\n` +
     "```\n\n" +
-    `**지금 바로 create_file 또는 update_file 도구를 호출하세요.**`
+    `**Call create_file or update_file tool immediately.**`
   );
 }
 
 /**
- * 테스트 실패 시 수정 강제 프롬프트
- * EXECUTION 단계에서 테스트 실패 시 update_file 도구 사용을 강제
+ * Force prompt for fixing test failures
+ * Forces the use of update_file tool when tests fail during the EXECUTION phase
  */
 export function getTestFailureFixPrompt(errorMessage: string): string {
   return (
-    `\n[System] ⚠️ **테스트 실패 - 즉시 코드 수정 필요**\n\n` +
-    `**오류 내용:**\n\`\`\`\n${errorMessage}\n\`\`\`\n\n` +
-    `**❌ 금지된 행동 (위반 시 재시도 실패):**\n` +
-    `- read_file, list_files, search_files 등 조사 도구 호출 금지\n` +
-    `- 자연어 설명, 분석 텍스트 출력 금지\n` +
-    `- { "plan": [...] } 재제출 금지\n\n` +
-    `**✅ 필수 행동:**\n` +
-    `오류를 분석하고 **즉시 update_file 또는 create_file 도구로 코드를 수정**하세요.\n\n` +
-    `**예시 (update_file로 오류 수정):**\n` +
+    `\n[System] **Test failed - immediate code fix required**\n\n` +
+    `**Error details:**\n\`\`\`\n${errorMessage}\n\`\`\`\n\n` +
+    `**Prohibited actions (retry will fail if violated):**\n` +
+    `- Calling investigation tools such as read_file, list_files, ripgrep_search is prohibited\n` +
+    `- Natural language explanations, analysis text output prohibited\n` +
+    `- { "plan": [...] } resubmission prohibited\n\n` +
+    `**Required action:**\n` +
+    `Analyze the error and **immediately fix the code using the update_file tool**. (Do not use create_file -- risk of losing existing file contents)\n\n` +
+    `**Example (fixing error with update_file):**\n` +
     "```\n" +
-    `{ "tool": "update_file", "path": "오류가_발생한_파일.tsx" }\n` +
+    `{ "tool": "update_file", "path": "file_with_error.tsx" }\n` +
     `<file_content>\n` +
     `<<<<<<< SEARCH\n` +
-    `// 오류가 있는 기존 코드\n` +
+    `// Existing code with error\n` +
     `=======\n` +
-    `// 수정된 코드\n` +
+    `// Fixed code\n` +
     `>>>>>>> REPLACE\n` +
     `</file_content>\n` +
     "```\n\n" +
-    `**지금 바로 update_file 도구로 오류를 수정하세요. 파일을 다시 읽지 마세요.**`
+    `**Fix the error with update_file tool immediately. Do not re-read files.**`
   );
 }
 
 /**
- * Investigation 텍스트만 출력 시 경고 메시지
+ * Warning message when only text is output during Investigation
  */
 export function getInvestigationTextOnlyWarningPrompt(): string {
   return (
-    `\n[System] ⚠️ 조사(Investigation) 단계에서는 텍스트 설명만 출력하는 것이 금지됩니다.\n` +
-    `다음 중 하나를 수행하세요:\n` +
-    `1. 조사 도구 호출: { "tool": "read_file", "path": "..." } 형식으로 정보를 수집하세요.\n` +
-    `2. 계획 수립: 충분한 정보를 수집했다면 { "plan": [...] } JSON 형식으로 작업 계획을 수립하세요.\n\n` +
-    `텍스트 설명만 출력하지 마세요. 반드시 도구를 호출하거나 계획을 제출해야 합니다.`
+    `\n[System] Outputting only text explanations is prohibited during the Investigation phase.\n` +
+    `Perform one of the following:\n` +
+    `1. Call an investigation tool: Collect information using { "tool": "read_file", "path": "..." } format.\n` +
+    `2. Submit a plan: If sufficient information has been collected, submit a task plan in { "plan": [...] } JSON format.\n\n` +
+    `Do not output only text explanations. You must call a tool or submit a plan.`
   );
 }
 
 /**
- * Investigation 단계에서 도구 실행 후 다음 턴 지시
- * 도구 결과를 받고 다음에 무엇을 해야 하는지 명확히 안내
+ * Next turn instructions after tool execution during the Investigation phase
+ * Clearly guides what to do next after receiving tool results
  */
 export function getInvestigationToolResultFollowupPrompt(): string {
   return (
-    `\n[System] 도구 실행 결과를 받았습니다. 다음 단계를 진행하세요:\n\n` +
-    `**필수 출력 형식 중 하나를 선택하세요:**\n` +
-    `1. **추가 조사 필요**: { "tool": "read_file", "path": "..." } 또는 { "tool": "search_files", "pattern": "..." }\n` +
-    `2. **조사 완료, 계획 수립**: { "plan": [{ "kind": "execution", "title": "...", "detail": "..." }] }\n\n` +
-    `**절대 금지:** 자연어 설명, 분석 텍스트 출력\n` +
-    `**반드시 위 JSON 형식 중 하나로만 응답하세요.**`
+    `\n[System] Tool execution results received. Proceed with the next step:\n\n` +
+    `**Choose one of the following required output formats:**\n` +
+    `1. **Additional investigation needed**: { "tool": "read_file", "path": "..." } or { "tool": "ripgrep_search", "pattern": "..." }\n` +
+    `2. **Investigation complete, create plan**: { "plan": [{ "kind": "execution", "title": "...", "detail": "..." }] }\n\n` +
+    `**Strictly prohibited:** Natural language explanations, analysis text output\n` +
+    `**You must respond only in one of the JSON formats above.**`
   );
 }
 
 // ==================== Output Contract Prompts ====================
 
 /**
- * Investigation 단계 Output Contract 위반 시 메시지
+ * Message for Investigation phase Output Contract violation
  */
 export function getInvestigationOutputContractViolationPrompt(): string {
   return (
-    `\n[System] **조사(Investigation) 단계 Output Contract 위반**\n\n` +
-    `조사 단계에서는 실행 도구(create_file, update_file, run_command)와 plan을 동시에 제출할 수 없습니다.\n\n` +
-    `**허용되는 출력 형식:**\n` +
-    `1. 조사 도구 사용: { "tool": "read_file", ... } (파일 수정 없이 조사만)\n` +
-    `2. 계획 제출: { "plan": [...] } (실행 도구 없이)\n` +
-    `3. 조사 도구와 plan 함께 사용 가능\n\n` +
-    `**금지됨**: 실행 도구 + plan 동시 제출\n\n` +
-    `다시 시도하세요. { "tool": "..." } 형식으로 응답하세요.`
+    `\n[System] **Investigation Phase Output Contract Violation**\n\n` +
+    `During the investigation phase, you cannot submit execution tools (create_file, update_file, run_command) and a plan simultaneously.\n\n` +
+    `**Allowed output formats:**\n` +
+    `1. Use investigation tools: { "tool": "read_file", ... } (investigation only, no file modifications)\n` +
+    `2. Submit plan: { "plan": [...] } (without execution tools)\n` +
+    `3. Investigation tools and plan can be used together\n\n` +
+    `**Prohibited**: Submitting execution tools + plan simultaneously\n\n` +
+    `Try again. Respond in { "tool": "..." } format.`
   );
 }
 
 /**
- * Execution 단계 Output Contract 위반 시 메시지
+ * Message for Execution phase Output Contract violation
  */
 export function getExecutionOutputContractViolationPrompt(): string {
   return (
-    `\n[System] ⚠️ **EXECUTION 단계 Output Contract 위반**\n\n` +
-    `실행 단계에서는 계획 없이 실행 도구를 사용해야 합니다.\n` +
-    `이미 승인된 계획이 있으므로 새 plan을 제출하지 마세요.\n` +
-    `{ "tool": "..." } 형식으로 실행 도구를 호출하세요.`
+    `\n[System] **EXECUTION Phase Output Contract Violation**\n\n` +
+    `During the execution phase, you must use execution tools without a plan.\n` +
+    `An approved plan already exists, so do not submit a new plan.\n` +
+    `Call execution tools in { "tool": "..." } format.`
   );
 }
 
 // ==================== FSM Violation Prompts ====================
 
 /**
- * FSM 위반: Investigation 항목이 Execution 단계에 도달
+ * FSM Violation: Investigation item reached the Execution phase
  */
 export function getFsmViolationInvestigationInExecutionPrompt(
   itemTitle: string,
 ): string {
   return (
-    `\n[System] ⚠️ **FSM 위반 감지**: 조사(Investigation) 항목 "${itemTitle}"이 실행(Execution) 단계에 도달했습니다.\n` +
-    `조사 항목은 INVESTIGATION 단계에서 처리되어야 합니다. 이 항목을 건너뛰고 다음 실행 항목으로 진행합니다.\n` +
-    `{ "tool": "..." } 형식으로 실행 도구를 호출하세요.`
+    `\n[System] **FSM violation detected**: Investigation item "${itemTitle}" has reached the Execution phase.\n` +
+    `Investigation items should be processed during the INVESTIGATION phase. Skipping this item and proceeding to the next execution item.\n` +
+    `Call execution tools in { "tool": "..." } format.`
   );
 }
 
 // ==================== File Operation Prompts ====================
 
 /**
- * 코드 수정 작업 시 파일 도구 필요 경고
+ * Warning that file tools are required for code modification tasks
  */
 export function getCodeModifyRequiresFileToolPrompt(): string {
-  return `\n[System] ⚠️ 코드 수정 작업(code_modify)은 반드시 파일 생성/수정 도구(create_file, update_file)가 필요합니다. 조사(read_file)만으로는 작업이 완료되지 않습니다. 계획에 따라 파일을 생성하거나 수정하세요.\n`;
+  return `\n[System] Code modification tasks (code_modify) require file creation/modification tools (create_file, update_file). Investigation (read_file) alone will not complete the task. Create or modify files according to the plan.\n`;
 }
 
 /**
- * 단계별 도구 사용 제한 경고
+ * Phase-specific tool usage restriction warning
  */
 export function getPhaseToolRestrictionPrompt(
   phase: string,
   blockedTools: string[],
 ): string {
-  return `\n[System] ⚠️ ${phase} 단계에서는 ${blockedTools.join(", ")} 도구를 사용할 수 없습니다.\n`;
+  return `\n[System] The tools ${blockedTools.join(", ")} cannot be used during the ${phase} phase.\n`;
 }
 
 /**
- * create_file content 누락 경고
+ * create_file content missing warning
  */
 export function getCreateFileContentMissingPrompt(warningText: string): string {
-  return `\n[System] ⚠️ create_file 사용 시 <file_content> 블록이 필수입니다. 다음 호출은 무시되었습니다:\n${warningText}\n\n올바른 형식:\n{ "tool": "create_file", "path": "..." }\n<file_content>\n파일 내용\n</file_content>\n`;
+  return `\n[System] The <file_content> block is required when using create_file. The following call was ignored:\n${warningText}\n\nCorrect format:\n{ "tool": "create_file", "path": "..." }\n<file_content>\nFile contents\n</file_content>\n`;
 }
 
 // ==================== Validation Prompts ====================
 
 /**
- * 검증 명령어 추론용 프롬프트
+ * Prompt for inferring validation commands
  */
 export function getValidationCommandInferencePrompt(
   projectType: string,
   workspaceRoot: string,
   fileList: string,
 ): string {
-  return `다음 프로젝트에 대한 검증 명령어를 추론하세요.
+  return `Infer the validation command for the following project.
 
-프로젝트 타입: ${projectType}
-프로젝트 루트: ${workspaceRoot}
-생성/수정된 파일: ${fileList || "없음"}
+Project type: ${projectType}
+Project root: ${workspaceRoot}
+Created/modified files: ${fileList || "None"}
 
-규칙 기반으로 결정할 수 없는 검증 명령어를 추론해야 합니다.
-프로젝트 타입과 파일 정보를 바탕으로 적절한 검증 명령어(컴파일, 빌드, 린트 등)를 제안하세요.
+You need to infer a validation command that cannot be determined by rule-based logic.
+Based on the project type and file information, suggest an appropriate validation command (compile, build, lint, etc.).
 
-반드시 다음 JSON 형식으로만 응답하세요:
-{ "command": "실행할 명령어", "description": "명령어 설명" }
+You must respond only in the following JSON format:
+{ "command": "Command to execute", "description": "Command description" }
 
-예시:
-{ "command": "npm run build", "description": "TypeScript 빌드" }
-{ "command": "python -m py_compile main.py", "description": "Python 문법 검사" }`;
+Examples:
+{ "command": "npm run build", "description": "TypeScript build" }
+{ "command": "python -m py_compile main.py", "description": "Python syntax check" }`;
 }
 
 /**
- * 테스트 실패 시 간단한 오류 메시지
+ * Simple error message for test failures
  */
 export function getSimpleTestFailurePrompt(errorMessage: string): string {
   return (
-    `\n[System] ⚠️ **자동 테스트가 실패했습니다.**\n\n**오류 내용:**\n\`\`\`\n${errorMessage}\n\`\`\`\n\n` +
-    `**⚠️ { "tool": "..." } 형식 필수 - 자연어 응답 금지**\n\n` +
-    `오류를 수정하기 위해 도구 호출을 출력하세요.\n` +
-    `- 파일 수정: { "tool": "update_file", "path": "..." } + <file_content> ... </file_content>\n` +
-    `- 파일 생성: { "tool": "create_file", "path": "..." } + <file_content> ... </file_content>\n` +
-    `- 명령어 실행: { "tool": "run_command", "command": "..." }\n\n` +
-    `**지금 바로 도구 호출을 출력하세요.**\n`
+    `\n[System] **Automated test failed.**\n\n**Error details:**\n\`\`\`\n${errorMessage}\n\`\`\`\n\n` +
+    `**{ "tool": "..." } format required - natural language responses prohibited**\n\n` +
+    `Output tool calls to fix the error.\n` +
+    `- File modification: { "tool": "update_file", "path": "..." } + <file_content> ... </file_content>\n` +
+    `- File creation: { "tool": "create_file", "path": "..." } + <file_content> ... </file_content>\n` +
+    `- Command execution: { "tool": "run_command", "command": "..." }\n\n` +
+    `**Output tool calls immediately.**\n`
   );
 }
 
@@ -397,10 +404,11 @@ export interface ExecutionPhaseContextOptions {
   currentTaskDetail?: string;
   projectInventoryContext: string;
   preloadedFilesContext: string;
+  ragContext?: string; // RAG context re-injection
 }
 
 /**
- * EXECUTION 단계에서 LLM에 전달할 컨텍스트 프롬프트
+ * Context prompt to pass to the LLM during the EXECUTION phase
  */
 export function getExecutionPhaseContextPrompt(
   options: ExecutionPhaseContextOptions,
@@ -410,7 +418,15 @@ export function getExecutionPhaseContextPrompt(
     currentTaskDetail,
     projectInventoryContext,
     preloadedFilesContext,
+    ragContext,
   } = options;
+
+  // Re-inject RAG context during execution phase if available (positioned closer than file read results)
+  const ragSection = ragContext
+    ? `\n\n## Reference Documents (RAG) -- Must be prioritized\n` +
+      `Below are contents retrieved from internal organization documents. Prioritize the contents below when creating/modifying files.\n\n` +
+      `${ragContext}\n`
+    : '';
 
   return (
     `\n\n[EXECUTION PHASE - ABSOLUTE RULES (NO EXCEPTIONS)]\n` +
@@ -418,7 +434,8 @@ export function getExecutionPhaseContextPrompt(
     (currentTaskDetail ? `\nDETAIL: ${currentTaskDetail}` : "") +
     projectInventoryContext +
     preloadedFilesContext +
-    `\n\n** ABSOLUTELY FORBIDDEN (시스템이 자동으로 무시함):**\n` +
+    ragSection +
+    `\n\n** ABSOLUTELY FORBIDDEN (system will automatically ignore):**\n` +
     `- NO thinking, reasoning, explanation, or meta-analysis\n` +
     `- NO "We need to...", "According to...", "Let's call...", "I should..."\n` +
     `- NO natural language text (except inside <file_content> blocks)\n` +
@@ -426,134 +443,190 @@ export function getExecutionPhaseContextPrompt(
     `- NO re-reading files already provided above\n` +
     `- NO plan creation (planning phase is over)\n` +
     `- NO XML tag format\n\n` +
-    `**✅ REQUIRED OUTPUT FORMAT:**\n` +
+    `**REQUIRED OUTPUT FORMAT:**\n` +
     `- ONLY { "tool": "..." } format\n` +
     `- File content in <file_content> ... </file_content> blocks\n` +
     `- NO text before or after tool calls\n\n` +
     `**Example:**\n` +
     `{ "tool": "create_file", "path": "src/App.tsx" }\n` +
     `<file_content>\n` +
-    `import React from 'react';\n` +
     `export default function App() { return <div>Hello</div>; }\n` +
     `</file_content>\n\n` +
     `**CRITICAL:** You are a DSL compiler, NOT a human assistant.\n` +
     `Any natural language text will be IGNORED by the system.\n\n` +
-    `**파일 읽기 전략 (시스템이 자동 관리):**\n` +
-    `- 위에 이미 제공된 파일 내용을 참고하세요 (다시 읽지 마세요)\n` +
-    `- 새로 생성/수정할 파일만 필요시 읽으세요\n` +
-    `- **다중 도구 호출 필수**: 필요한 모든 파일을 한 번에 처리하세요\n\n` +
-    `이 계획 항목을 실행하기 위해 필요한 모든 도구 호출을 한 번에 즉시 제공하세요.`
+    `**File reading strategy (managed automatically by the system):**\n` +
+    `- Refer to the file contents already provided above (do not re-read them)\n` +
+    `- Only read files that need to be newly created/modified if necessary\n` +
+    `- **Multiple tool calls required**: Process all necessary files at once\n\n` +
+    `Provide all tool calls needed to execute this plan item at once immediately.`
   );
 }
 // ====================  Compact Rule ====================
 /**
- * 압축용 간소화된 요약 프롬프트
+ * Simplified summarization prompt for compaction
  */
 export function getCompactSummarizationPrompt(): string {
-  return `당신은 대화 요약 전문가입니다. 코드 어시스턴트의 대화를 간결하게 요약해주세요.
+  return `You are a conversation summarization expert. Create a structured summary that preserves all critical context for continuing the conversation.
 
-## 요약 형식:
+Before providing your final summary, wrap your analysis in <analysis> tags to organize your thoughts:
 
-### 사용자 요청
-- 사용자가 요청한 주요 작업들
+<analysis>
+Chronologically analyze each message. For each, identify:
+- User's explicit requests
+- Your approach and key decisions
+- File names, function signatures, edits made
+- Errors encountered and how they were fixed
+</analysis>
 
-### 완료된 작업
-- 완료된 파일 생성/수정 목록
-- 실행된 명령어
+Then provide your summary in the 9 sections below. The <analysis> block will be stripped — only the summary is kept.
 
-### 핵심 컨텍스트
-- 다음 작업에 필요한 중요 정보
-- 프로젝트 구조, 기술 스택, 설정 등
+## Required Sections (include ALL 9 sections):
 
-### 대기 중인 작업
-- 아직 완료되지 않은 작업
+### 1. Primary Request and Intent
+- The user's original request and overall goal
+- Category: code generation / modification / analysis / documentation / execution
 
-## 지침:
-1. 핵심 정보만 포함하세요 (토큰 절약이 목적)
-2. 코드는 포함하지 마세요 (파일명만 기록)
-3. 한국어로 작성하세요
-4. 다음 작업에 필수적인 컨텍스트만 유지하세요`;
+### 2. Key Technical Concepts
+- Technologies, frameworks, libraries mentioned or used
+- Architecture decisions made (e.g., "using Repository pattern", "FastAPI + React")
+- Important constraints or requirements discussed
+
+### 3. Files and Code Sections
+- List ALL files that were read, created, or modified with their paths
+- For modified files: note what was changed (e.g., "src/App.tsx: added Router import and routes")
+- For created files: note purpose (e.g., "backend/app/main.py: FastAPI entry point with CORS")
+- Include specific line numbers or function names when referenced
+
+### 4. Errors and Fixes
+- Any errors encountered and how they were resolved
+- Tool failures (e.g., "update_file SEARCH failed for X → re-read and retried")
+- Build/test errors and their fixes
+
+### 5. Problem Solving Approach
+- Key decisions made during implementation
+- Alternative approaches considered and rejected
+- Non-obvious solutions applied
+
+### 6. User Messages (ALL)
+- Reproduce every user message verbatim (or near-verbatim if very long)
+- This is critical for maintaining conversation context
+
+### 7. Pending Tasks
+- Tasks explicitly requested but not yet completed
+- Tasks implied but not started
+
+### 8. Current Work State
+- What was being worked on when the summary was created
+- Current phase: investigation / implementation / testing / review
+- Any in-progress tool executions or pending results
+
+### 9. Suggested Next Step
+- The most logical next action based on current state
+- Any blockers that need resolution
+
+## Guidelines:
+1. Be thorough — this summary replaces the full conversation history
+2. File paths must be exact (the AI will use them for read_file/update_file)
+3. Do NOT include source code content (only file names and what changed)
+4. Write in English (technical accuracy over brevity)
+5. If a file was modified multiple times, record the final state description
+6. Preserve error messages verbatim when they are important for debugging`;
 }
 
 // ==================== Classified Error Retry Prompt ====================
 
 /**
- * 구조적 에러 분류 기반 재시도 프롬프트
- * 키워드 매칭 없이 분류된 에러 그룹 + 근본 원인 분석을 LLM에 전달
+ * Retry prompt based on structural error classification
+ * Passes classified error groups + root cause analysis to the LLM without keyword matching
  *
- * @param classification ErrorClassifier의 분류 결과
- * @param modifiedFilesContext 수정된 파일들의 최신 내용
- * @param escalation 동일 패턴 3회+ 반복 여부
- * @param samePatternCount 동일 패턴 반복 횟수
+ * @param classification Classification result from ErrorClassifier
+ * @param modifiedFilesContext Latest contents of modified files
+ * @param escalation Whether the same pattern has repeated 3+ times
+ * @param samePatternCount Number of times the same pattern has repeated
  */
 export function buildClassifiedRetryPrompt(
     classification: ClassificationResult,
     modifiedFilesContext: ModifiedFileContext[],
     escalation: boolean,
-    samePatternCount: number
+    samePatternCount: number,
+    detectedSubProjectRoot?: string,
 ): string {
-    let prompt = `\n[System] ⚠️ **자동 테스트가 실패했습니다.**\n\n`;
+    let prompt = `\n[System] **Automated test failed.**\n\n`;
 
-    // 섹션 1: 에러 분류 결과 (구조적 분석)
-    prompt += `**에러 분류 결과:**\n`;
-    prompt += `- 총 에러 수: ${classification.totalErrorCount}\n`;
-    prompt += `- 주요 원인 유형: ${classification.dominantCategory}\n`;
+    // Section 1: Error classification results (structural analysis)
+    prompt += `**Error classification results:**\n`;
+    prompt += `- Total error count: ${classification.totalErrorCount}\n`;
+    prompt += `- Dominant cause type: ${classification.dominantCategory}\n`;
 
     if (classification.environmentCheck.needsInstall) {
-        prompt += `- ⚠️ 환경 문제: 의존성 디렉토리 누락 (자동 설치 시도됨)\n`;
+        prompt += `- Environment issue: dependency directory missing (automatic installation attempted)\n`;
     }
 
-    prompt += `\n**에러 그룹:**\n`;
+    prompt += `\n**Error groups:**\n`;
     for (const group of classification.groups.slice(0, 5)) {
-        prompt += `\n### [${group.source}] 코드 ${group.representativeCode} (${group.count}건, ${group.affectedFiles.length}개 파일)\n`;
-        prompt += `- 영향 파일: ${group.affectedFiles.slice(0, 5).join(', ')}${group.affectedFiles.length > 5 ? ` 외 ${group.affectedFiles.length - 5}개` : ''}\n`;
+        prompt += `\n### [${group.source}] Code ${group.representativeCode} (${group.count} occurrences, ${group.affectedFiles.length} files)\n`;
+        prompt += `- Affected files: ${group.affectedFiles.slice(0, 5).join(', ')}${group.affectedFiles.length > 5 ? ` and ${group.affectedFiles.length - 5} more` : ''}\n`;
         if (group.rootCauseHypothesis) {
-            prompt += `- 분석: ${group.rootCauseHypothesis}\n`;
+            prompt += `- Analysis: ${group.rootCauseHypothesis}\n`;
         }
-        prompt += `- 샘플:\n`;
+        prompt += `- Samples:\n`;
         for (const msg of group.sampleMessages) {
             prompt += `  - ${msg}\n`;
         }
     }
 
-    // 섹션 2: 에스컬레이션 경고 (동일 패턴 반복)
+    // Section 2: Escalation warning (same pattern repeated)
     if (escalation) {
-        prompt += `\n**⚠️ 경고: 동일한 에러 패턴이 ${samePatternCount}회 반복되고 있습니다.**\n`;
-        prompt += `이전과 **다른 접근 방식**을 시도하세요:\n`;
-        prompt += `- 동일한 수정을 반복하지 마세요\n`;
-        prompt += `- 에러의 근본 원인을 다시 분석하세요\n`;
-        prompt += `- 의존성 문제라면 run_command로 패키지 설치를 시도하세요\n`;
-        prompt += `- 타입/모듈 에러가 반복되면 import 경로나 설정 파일을 확인하세요\n`;
+        prompt += `\n**Warning: The same error pattern has repeated ${samePatternCount} times.**\n`;
+        prompt += `Try a **different approach** from before:\n`;
+        prompt += `- Do not repeat the same fix\n`;
+        prompt += `- Re-analyze the root cause of the error\n`;
+        prompt += `- If it is a dependency issue, try installing packages with run_command\n`;
+        prompt += `- If type/module errors persist, check import paths or configuration files\n`;
     }
 
-    // 섹션 3: 수정된 파일 최신 내용 (항상 포함)
+    // Section 3: Latest contents of modified files (always included)
     if (modifiedFilesContext && modifiedFilesContext.length > 0) {
-        prompt += `\n**⚠️ 중요: 아래는 수정된 파일들의 최신 내용입니다.**\n`;
-        prompt += `**SEARCH 블록 작성 시 반드시 아래 내용을 기준으로 작성하세요.**\n\n`;
+        prompt += `\n**Important: Below are the latest contents of modified files.**\n`;
+        prompt += `**When writing SEARCH blocks, you MUST base them on the contents below.**\n\n`;
 
         for (const file of modifiedFilesContext) {
             const lines = file.content.split('\n');
             const preview = lines.slice(0, 150).join('\n');
             const isTruncated = lines.length > 150;
-            prompt += `**[${file.path}] 현재 내용:**\n\`\`\`\n${preview}${isTruncated ? '\n... (생략됨)' : ''}\n\`\`\`\n\n`;
+            prompt += `**[${file.path}] Current contents:**\n\`\`\`\n${preview}${isTruncated ? '\n... (truncated)' : ''}\n\`\`\`\n\n`;
         }
     }
 
-    // 섹션 4: 도구 호출 형식 지침
+    // Section 4: Sub-project scope restriction
+    if (detectedSubProjectRoot) {
+        const subDir = detectedSubProjectRoot.split('/').pop() || detectedSubProjectRoot;
+        prompt += `\n**Sub-project scope restriction: \`${subDir}/\`**\n`;
+        prompt += `- The root of this project is \`${subDir}/\`. All file modifications must be performed only under \`${subDir}/\`.\n`;
+        prompt += `- Prohibited: Creating/modifying files in parent directories (project root) (e.g., \`./package.json\`, \`./src/**\`, \`./eslint.config.*\`)\n`;
+        prompt += `- Allowed: Only files under \`${subDir}/\` (e.g., \`${subDir}/package.json\`, \`${subDir}/src/**\`, \`${subDir}/tsconfig.json\`)\n`;
+        prompt += `- Unless the user explicitly requests it, never touch files outside the sub-project.\n\n`;
+    }
+
+    // Section 5: Tool call format instructions
     prompt +=
-        `**중요: { "tool": "..." } 형식으로만 응답하세요**\n\n` +
-        `**사용 가능한 도구:**\n` +
-        `- 파일 수정: { "tool": "update_file", "path": "..." }\n` +
-        `- 파일 생성: { "tool": "create_file", "path": "..." }\n` +
-        `- 명령어 실행: { "tool": "run_command", "command": "..." }\n\n` +
-        `**빌드/테스트 도구 설치 절대 금지:**\n` +
-        `- "tsc not found", "gradle not found" 등 빌드 도구가 없는 경우\n` +
-        `- 절대 npm install -g typescript, brew install gradle 등 도구 설치 명령을 실행하지 마세요\n` +
-        `- 대신 사용자에게 설치를 권유하는 메시지만 출력하세요\n\n` +
-        `**절대 금지:**\n` +
-        `- 자연어 응답 (설명, 분석, "We need to..." 등)\n` +
-        `- XML 태그 형식\n\n` +
-        `**지금 바로 도구 호출을 출력하세요. 자연어 텍스트는 무시됩니다.**\n`;
+        `**Important: Respond only in { "tool": "..." } format**\n\n` +
+        `**Available tools:**\n` +
+        `- File modification: { "tool": "update_file", "path": "..." }\n` +
+        `- Command execution: { "tool": "run_command", "command": "..." }\n` +
+        `- create_file prohibited: Recreating existing files will result in content loss. Use only update_file.\n\n` +
+        `**Build/test tool installation strictly prohibited:**\n` +
+        `- When build tools are missing such as "tsc not found", "gradle not found", etc.\n` +
+        `- Never run tool installation commands like npm install -g typescript, brew install gradle, etc.\n` +
+        `- Instead, only output a message suggesting the user install it\n\n` +
+        `**File copy/move/structure changes strictly prohibited:**\n` +
+        `- Do not use file copy/move commands such as cp, cp -r, mv, rsync\n` +
+        `- Do not change the project structure. Only modify code contents.\n` +
+        `- If existing files (package.json, eslint config, etc.) exist, only modify/supplement them; do not replace/delete them.\n\n` +
+        `**Strictly prohibited:**\n` +
+        `- Natural language responses (explanations, analysis, "We need to..." etc.)\n` +
+        `- XML tag format\n\n` +
+        `**Output tool calls immediately. Natural language text will be ignored.**\n`;
 
     return prompt;
 }

@@ -15,8 +15,20 @@ import { getSummarizationPrompt } from "../context/prompts/task";
 import { SummarizationOptions } from "../context/types/contextHistory";
 import { AgentConfig } from "../../config/AgentConfig";
 import { StringUtils } from "../../utils/StringUtils";
+import { UsageMetricsManager } from "../state/UsageMetricsManager";
 import { getCompactSummarizationPrompt } from "../context/prompts/rules";
-import { Part } from "../../../services/llm/GeminiApi";
+import { PromptComposer, RulePrecedence } from "../context/prompts/PromptComposer";
+import { Part } from "../../../services/types";
+
+// C-1: Post-compaction context priority token budget constants
+const POST_COMPACT_MAX_FILES = 5;
+const POST_COMPACT_FILE_TOKEN_BUDGET = 50000;
+const POST_COMPACT_MAX_TOOL_RESULT_TOKENS = 5000;
+const POST_COMPACT_TOOL_RESULT_TRUNCATE = 2000;
+
+// Budget: 오래된 도구 결과 자동 축약
+const BUDGET_STALE_TURN_THRESHOLD = 3; // N턴 이전의 도구 결과만 대상
+const BUDGET_MAX_RESULT_CHARS = 2000;  // 축약 시 최대 문자 수
 
 export interface ConversationMessage {
   role: "user" | "assistant" | "system";
@@ -45,8 +57,8 @@ export interface CompactorConfig {
 }
 
 const DEFAULT_CONFIG: CompactorConfig = {
-  tokenThreshold: 0.9, // 90% of max tokens
-  keepRecentCount: 12,
+  tokenThreshold: AgentConfig.COMPACTION_TOKEN_THRESHOLD,
+  keepRecentCount: 4,
   summarizationOptions: {
     includeTechnicalDetails: true,
     includeCodeSnippets: true,
@@ -67,6 +79,7 @@ export class ConversationCompactor {
     originalTokens: number;
     compactedTokens: number;
   }> = [];
+  private consecutiveCompactFailures = 0;
 
   private constructor(
     llmManager: LLMManager,
@@ -109,8 +122,11 @@ export class ConversationCompactor {
       return false;
     }
 
+    const SUMMARY_RESERVED_TOKENS = 20000;
+    const AUTOCOMPACT_BUFFER_TOKENS = 13000; // Extra buffer to prevent frequent re-compaction
+    const effectiveMaxTokens = maxTokens - SUMMARY_RESERVED_TOKENS - AUTOCOMPACT_BUFFER_TOKENS;
     const totalTokens = this.calculateTotalTokens(userParts, systemPrompt);
-    const threshold = maxTokens * this.config.tokenThreshold;
+    const threshold = effectiveMaxTokens * this.config.tokenThreshold;
 
     console.log(
       `[ConversationCompactor] Token check: ${totalTokens}/${maxTokens} (threshold: ${threshold})`,
@@ -133,6 +149,21 @@ export class ConversationCompactor {
     maxTokens: number,
     abortSignal?: AbortSignal,
   ): Promise<CompactionResult> {
+    // Circuit breaker: skip compaction after 3 consecutive failures
+    if (this.consecutiveCompactFailures >= 3) {
+      console.warn(
+        `[ConversationCompactor] Circuit breaker: skipping compaction after ${this.consecutiveCompactFailures} consecutive failures`,
+      );
+      const skipTokens = this.calculateTotalTokens(userParts, systemPrompt);
+      return {
+        compacted: false,
+        originalTokens: skipTokens,
+        compactedTokens: skipTokens,
+        recentMessages: userParts,
+        savedTokens: 0,
+      };
+    }
+
     const originalTokens = this.calculateTotalTokens(userParts, systemPrompt);
 
     // 압축이 필요없으면 원본 반환
@@ -170,20 +201,41 @@ export class ConversationCompactor {
     }
 
     try {
+      // Strip inline images before summarization (save tokens)
+      const strippedMessages = messagesToSummarize.map(part => {
+        if (part.inlineData) {
+          return { text: `[image: ${part.inlineData.mimeType || 'unknown'}]` };
+        }
+        return part;
+      });
+
       // LLM을 사용해 오래된 대화 요약
-      const summary = await this.generateSummary(
-        messagesToSummarize,
+      let summary = await this.generateSummary(
+        strippedMessages,
         abortSignal,
       );
       this.lastSummary = summary;
 
+      // Re-inject essential rules after compression
+      const essentialRules = PromptComposer.getEssentialRules();
+      if (essentialRules.length > 0) {
+          const essentialText = essentialRules
+              .map(r => `[Essential Rule: ${r.key}]\n${r.content}`)
+              .join('\n\n');
+          // Prepend essential rules to the summary
+          summary = `${essentialText}\n\n${summary}`;
+      }
+
       // 요약을 새 userParts의 첫 번째 메시지로 추가
-      const compactedParts = [
+      let compactedParts = [
         {
-          text: `[이전 대화 요약]\n${summary}\n\n[이전 대화 요약 끝 - 아래는 최근 대화입니다]`,
+          text: `[Previous conversation summary]\n${summary}\n\n[End of summary - recent conversation follows below]`,
         },
         ...recentMessages,
       ];
+
+      // C-1: Apply post-compaction token budget to recent messages
+      compactedParts = this.applyPostCompactTokenBudget(compactedParts);
 
       const compactedTokens = this.calculateTotalTokens(
         compactedParts,
@@ -198,6 +250,8 @@ export class ConversationCompactor {
         compactedTokens,
       });
 
+      this.consecutiveCompactFailures = 0;
+
       console.log(
         `[ConversationCompactor] Compaction complete. Saved ${savedTokens} tokens (${originalTokens} -> ${compactedTokens})`,
       );
@@ -211,13 +265,14 @@ export class ConversationCompactor {
         savedTokens,
       };
     } catch (error) {
+      this.consecutiveCompactFailures++;
       console.error(
-        "[ConversationCompactor] Compaction failed, using fallback strategy:",
+        `[ConversationCompactor] Compaction failed (consecutiveFailures=${this.consecutiveCompactFailures}), using fallback strategy:`,
         error,
       );
 
-      // 폴백: LLM 요약 실패 시 단순 슬라이딩 윈도우 적용
-      return this.fallbackCompaction(userParts, systemPrompt, originalTokens);
+      // 폴백: LLM 요약 실패 시 점진적 제거 적용
+      return this.fallbackCompaction(userParts, systemPrompt, originalTokens, maxTokens);
     }
   }
 
@@ -277,7 +332,7 @@ export class ConversationCompactor {
 
       // 요약을 새 userParts의 첫 번째 메시지로 추가
       const compactedParts = [
-        { text: `[이전 대화 요약]:\n${summary}` },
+        { text: `[Previous conversation summary]:\n${summary}` },
         ...recentMessages,
       ];
 
@@ -337,8 +392,10 @@ export class ConversationCompactor {
       .join("\n\n");
 
     const inputTokens = estimateTokens(conversationText);
+    // 요약 토큰 상한: 입력의 50% 또는 최대 2000토큰 (Claude Code: 20K이지만 로컬 모델은 더 작게)
+    const maxSummaryTokens = Math.min(Math.floor(inputTokens * 0.5), 2000);
     console.log(
-      `[ConversationCompactor] 요약 입력 토큰: ${inputTokens.toLocaleString()}`,
+      `[ConversationCompactor] 요약 입력 토큰: ${inputTokens.toLocaleString()}, 요약 상한: ${maxSummaryTokens}`,
     );
 
     // 요약 프롬프트 생성
@@ -346,25 +403,35 @@ export class ConversationCompactor {
 
     const userParts = [
       {
-        text: `다음 대화를 요약해주세요:\n\n${conversationText}`,
+        text: `Summarize the following conversation:\n\n${conversationText}`,
       },
     ];
 
     // StateManager가 있으면 compactorModel 사용, 없으면 메인 모델 사용
     let response: string;
+    const llmOptions = { signal: abortSignal, maxTokens: maxSummaryTokens };
+    const _llmStart1 = Date.now();
     if (this.stateManager) {
       response = await this.llmManager.sendMessageWithCompactorModel(
         summarizationPrompt,
         userParts,
         this.stateManager,
-        { signal: abortSignal },
+        llmOptions,
       );
     } else {
       response = await this.llmManager.sendMessageWithSystemPrompt(
         summarizationPrompt,
         userParts,
-        { signal: abortSignal },
+        llmOptions,
       );
+    }
+    const _llmTime1 = Date.now() - _llmStart1;
+    const _tokens1 = estimateTokens(response);
+    try {
+      const _modelName = await this.llmManager.getCurrentModelName();
+      UsageMetricsManager.getInstance().recordLLMCall(_llmTime1, _tokens1, true, _modelName);
+    } catch {
+      UsageMetricsManager.getInstance().recordLLMCall(_llmTime1, _tokens1, true);
     }
 
     const summary = this.extractSummaryFromResponse(response);
@@ -392,6 +459,9 @@ export class ConversationCompactor {
       // JSON 파싱 실패 시 원본 사용
     }
 
+    // Strip <analysis> blocks (used for chain-of-thought, not kept in summary)
+    response = response.replace(/<analysis>[\s\S]*?<\/analysis>/gi, '').trim();
+
     // StringUtils를 사용하여 thinking 태그 및 기타 불필요한 내용 제거
     return StringUtils.cleanText(response, {
       removeThinking: true,
@@ -404,40 +474,367 @@ export class ConversationCompactor {
   }
 
   /**
-   * 폴백 압축 전략: 단순 슬라이딩 윈도우
+   * Tier 1: 도구 결과 경량 트림 (LLM 호출 없음)
+   * 오래된 도구 결과(read_file 내용, glob/ripgrep 결과 등)를 짧은 요약으로 교체
+   * 최근 keepRecentCount 이내 메시지는 원본 유지
+   */
+  public trimToolResults(
+    userParts: Part[],
+    systemPrompt: string,
+    maxTokens: number,
+  ): { trimmed: boolean; parts: Part[]; savedTokens: number } {
+    if (!this.config.enabled) {
+      return { trimmed: false, parts: userParts, savedTokens: 0 };
+    }
+
+    const totalTokens = this.calculateTotalTokens(userParts, systemPrompt);
+    const threshold = maxTokens * 0.6; // 60% 이상일 때 트림 시작
+
+    if (totalTokens <= threshold) {
+      return { trimmed: false, parts: userParts, savedTokens: 0 };
+    }
+
+    // 최근 메시지는 보호 (but large tool results in protected area are still truncated)
+    const protectedCount = Math.min(this.config.keepRecentCount, userParts.length);
+    const trimTarget = userParts.length - protectedCount;
+
+    if (trimTarget <= 0 && totalTokens <= maxTokens * 0.75) {
+      return { trimmed: false, parts: userParts, savedTokens: 0 };
+    }
+
+    // Step 1: Deduplicate read_file results (Cline-style optimization)
+    // Keep only the latest read of each file, replace older ones with placeholder
+    const fileReadPositions = new Map<string, number[]>(); // filePath -> [indices]
+    for (let i = 0; i < userParts.length; i++) {
+      const text = userParts[i].text || '';
+      // Detect read_file results by line-numbered content pattern
+      const pathMatch = text.match(/(?:file|path)[:\s]*[`"]?([^\s`"]+\.\w{1,6})/i)
+        || text.match(/^([^\s]+\.\w{1,5})\s*[\(:|]/m);
+      if (pathMatch && /^\d+[→│|]/m.test(text)) {
+        const fp = pathMatch[1];
+        const positions = fileReadPositions.get(fp) || [];
+        positions.push(i);
+        fileReadPositions.set(fp, positions);
+      }
+    }
+
+    let trimmed = false;
+    const newParts = [...userParts];
+
+    // Replace older duplicate file reads with placeholder (keep latest only)
+    for (const [fp, positions] of fileReadPositions) {
+      if (positions.length <= 1) continue;
+      // Keep the last position, replace all others
+      for (let j = 0; j < positions.length - 1; j++) {
+        const idx = positions[j];
+        if (idx >= userParts.length - protectedCount) continue; // Don't touch protected area
+        newParts[idx] = {
+          text: `[File previously read: ${fp} — see latest read below]`,
+        };
+        trimmed = true;
+      }
+    }
+
+    // Step 2: Trim old tool results (non-protected area)
+    // A-2: Time-based micro-compaction — first 30% of messages are "old" and get
+    // aggressive truncation (200 chars), remaining non-protected messages keep normal limits.
+    const oldMessageBoundary = Math.floor(userParts.length * 0.3);
+    const AGGRESSIVE_TRUNCATE_CHARS = 200;
+
+    const toolResultPatterns = [
+      { pattern: /^```[\s\S]{500,}```/m, label: 'code block' },
+      { pattern: /^(Search results|Found \d+)/m, label: 'search results' },
+      { pattern: /^\[?(read_file|glob_search|ripgrep_search)\]?\s*result/mi, label: 'tool result' },
+    ];
+
+    for (let i = 0; i < trimTarget; i++) {
+      const part = newParts[i];
+      if (!part.text || part.text.length < 500) continue;
+      if (part.text.startsWith('[Previous conversation summary]') || part.text.startsWith('[System]') || part.text.startsWith('[File previously read:')) continue;
+
+      const isLatestRead = [...fileReadPositions.values()].some(positions => positions[positions.length - 1] === i);
+      if (isLatestRead) continue;
+
+      const filePathMatch = part.text.match(/(?:file|path)[:\s]*[`"]?([^\s`"]+\.\w+)/i)
+        || part.text.match(/^([^\s]+\.\w{1,5})\s*[\(:|]/m);
+      const filePath = filePathMatch ? filePathMatch[1] : '';
+
+      const isOldMessage = i < oldMessageBoundary;
+
+      // A-2: Old messages (first 30%) get aggressive truncation regardless of pattern
+      if (isOldMessage && part.text.length > AGGRESSIVE_TRUNCATE_CHARS) {
+        const preview = part.text.substring(0, AGGRESSIVE_TRUNCATE_CHARS);
+        const lineCount = part.text.split('\n').length;
+        newParts[i] = {
+          text: `${preview}\n... [truncated - old result, ${lineCount} lines]`,
+        };
+        trimmed = true;
+        continue;
+      }
+
+      let matched = false;
+      for (const { pattern, label } of toolResultPatterns) {
+        if (pattern.test(part.text)) {
+          const lineCount = part.text.split('\n').length;
+          newParts[i] = {
+            text: `[Previous ${label} omitted: ${filePath || '(path unknown)'} - ${lineCount} lines, content omitted]`,
+          };
+          matched = true;
+          trimmed = true;
+          break;
+        }
+      }
+
+      if (!matched && part.text.length > 2000) {
+        const preview = part.text.substring(0, 200);
+        const lineCount = part.text.split('\n').length;
+        newParts[i] = {
+          text: `[Previous content truncated - ${lineCount} lines]\n${preview}\n... [rest omitted]`,
+        };
+        trimmed = true;
+      }
+    }
+
+    // Also truncate oversized tool results in protected (recent) area
+    // But preserve the latest read of each file (needed for accurate update_file SEARCH blocks)
+    const PROTECTED_MAX_CHARS = 3000;
+    for (let i = Math.max(0, trimTarget); i < newParts.length; i++) {
+      const part = newParts[i];
+      if (!part.text || part.text.length <= PROTECTED_MAX_CHARS) continue;
+      if (part.text.startsWith('[Previous conversation summary]') || part.text.startsWith('[File previously read:')) continue;
+
+      // Skip if this is the latest read of any file (preserve for update_file accuracy)
+      const isLatestFileRead = [...fileReadPositions.values()].some(positions => positions[positions.length - 1] === i);
+      if (isLatestFileRead) continue;
+
+      // Check if it looks like a tool result (search results, command output — NOT file content)
+      const hasNonFileToolMarkers = /^```|^\[?(glob_search|ripgrep_search|run_command)\]?/m.test(part.text);
+      if (hasNonFileToolMarkers) {
+        const head = part.text.substring(0, 1500);
+        const tail = part.text.substring(part.text.length - 1000);
+        const lineCount = part.text.split('\n').length;
+        newParts[i] = {
+          text: `${head}\n\n... [truncated: ${lineCount} lines, ${part.text.length.toLocaleString()} chars total] ...\n\n${tail}`,
+        };
+        trimmed = true;
+      }
+    }
+
+    if (!trimmed) {
+      return { trimmed: false, parts: userParts, savedTokens: 0 };
+    }
+
+    const newTokens = this.calculateTotalTokens(newParts, systemPrompt);
+    const savedTokens = totalTokens - newTokens;
+
+    console.log(
+      `[ConversationCompactor] Tier1 trim: ${savedTokens} tokens saved (${totalTokens} → ${newTokens})`,
+    );
+
+    return { trimmed: true, parts: newParts, savedTokens };
+  }
+
+  /**
+   * Microcompact: 도구 결과를 1줄 요약으로 축약 (LLM 호출 없음)
+   * Tier1 trim보다 적극적 — 도구 결과의 내용을 파일명/라인수/크기만 남김
+   * 70% 토큰 초과 시 트리거, 최근 keepRecentCount 메시지는 보호
+   */
+  public microcompact(
+    userParts: Part[],
+    systemPrompt: string,
+    maxTokens: number,
+  ): { compacted: boolean; parts: Part[]; savedTokens: number } {
+    if (!this.config.enabled) {
+      return { compacted: false, parts: userParts, savedTokens: 0 };
+    }
+
+    const totalTokens = this.calculateTotalTokens(userParts, systemPrompt);
+    const threshold = maxTokens * 0.7; // 70% 초과 시 트리거
+
+    if (totalTokens <= threshold) {
+      return { compacted: false, parts: userParts, savedTokens: 0 };
+    }
+
+    const protectedCount = Math.min(this.config.keepRecentCount, userParts.length);
+    const targetEnd = userParts.length - protectedCount;
+
+    if (targetEnd <= 0) {
+      return { compacted: false, parts: userParts, savedTokens: 0 };
+    }
+
+    let compacted = false;
+    const newParts = [...userParts];
+
+    for (let i = 0; i < targetEnd; i++) {
+      const text = newParts[i].text || '';
+      if (text.length < 200) continue;
+      // 이미 축약된 결과는 스킵
+      if (text.startsWith('[Previous') || text.startsWith('[File previously') || text.startsWith('[Microcompact]')) continue;
+
+      // 도구 결과 패턴 감지
+      const isToolResult = /\[도구 결과\]|\[Tool Result\]|read_file|create_file|update_file|run_command|ripgrep_search|glob_search|list_files|stat_file/.test(text);
+      if (!isToolResult && text.length < 500) continue;
+
+      // 파일 경로 추출
+      const fileMatch = text.match(/(?:file|path)[:\s]*[`"]?([^\s`"]+\.\w{1,6})/i)
+        || text.match(/^([^\s]+\.\w{1,5})\s*[\(:|]/m);
+      const filePath = fileMatch ? fileMatch[1] : '';
+
+      // 메타 정보 추출
+      const lineCount = text.split('\n').length;
+      const charCount = text.length;
+
+      // 성공/실패 상태 추출
+      const statusMatch = text.match(/Status:\s*(Success|Failed|success|failed)/i);
+      const status = statusMatch ? statusMatch[1] : '';
+
+      // 1줄 요약으로 교체
+      let summary = `[Microcompact] `;
+      if (filePath) {
+        summary += `${filePath} `;
+      }
+      summary += `(${lineCount} lines, ${(charCount / 1024).toFixed(1)}KB)`;
+      if (status) {
+        summary += ` — ${status}`;
+      }
+
+      newParts[i] = { text: summary };
+      compacted = true;
+    }
+
+    if (!compacted) {
+      return { compacted: false, parts: userParts, savedTokens: 0 };
+    }
+
+    const newTokens = this.calculateTotalTokens(newParts, systemPrompt);
+    const savedTokens = totalTokens - newTokens;
+
+    console.log(
+      `[ConversationCompactor] Microcompact: ${savedTokens} tokens saved (${totalTokens} → ${newTokens})`,
+    );
+
+    return { compacted: true, parts: newParts, savedTokens };
+  }
+
+  /**
+   * C-1: Post-compaction token budget enforcement
+   * Limits restored context by type after LLM summary:
+   * - Max 5 file read results (oldest removed first)
+   * - Max 50K tokens for file content total
+   * - Tool results > 5K tokens each get truncated to 2K
+   */
+  private applyPostCompactTokenBudget(parts: Part[]): Part[] {
+    const result = [...parts];
+    const fileReadPattern = /^\d+[→│|]/m;
+    const filePathPattern = /(?:file|path)[:\s]*[`"]?([^\s`"]+\.\w{1,6})/i;
+
+    // Track file read results (indices, newest first)
+    const fileReadIndices: number[] = [];
+    for (let i = result.length - 1; i >= 0; i--) {
+      const text = result[i].text || '';
+      if (fileReadPattern.test(text) && filePathPattern.test(text)) {
+        fileReadIndices.push(i);
+      }
+    }
+
+    // Enforce max file count: keep only POST_COMPACT_MAX_FILES newest file reads
+    if (fileReadIndices.length > POST_COMPACT_MAX_FILES) {
+      const toRemove = fileReadIndices.slice(POST_COMPACT_MAX_FILES);
+      for (const idx of toRemove) {
+        const fp = (result[idx].text || '').match(filePathPattern)?.[1] || 'unknown';
+        result[idx] = { text: `[File content removed (budget): ${fp}]` };
+      }
+      console.log(`[ConversationCompactor] C-1: Removed ${toRemove.length} excess file reads (kept ${POST_COMPACT_MAX_FILES})`);
+    }
+
+    // Enforce total file content token budget
+    let fileTokensUsed = 0;
+    for (const idx of fileReadIndices) {
+      const text = result[idx].text || '';
+      if (text.startsWith('[File content removed')) continue;
+      const tokens = estimateTokens(text);
+      fileTokensUsed += tokens;
+      if (fileTokensUsed > POST_COMPACT_FILE_TOKEN_BUDGET) {
+        const fp = text.match(filePathPattern)?.[1] || 'unknown';
+        result[idx] = { text: `[File content removed (token budget exceeded): ${fp}]` };
+        console.log(`[ConversationCompactor] C-1: File content removed for ${fp} (budget: ${POST_COMPACT_FILE_TOKEN_BUDGET} exceeded)`);
+      }
+    }
+
+    // Truncate oversized tool results (non-file content)
+    for (let i = 0; i < result.length; i++) {
+      const text = result[i].text || '';
+      if (!text || text.startsWith('[Previous conversation summary]') || text.startsWith('[File content removed')) continue;
+      // Skip file reads (already handled above)
+      if (fileReadPattern.test(text) && filePathPattern.test(text)) continue;
+
+      const tokens = estimateTokens(text);
+      if (tokens > POST_COMPACT_MAX_TOOL_RESULT_TOKENS) {
+        // Truncate to POST_COMPACT_TOOL_RESULT_TRUNCATE tokens worth of chars (~4 chars/token)
+        const truncateChars = POST_COMPACT_TOOL_RESULT_TRUNCATE * 4;
+        const truncated = text.substring(0, truncateChars);
+        result[i] = { text: `${truncated}\n\n... [truncated: ${tokens} tokens -> ~${POST_COMPACT_TOOL_RESULT_TRUNCATE} tokens]` };
+        console.log(`[ConversationCompactor] C-1: Tool result truncated from ${tokens} to ~${POST_COMPACT_TOOL_RESULT_TRUNCATE} tokens`);
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * 폴백 압축 전략: 점진적 제거 (cliff drop 방지)
+   * 가장 오래된 25%씩 제거, threshold 이하가 될 때까지 반복 (최대 3라운드)
    */
   private fallbackCompaction(
     userParts: Part[],
     systemPrompt: string,
     originalTokens: number,
+    maxTokens?: number,
   ): CompactionResult {
     console.log(
-      "[ConversationCompactor] Using fallback sliding window strategy",
+      "[ConversationCompactor] Using gradual fallback strategy",
     );
 
-    // 더 공격적으로 최근 메시지만 유지
-    const keepCount = Math.max(4, Math.floor(userParts.length * 0.3));
-    const recentMessages = userParts.slice(-keepCount);
+    let currentParts = [...userParts];
+    const targetTokens = maxTokens ? maxTokens * this.config.tokenThreshold : originalTokens * 0.5;
+    const maxRounds = 3;
 
-    // 삭제된 메시지 수 표시
-    const droppedCount = userParts.length - keepCount;
-    const compactedParts = [
-      {
-        text: `[시스템] 컨텍스트 최적화: 이전 ${droppedCount}개 메시지가 생략되었습니다. 필요한 정보가 있으면 다시 요청해주세요.`,
-      },
-      ...recentMessages,
-    ];
+    for (let round = 0; round < maxRounds; round++) {
+      // 최소 4개는 유지
+      if (currentParts.length <= 4) break;
 
-    const compactedTokens = this.calculateTotalTokens(
-      compactedParts,
-      systemPrompt,
-    );
+      // 25%씩 오래된 것부터 제거
+      const removeCount = Math.max(1, Math.floor(currentParts.length * 0.25));
+      const droppedCount = removeCount;
+      const remaining = currentParts.slice(removeCount);
+
+      // 첫 라운드에서만 시스템 메시지 추가
+      if (round === 0) {
+        currentParts = [
+          {
+            text: `[System] Context optimized: previous messages have been progressively cleaned up. If you need any information, please ask again.`,
+          },
+          ...remaining,
+        ];
+      } else {
+        currentParts = remaining;
+      }
+
+      const currentTokens = this.calculateTotalTokens(currentParts, systemPrompt);
+      console.log(
+        `[ConversationCompactor] Fallback round ${round + 1}: removed ${droppedCount}, remaining ${currentParts.length}, tokens ${currentTokens}`,
+      );
+
+      if (currentTokens <= targetTokens) break;
+    }
+
+    const compactedTokens = this.calculateTotalTokens(currentParts, systemPrompt);
 
     return {
       compacted: true,
       originalTokens,
       compactedTokens,
-      recentMessages: compactedParts,
+      recentMessages: currentParts,
       savedTokens: originalTokens - compactedTokens,
     };
   }
@@ -538,24 +935,38 @@ export class ConversationCompactor {
   ): Promise<string> {
     const summarizationPrompt = getCompactSummarizationPrompt();
     const userParts = [
-      { text: `다음 대화를 요약해주세요:\n\n${conversationText}` },
+      { text: `Summarize the following conversation:\n\n${conversationText}` },
     ];
+
+    // 요약 토큰 상한: 입력의 50% 또는 최대 2000토큰
+    const inputTokens = estimateTokens(conversationText);
+    const maxSummaryTokens = Math.min(Math.floor(inputTokens * 0.5), 2000);
 
     // StateManager가 있으면 compactorModel 사용, 없으면 메인 모델 사용
     let response: string;
+    const llmOptions = { signal: abortSignal, maxTokens: maxSummaryTokens };
+    const _llmStart2 = Date.now();
     if (this.stateManager) {
       response = await this.llmManager.sendMessageWithCompactorModel(
         summarizationPrompt,
         userParts,
         this.stateManager,
-        { signal: abortSignal },
+        llmOptions,
       );
     } else {
       response = await this.llmManager.sendMessageWithSystemPrompt(
         summarizationPrompt,
         userParts,
-        { signal: abortSignal },
+        llmOptions,
       );
+    }
+    const _llmTime2 = Date.now() - _llmStart2;
+    const _tokens2 = estimateTokens(response);
+    try {
+      const _modelName = await this.llmManager.getCurrentModelName();
+      UsageMetricsManager.getInstance().recordLLMCall(_llmTime2, _tokens2, true, _modelName);
+    } catch {
+      UsageMetricsManager.getInstance().recordLLMCall(_llmTime2, _tokens2, true);
     }
 
     return this.extractSummaryFromResponse(response);
@@ -580,6 +991,74 @@ export class ConversationCompactor {
     );
 
     return totalTokensUsed > threshold;
+  }
+
+  /**
+   * Budget: 오래된 턴의 도구 결과를 자동 축약 (매 턴 호출)
+   * 현재 턴과 최근 N턴은 유지, 그 이전의 큰 도구 결과만 축약
+   * LLM 호출 없이 즉시 처리 — 압축 발생 빈도 자체를 줄임
+   * @param currentTurn 현재 턴 번호
+   */
+  public applyBudget(userParts: Part[], currentTurn: number): number {
+    let truncatedCount = 0;
+
+    for (let i = 0; i < userParts.length; i++) {
+      const text = userParts[i].text || '';
+      if (text.length <= BUDGET_MAX_RESULT_CHARS) continue;
+
+      // 도구 결과 패턴 감지: [도구 결과], [Tool Result], read_file, create_file 등
+      const isToolResult = text.includes('[도구 결과]') || text.includes('[Tool Result]')
+        || text.includes('read_file') || text.includes('create_file')
+        || text.includes('update_file') || text.includes('run_command')
+        || text.includes('ripgrep_search') || text.includes('list_files');
+
+      if (!isToolResult) continue;
+
+      // 최근 메시지는 유지 (뒤에서 BUDGET_STALE_TURN_THRESHOLD * 2개)
+      const recentBoundary = userParts.length - (BUDGET_STALE_TURN_THRESHOLD * 2);
+      if (i >= recentBoundary) continue;
+
+      // 축약
+      const truncated = text.substring(0, BUDGET_MAX_RESULT_CHARS) + `\n... [${text.length - BUDGET_MAX_RESULT_CHARS} chars truncated by budget]`;
+      userParts[i] = { text: truncated } as Part;
+      truncatedCount++;
+    }
+
+    if (truncatedCount > 0) {
+      console.log(`[ConversationCompactor] Budget: truncated ${truncatedCount} stale tool results`);
+    }
+    return truncatedCount;
+  }
+
+  /**
+   * Collapse-drain: 압축 후에도 컨텍스트가 초과할 때 오래된 메시지를 단계적으로 제거
+   * reactive-compact 콜백으로 사용 — LLMRetryHelper.withRetry()의 onCompact에 전달
+   * @returns true if messages were drained (재시도 가능), false if nothing to drain
+   */
+  public collapseDrain(
+    userParts: Part[],
+    maxTokens: number,
+  ): boolean {
+    if (userParts.length <= 2) return false; // 최소 2개는 유지
+
+    const { estimateTokens } = require('../../../utils');
+    const currentTokens = userParts.reduce((sum, p) => sum + estimateTokens(p.text || ''), 0);
+
+    if (currentTokens <= maxTokens) return false; // 이미 범위 내
+
+    // 가장 오래된 메시지부터 제거 (최근 2개는 유지)
+    const drainCount = Math.max(1, Math.ceil(userParts.length * 0.2)); // 20%씩 제거
+    const keepCount = Math.max(2, userParts.length - drainCount);
+    const drained = userParts.length - keepCount;
+
+    // 제거된 메시지를 요약 텍스트로 대체
+    const drainedParts = userParts.splice(0, drained);
+    const drainSummary = `[이전 ${drained}개 메시지 생략 — 컨텍스트 제한으로 제거됨]`;
+    userParts.unshift({ text: drainSummary } as Part);
+
+    const newTokens = userParts.reduce((sum, p) => sum + estimateTokens(p.text || ''), 0);
+    console.log(`[ConversationCompactor] Collapse-drain: removed ${drained} messages (${currentTokens} → ${newTokens} tokens)`);
+    return true;
   }
 
   /**
@@ -646,11 +1125,12 @@ export class ConversationCompactor {
 
       const summarizationPrompt = getCompactSummarizationPrompt();
       const userParts = [
-        { text: `다음 대화를 요약해주세요:\n\n${conversationText}` },
+        { text: `Summarize the following conversation:\n\n${conversationText}` },
       ];
 
       // StateManager가 있으면 compactorModel 사용, 없으면 메인 모델 사용
       let response: string;
+      const _llmStart3 = Date.now();
       if (this.stateManager) {
         response = await this.llmManager.sendMessageWithCompactorModel(
           summarizationPrompt,
@@ -664,6 +1144,14 @@ export class ConversationCompactor {
           userParts,
           { signal: abortSignal },
         );
+      }
+      const _llmTime3 = Date.now() - _llmStart3;
+      const _tokens3 = estimateTokens(response);
+      try {
+        const _modelName = await this.llmManager.getCurrentModelName();
+        UsageMetricsManager.getInstance().recordLLMCall(_llmTime3, _tokens3, true, _modelName);
+      } catch {
+        UsageMetricsManager.getInstance().recordLLMCall(_llmTime3, _tokens3, true);
       }
 
       const summary = this.extractSummaryFromResponse(response);

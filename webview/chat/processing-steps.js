@@ -7,11 +7,29 @@
 let processingStepsArray = [];
 let typingInterval = null;
 let lastFullText = "";
+let lastUpdateTime = 0; // 빠른 연속 업데이트 감지용
 
 // 외부 의존성 (초기화 시 주입)
 let thinkingBubbleElement = null;
 let chatMessages = null;
 let chatContainer = null;
+
+// is-forced-top 적용을 일시 억제하는 타이머
+// 버블 생성 직후 smooth scroll 완료 전에 handleScroll이 강제 고정하는 것을 방지
+let _suppressForcedTop = false;
+
+// 컨텐츠 변경(파일 생성/수정 등) 후 고정↔해제 반복을 방지하는 debounce 타이머
+let _scrollDebounceTimer = null;
+
+/**
+ * 사용자가 위로 스크롤하여 하단에서 떨어져 있는지 판단
+ * 하단 100px 이내이면 "하단에 있음" (auto-scroll 허용)
+ */
+function isUserScrolledUp() {
+  if (!chatMessages) return false;
+  const threshold = 100;
+  return chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight > threshold;
+}
 
 /**
  * Processing Steps 모듈 초기화
@@ -28,6 +46,14 @@ export function initProcessingSteps(deps) {
  */
 export function setThinkingBubbleElement(element) {
   thinkingBubbleElement = element;
+
+  // 버블이 새로 설정되면 is-forced-top 억제 (smooth scroll이 완료될 때까지)
+  if (element) {
+    _suppressForcedTop = true;
+    setTimeout(() => {
+      _suppressForcedTop = false;
+    }, 600);
+  }
 }
 
 /**
@@ -101,22 +127,35 @@ export function updateThinkingBubbleText() {
     return;
   }
 
-  // 타자기 효과 시작
+  const now = Date.now();
+  const timeSinceLastUpdate = now - lastUpdateTime;
+  lastUpdateTime = now;
+
+  // 빠른 연속 업데이트 시 (150ms 이내) 타이핑 애니메이션 생략 → 즉시 표시
+  if (timeSinceLastUpdate < 150) {
+    textElement.textContent = newFullText;
+    if (chatMessages && !isUserScrolledUp()) {
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+    return;
+  }
+
+  // 타자기 효과 시작 (간격이 충분할 때만)
   let index = 0;
   textElement.textContent = "";
   typingInterval = setInterval(() => {
     if (index < newFullText.length) {
       textElement.textContent += newFullText[index];
       index++;
-      // 스크롤 유지
-      if (chatMessages) {
+      // 사용자가 하단 근처에 있을 때만 자동 스크롤 (위로 스크롤 중이면 방해하지 않음)
+      if (chatMessages && !isUserScrolledUp()) {
         chatMessages.scrollTop = chatMessages.scrollHeight;
       }
     } else {
       clearInterval(typingInterval);
       typingInterval = null;
     }
-  }, 20); // 타자기 속도
+  }, 10); // 타자기 속도 (20ms → 10ms)
 }
 
 /**
@@ -124,22 +163,22 @@ export function updateThinkingBubbleText() {
  * @param {string} stepName - 단계 이름
  */
 export function setProcessingStep(stepName) {
-  console.log(`[processing-steps] setProcessingStep called: stepName=${stepName}`);
-
-  // 🔥 thinking bubble이 숨겨져 있으면 다시 표시
+  // thinking bubble이 숨겨져 있으면 다시 표시
   if (thinkingBubbleElement && thinkingBubbleElement.style.display === "none") {
-    console.log(`[processing-steps] Showing hidden thinking bubble for step: ${stepName}`);
     thinkingBubbleElement.style.display = "";
   }
 
-  // global array update
+  // global array update — 현재 활성 단계를 항상 배열 끝으로 이동
+  // (재시도 시 review→executing 전환 등에서 마지막 항목이 현재 단계여야 함)
   const existingStepIndex = processingStepsArray.findIndex(
     (s) => s.step === stepName
   );
   if (existingStepIndex === -1) {
     processingStepsArray.push({ step: stepName, status: "processing" });
   } else {
-    processingStepsArray[existingStepIndex].status = "processing";
+    // 기존 항목을 제거하고 끝에 다시 추가 (마지막 항목이 항상 현재 활성 단계)
+    processingStepsArray.splice(existingStepIndex, 1);
+    processingStepsArray.push({ step: stepName, status: "processing" });
   }
   updateThinkingBubbleText();
 
@@ -194,20 +233,18 @@ export function setProcessingStep(stepName) {
  * @param {Function} handleScrollFn - 스크롤 핸들러 함수 (optional)
  */
 export function updateProcessingStatus(stepName, status, handleScrollFn) {
-  console.log(`[processing-steps] updateProcessingStatus called: stepName=${stepName}, status=${status}`);
-
-  // 🔥 thinking bubble이 숨겨져 있으면 다시 표시
+  // thinking bubble이 숨겨져 있으면 다시 표시
   if (thinkingBubbleElement && thinkingBubbleElement.style.display === "none") {
-    console.log(`[processing-steps] Showing hidden thinking bubble for status update: ${stepName} - ${status}`);
     thinkingBubbleElement.style.display = "";
   }
 
-  // global array update
+  // global array update — 현재 업데이트 대상을 배열 끝으로 이동
   const existingStepIndex = processingStepsArray.findIndex(
     (s) => s.step === stepName
   );
   if (existingStepIndex !== -1) {
-    processingStepsArray[existingStepIndex].status = status;
+    processingStepsArray.splice(existingStepIndex, 1);
+    processingStepsArray.push({ step: stepName, status: status });
   } else {
     processingStepsArray.push({ step: stepName, status: status });
   }
@@ -225,31 +262,82 @@ export function updateProcessingStatus(stepName, status, handleScrollFn) {
 }
 
 /**
+ * 버블의 스크롤 영역 내 자연 위치 (position: fixed 적용 전 기준)
+ * chatContainer.scrollTop 에 대한 오프셋
+ */
+let _bubbleNaturalScrollOffset = null;
+
+/**
+ * 자연 위치 오프셋 저장 (버블 생성/재배치 시 호출)
+ */
+export function saveBubbleNaturalOffset() {
+  if (!thinkingBubbleElement || !chatContainer) return;
+  const containerRect = chatContainer.getBoundingClientRect();
+  const bubbleRect = thinkingBubbleElement.getBoundingClientRect();
+  _bubbleNaturalScrollOffset =
+    chatContainer.scrollTop + (bubbleRect.top - containerRect.top);
+}
+
+/**
  * 스크롤 감지하여 버블 고정/해제 처리
+ * - 위로 스크롤: 버블이 하단 입력영역에 가려지면 상단 고정
+ * - 아래로 스크롤: 버블이 뷰포트 상단을 넘어가면 상단 고정
+ * - 버블이 보이는 영역이면 고정 해제
  */
 export function handleScroll() {
   if (!thinkingBubbleElement || !chatContainer) {
     return;
   }
 
-  const bubbleRect = thinkingBubbleElement.getBoundingClientRect();
   const containerRect = chatContainer.getBoundingClientRect();
-
-  // 하단 입력창 영역 높이 계산 (동적 패딩값 활용)
   const bottomFixedArea = document.querySelector(".bottom-fixed-area");
   const bottomHeight = bottomFixedArea ? bottomFixedArea.offsetHeight : 220;
   const visibleBottom = containerRect.bottom - bottomHeight;
 
-  // 1. 하단 가려짐 감지: 버블의 상단이 보이는 영역의 하단보다 아래에 있으면 (위로 스크롤 시)
-  if (bubbleRect.top > visibleBottom - 20) {
-    thinkingBubbleElement.classList.add("is-forced-top");
+  const isForced = thinkingBubbleElement.classList.contains("is-forced-top");
+
+  if (!isForced) {
+    // 자연 상태 — 실제 위치로 판단
+    const bubbleRect = thinkingBubbleElement.getBoundingClientRect();
+    // 자연 위치 기록 (고정 해제 판단에 사용)
+    _bubbleNaturalScrollOffset =
+      chatContainer.scrollTop + (bubbleRect.top - containerRect.top);
+
+    const isBelow = bubbleRect.top > visibleBottom - 20;
+    const isAbove = bubbleRect.bottom < containerRect.top + 10;
+
+    // 버블 생성 직후에는 강제 고정하지 않음 (smooth scroll 완료 대기)
+    if ((isBelow || isAbove) && !_suppressForcedTop) {
+      // debounce: 컨텐츠 추가로 순간적으로 밀릴 때 즉시 고정하지 않고 대기
+      if (!_scrollDebounceTimer) {
+        _scrollDebounceTimer = setTimeout(() => {
+          _scrollDebounceTimer = null;
+          // 타이머 만료 후 다시 확인 — 아직도 밖에 있으면 고정
+          if (!thinkingBubbleElement || !chatContainer) return;
+          const recheckedRect = thinkingBubbleElement.getBoundingClientRect();
+          const recheckedContainerRect = chatContainer.getBoundingClientRect();
+          const recheckedVisibleBottom = recheckedContainerRect.bottom - bottomHeight;
+          const stillBelow = recheckedRect.top > recheckedVisibleBottom - 20;
+          const stillAbove = recheckedRect.bottom < recheckedContainerRect.top + 10;
+          if ((stillBelow || stillAbove) && !_suppressForcedTop) {
+            thinkingBubbleElement.classList.add("is-forced-top");
+          }
+        }, 150);
+      }
+    }
   } else {
-    // 2. 고정 해제: 사용자가 다시 맨 아래로 스크롤했을 때
-    const isAtBottom =
-      chatContainer.scrollHeight - chatContainer.scrollTop <=
-      chatContainer.clientHeight + 100;
-    if (isAtBottom) {
+    // 고정 상태 — 스크롤이 하단 근처이면 해제
+    // 버블은 항상 chatMessages의 마지막 요소이므로, 최대 스크롤 근처면 자연 위치가 보임
+    const scrollBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight;
+    if (scrollBottom < 100) {
+      // debounce 중이면 취소 (고정→해제 직후 다시 고정되는 것 방지)
+      if (_scrollDebounceTimer) {
+        clearTimeout(_scrollDebounceTimer);
+        _scrollDebounceTimer = null;
+      }
       thinkingBubbleElement.classList.remove("is-forced-top");
+      const tc = thinkingBubbleElement.querySelector(".thinking-content");
+      if (tc) tc.classList.remove("expanded");
     }
   }
 }
@@ -260,6 +348,11 @@ export function handleScroll() {
 export function resetProcessingStatuses() {
   processingStepsArray = [];
   lastFullText = "";
+  _bubbleNaturalScrollOffset = null;
+  if (_scrollDebounceTimer) {
+    clearTimeout(_scrollDebounceTimer);
+    _scrollDebounceTimer = null;
+  }
 
   const statuses = ["intent", "analyzing", "assembling", "parsing", "printing"];
   statuses.forEach((step) => {
@@ -272,6 +365,55 @@ export function resetProcessingStatuses() {
       }
     }
   });
+}
+
+/**
+ * LLM thinking 내용을 thinking bubble 하단에 표시
+ * 새로운 thinking이 오면 이전 내용을 교체
+ * @param {string} text - thinking 텍스트
+ */
+export function updateThinkingContent(text) {
+  if (!thinkingBubbleElement) return;
+
+  let thinkingContent = thinkingBubbleElement.querySelector('.thinking-content');
+  if (!thinkingContent) {
+    thinkingContent = document.createElement('div');
+    thinkingContent.className = 'thinking-content';
+    // 클릭으로 접기/펼치기 토글
+    thinkingContent.addEventListener('click', () => {
+      thinkingContent.classList.toggle('expanded');
+    });
+    thinkingBubbleElement.appendChild(thinkingContent);
+  }
+
+  // inner div로 bottom-anchor: 접혀진 상태에서 최신 내용이 보이도록
+  let inner = thinkingContent.querySelector('.thinking-text-inner');
+  if (!inner) {
+    inner = document.createElement('div');
+    inner.className = 'thinking-text-inner';
+    thinkingContent.appendChild(inner);
+  }
+  inner.textContent = text;
+  thinkingContent.style.display = '';
+
+  // 사용자가 하단 근처에 있을 때만 자동 스크롤
+  if (chatMessages && !isUserScrolledUp()) {
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+}
+
+/**
+ * thinking content 영역 숨기기
+ */
+export function clearThinkingContent() {
+  if (!thinkingBubbleElement) return;
+  const thinkingContent = thinkingBubbleElement.querySelector('.thinking-content');
+  if (thinkingContent) {
+    thinkingContent.style.display = 'none';
+    const inner = thinkingContent.querySelector('.thinking-text-inner');
+    if (inner) { inner.textContent = ''; }
+    else { thinkingContent.textContent = ''; }
+  }
 }
 
 /**
@@ -321,6 +463,13 @@ export function showErrorCorrection(originalCommand, correctedCommand, retryCoun
     </div>
   `;
 
-  chatMessages.appendChild(errorCorrectionDiv);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  // thinking bubble이 있으면 그 앞에 삽입하여 bubble이 항상 맨 아래 유지
+  if (thinkingBubbleElement && thinkingBubbleElement.parentNode === chatMessages) {
+    chatMessages.insertBefore(errorCorrectionDiv, thinkingBubbleElement);
+  } else {
+    chatMessages.appendChild(errorCorrectionDiv);
+  }
+  if (!isUserScrolledUp()) {
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
 }

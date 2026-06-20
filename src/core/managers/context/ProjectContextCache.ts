@@ -372,7 +372,8 @@ export class ProjectContextCache {
      * 프로젝트별 캐시 무효화
      */
     public invalidateProject(projectRoot: string): void {
-        const pattern = new RegExp(`^project:${projectRoot.replace(/\\/g, '\\\\')}`);
+        const escapedRoot = projectRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const pattern = new RegExp(`^project:${escapedRoot}`);
         this.invalidateByPattern(pattern);
     }
 

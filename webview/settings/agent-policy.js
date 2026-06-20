@@ -21,6 +21,7 @@ export function setupAgentPolicyFileUpload(config, vscode) {
     uploadCommand,
   } = config;
 
+  const { uploadCommand, category: configCategory } = config;
   const fileInput = document.getElementById(inputId);
   const selectButton = document.getElementById(selectButtonId);
   const uploadButton = document.getElementById(uploadButtonId);
@@ -57,6 +58,7 @@ export function setupAgentPolicyFileUpload(config, vscode) {
         uploadButton.disabled = false;
         uploadButton.dataset.mdContent = mdContent;
         uploadButton.dataset.xmlContent = mdContent; // 호환성을 위해 xmlContent도 저장
+        uploadButton.dataset.fileName = file.name; // 다중 파일 모드(global-rules)용
       };
       reader.onerror = () => {
         showStatus(statusElement, "파일 읽기 실패", "error");
@@ -68,16 +70,44 @@ export function setupAgentPolicyFileUpload(config, vscode) {
 
   // 저장 버튼 클릭
   uploadButton.addEventListener("click", () => {
-    const mdContent =
+    let mdContent =
       uploadButton.dataset.mdContent || uploadButton.dataset.xmlContent;
     if (mdContent && vscode) {
+      // 카테고리의 타입 선택 정보 가져와서 frontmatter 주입
+      const categoryMap = {
+        "agent-policy-stable-version-input": "stable-version",
+        "agent-policy-coding-style-input": "coding-style",
+        "agent-policy-project-architecture-input": "project-architecture",
+        "agent-policy-dependency-policy-input": "dependency-policy",
+        "agent-policy-db-policy-input": "db-policy",
+        "agent-policy-global-rules-input": "global-rules",
+      };
+      const category = configCategory || categoryMap[inputId];
+      if (category) {
+        const { type, description } = getPolicyTypeSelection(category);
+        mdContent = injectFrontmatter(mdContent, type, description);
+      }
       showStatus(statusElement, "저장 중...", "info");
       uploadButton.disabled = true;
-      vscode.postMessage({
-        command: uploadCommand,
-        mdContent: mdContent,
-        xmlContent: mdContent, // 호환성을 위해 xmlContent도 포함
-      });
+      // addAgentPolicyFile 모드: 파일명과 함께 다중 파일 방식으로 전송
+      if (uploadCommand === "addAgentPolicyFile" && category) {
+        const fileName = uploadButton.dataset.fileName || "global-rules.md";
+        const { type: policyType, description: skillDescription } = getPolicyTypeSelection(category);
+        vscode.postMessage({
+          command: "addAgentPolicyFile",
+          category,
+          fileName,
+          content: mdContent,
+          policyType,
+          skillDescription,
+        });
+      } else {
+        vscode.postMessage({
+          command: uploadCommand,
+          mdContent: mdContent,
+          xmlContent: mdContent,
+        });
+      }
     }
   });
 
@@ -95,6 +125,7 @@ export function setupAgentPolicyFileUpload(config, vscode) {
         "agent-policy-dependency-policy-input":
           "deleteAgentPolicyDependencyPolicy",
         "agent-policy-db-policy-input": "deleteAgentPolicyDbPolicy",
+        // global-rules는 개별 파일 삭제(deleteAgentPolicyFile)를 사용하므로 레거시 삭제 없음
       };
       const deleteCommand = deleteCommandMap[inputId];
       if (deleteCommand && vscode) {
@@ -102,6 +133,87 @@ export function setupAgentPolicyFileUpload(config, vscode) {
       }
     });
   }
+}
+
+/**
+ * 카테고리별 선택된 타입/설명 조회
+ * @param {string} category - 카테고리 (예: 'stable-version')
+ * @returns {{ type: string, description: string }}
+ */
+function getPolicyTypeSelection(category) {
+  const selector = document.querySelector(`.policy-type-selector[data-category="${category}"]`);
+  if (!selector) return { type: 'rule', description: '' };
+  const activeBtn = selector.querySelector('.policy-type-btn.active');
+  const descInput = selector.querySelector('.policy-skill-desc');
+  return {
+    type: activeBtn ? activeBtn.dataset.type : 'rule',
+    description: descInput ? descInput.value.trim() : '',
+  };
+}
+
+/**
+ * Markdown 내용에 frontmatter를 주입
+ * @param {string} content - 원본 Markdown 내용
+ * @param {string} type - 'rule' 또는 'skill'
+ * @param {string} description - 스킬 설명 (skill일 때만)
+ * @returns {string} frontmatter가 포함된 내용
+ */
+function injectFrontmatter(content, type, description) {
+  // 이미 frontmatter가 있으면 type/description만 업데이트
+  const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
+  if (fmMatch) {
+    let fm = fmMatch[1];
+    // type 교체 또는 추가
+    if (/^type:\s*.+$/m.test(fm)) {
+      fm = fm.replace(/^type:\s*.+$/m, `type: ${type}`);
+    } else {
+      fm += `\ntype: ${type}`;
+    }
+    // description 교체 또는 추가/제거
+    if (type === 'skill' && description) {
+      if (/^description:\s*.+$/m.test(fm)) {
+        fm = fm.replace(/^description:\s*.+$/m, `description: "${description}"`);
+      } else {
+        fm += `\ndescription: "${description}"`;
+      }
+    } else {
+      fm = fm.replace(/\n?^description:\s*.+$/m, '');
+    }
+    return content.replace(/^---\s*\n[\s\S]*?\n---/, `---\n${fm.trim()}\n---`);
+  }
+  // frontmatter 새로 생성
+  let fm = `type: ${type}`;
+  if (type === 'skill' && description) {
+    fm += `\ndescription: "${description}"`;
+  }
+  return `---\n${fm}\n---\n${content}`;
+}
+
+/**
+ * 타입 선택 토글 초기화
+ */
+export function initPolicyTypeSelectors() {
+  document.querySelectorAll('.policy-type-selector').forEach((selector) => {
+    const buttons = selector.querySelectorAll('.policy-type-btn');
+    const descInput = selector.querySelector('.policy-skill-desc');
+
+    buttons.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        buttons.forEach((b) => {
+          b.classList.remove('active');
+          b.style.background = 'transparent';
+          b.style.color = 'var(--vscode-foreground)';
+        });
+        btn.classList.add('active');
+        btn.style.background = 'var(--vscode-button-background)';
+        btn.style.color = 'var(--vscode-button-foreground)';
+
+        if (descInput) {
+          descInput.style.display = btn.dataset.type === 'skill' ? 'block' : 'none';
+        }
+      });
+    });
+  });
 }
 
 /**
@@ -155,11 +267,115 @@ export function initAgentPolicyUploads(vscode) {
       fileNameId: "db-policy-file-name",
       uploadCommand: "uploadAgentPolicyDbPolicy",
     },
+    {
+      inputId: "agent-policy-global-rules-input",
+      selectButtonId: "select-global-rules-button",
+      uploadButtonId: "upload-global-rules-button",
+      statusId: "global-rules-status",
+      fileNameId: "global-rules-file-name",
+      uploadCommand: "addAgentPolicyFile",  // 글로벌은 다중 파일 방식 사용
+      category: "global-rules",
+    },
   ];
 
   policyConfigs.forEach((config) => {
     setupAgentPolicyFileUpload(config, vscode);
   });
+
+  // 경로 입력 버튼 설정
+  const pathConfigs = [
+    { category: "stable-version", pathInputId: "path-stable-version-input", buttonId: "add-path-stable-version-button", statusId: "stable-version-status" },
+    { category: "coding-style", pathInputId: "path-coding-style-input", buttonId: "add-path-coding-style-button", statusId: "coding-style-status" },
+    { category: "project-architecture", pathInputId: "path-project-architecture-input", buttonId: "add-path-project-architecture-button", statusId: "project-architecture-status" },
+    { category: "dependency-policy", pathInputId: "path-dependency-policy-input", buttonId: "add-path-dependency-policy-button", statusId: "dependency-policy-status" },
+    { category: "db-policy", pathInputId: "path-db-policy-input", buttonId: "add-path-db-policy-button", statusId: "db-policy-status" },
+    { category: "global-rules", pathInputId: "path-global-rules-input", buttonId: "add-path-global-rules-button", statusId: "global-rules-status" },
+  ];
+  pathConfigs.forEach(({ category, pathInputId, buttonId, statusId }) => {
+    setupAgentPolicyPathInput({ category, pathInputId, buttonId, statusId }, vscode);
+  });
+}
+
+/**
+ * 경로 입력으로 에이전트 정책 파일 추가 설정
+ * @param {Object} config - 설정 객체
+ * @param {Object} vscode - vscode API 객체
+ */
+export function setupAgentPolicyPathInput(config, vscode) {
+  const { category, pathInputId, buttonId, statusId } = config;
+  const pathInput = document.getElementById(pathInputId);
+  const addButton = document.getElementById(buttonId);
+  const statusElement = document.getElementById(statusId);
+
+  if (!pathInput || !addButton) return;
+
+  addButton.addEventListener("click", () => {
+    const filePath = pathInput.value.trim();
+    if (!filePath) {
+      if (statusElement) showStatus(statusElement, "파일 경로를 입력하세요.", "error");
+      return;
+    }
+    if (!filePath.endsWith(".md") && !filePath.endsWith(".markdown")) {
+      if (statusElement) showStatus(statusElement, "Markdown 파일(.md)만 추가할 수 있습니다.", "error");
+      return;
+    }
+    if (statusElement) showStatus(statusElement, "추가 중...", "info");
+    addButton.disabled = true;
+    const { type: policyType, description: skillDescription } = getPolicyTypeSelection(category);
+    if (vscode) {
+      vscode.postMessage({ command: "addPathAgentPolicy", category, filePath, policyType, skillDescription });
+    }
+  });
+
+  pathInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") addButton.click();
+  });
+}
+
+/**
+ * 경로 추가 결과 처리
+ * @param {string} category - 정책 카테고리
+ * @param {boolean} success - 성공 여부
+ * @param {string} message - 결과 메시지
+ */
+export function handleAgentPolicyPathAddResult(category, success, message) {
+  const statusMap = {
+    "stable-version": "stable-version-status",
+    "coding-style": "coding-style-status",
+    "project-architecture": "project-architecture-status",
+    "dependency-policy": "dependency-policy-status",
+    "db-policy": "db-policy-status",
+    "global-rules": "global-rules-status",
+  };
+  const pathInputMap = {
+    "stable-version": "path-stable-version-input",
+    "coding-style": "path-coding-style-input",
+    "project-architecture": "path-project-architecture-input",
+    "dependency-policy": "path-dependency-policy-input",
+    "db-policy": "path-db-policy-input",
+    "global-rules": "path-global-rules-input",
+  };
+  const buttonMap = {
+    "stable-version": "add-path-stable-version-button",
+    "coding-style": "add-path-coding-style-button",
+    "project-architecture": "add-path-project-architecture-button",
+    "dependency-policy": "add-path-dependency-policy-button",
+    "db-policy": "add-path-db-policy-button",
+    "global-rules": "add-path-global-rules-button",
+  };
+
+  const statusElement = document.getElementById(statusMap[category]);
+  const pathInput = document.getElementById(pathInputMap[category]);
+  const addButton = document.getElementById(buttonMap[category]);
+
+  if (addButton) addButton.disabled = false;
+
+  if (success) {
+    if (statusElement) showStatus(statusElement, message || "추가되었습니다.", "success");
+    if (pathInput) pathInput.value = "";
+  } else {
+    if (statusElement) showStatus(statusElement, message || "추가 실패", "error");
+  }
 }
 
 /**

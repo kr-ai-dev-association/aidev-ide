@@ -4,8 +4,9 @@
  * 요청 보내기 / 응답 받기 / 응답 포맷팅
  */
 
-import { GeminiApi, OllamaApi, BanyaApi, AiModelType } from '../../../services';
-import { withRetry, isRetryableError, LLMRetryConfig, LLMRetryResult } from './LLMRetryHelper';
+import { OllamaApi, AdminModelApi, AiModelType } from '../../../services';
+import type { AdminModelConfig } from '../../../services/llm/AdminModelApi';
+import { withRetry, isRetryableError, LLMRetryConfig, LLMRetryResult, HIDDEN_RETRY_THRESHOLD, getRetryUserMessage } from './LLMRetryHelper';
 
 export interface LLMMessagePart {
     text?: string;
@@ -25,6 +26,18 @@ export interface LLMRequestOptions {
     retry?: Partial<LLMRetryConfig>;
     /** 재시도 비활성화 (기본: false) */
     disableRetry?: boolean;
+    /** thinking 비활성화 — tool calling과 충돌 방지 (Qwen3, DeepSeek 등) */
+    disableThinking?: boolean;
+    /** thinking 레벨 (low/medium/high) */
+    thinkingLevel?: string;
+    /** 네이티브 툴 콜링용 tools 배열 (OpenAI/Ollama 포맷) */
+    nativeTools?: any[];
+    /** 네이티브 tool_call 하나가 완성될 때마다 호출되는 콜백 */
+    onNativeToolComplete?: (toolName: string, args: Record<string, any>) => void;
+    /** 재시도 시 UI 알림 콜백 (attempt, 사용자 메시지). hidden retry 이후(3회차~)만 호출됨 */
+    onRetryNotify?: (attempt: number, message: string) => void;
+    /** reactive-compact: context overflow 시 메시지 압축 콜백 */
+    onCompact?: () => Promise<boolean>;
 }
 
 export interface LLMResponse {
@@ -36,38 +49,72 @@ export interface LLMResponse {
 
 export class LLMManager {
     private static instance: LLMManager;
-    private geminiApi: GeminiApi;
     private ollamaApi: OllamaApi;
-    private banyaApi: BanyaApi;
+    private adminModelApi: AdminModelApi;
     private currentModelType: AiModelType;
     private currentCallController: AbortController | null = null;
 
+    /** 시스템 프롬프트에 도구 스펙이 포함되어 있는지 감지 */
+    private static hasToolSpecs(systemPrompt: string): boolean {
+        return systemPrompt.includes('사용 가능한 도구');
+    }
+
+    /** thinking 비활성화 여부 결정 */
+    private static resolveDisableThinking(systemPrompt: string, explicit?: boolean, hasNativeTools?: boolean): boolean {
+        if (explicit !== undefined) return explicit;
+        // 네이티브 툴 콜링 시 thinking 비활성화 불필요 (툴이 API params으로 전달되므로)
+        if (hasNativeTools) return false;
+        // 도구 스펙이 포함된 시스템 프롬프트 → thinking 자동 비활성화
+        // thinking 모드에서는 모델이 tool call을 thinking 블록 안에 넣어 content가 비어버리는 문제 방지
+        return LLMManager.hasToolSpecs(systemPrompt);
+    }
+
+    /** LLMMessagePart 배열을 API 전송 형식으로 변환 */
+    private static normalizeParts(userParts: LLMMessagePart[]): Array<{ text: string }> {
+        return userParts.map(part => ({ text: part.text || '' }));
+    }
+
+    /** Ollama 설정 로드 (실패해도 무시) */
+    private async loadOllamaSettingsSafe(): Promise<void> {
+        try {
+            await this.ollamaApi.loadSettingsFromStorage();
+        } catch { }
+    }
+
     private constructor(
-        geminiApi: GeminiApi,
         ollamaApi: OllamaApi,
-        banyaApi: BanyaApi,
         initialModelType: AiModelType = AiModelType.OLLAMA
     ) {
-        this.geminiApi = geminiApi;
         this.ollamaApi = ollamaApi;
-        this.banyaApi = banyaApi;
+        this.adminModelApi = new AdminModelApi();
         this.currentModelType = initialModelType;
-        console.log('[LLMManager] Initialized');
     }
 
     public static getInstance(
-        geminiApi?: GeminiApi,
         ollamaApi?: OllamaApi,
-        banyaApi?: BanyaApi,
         initialModelType?: AiModelType
     ): LLMManager {
         if (!LLMManager.instance) {
-            if (!geminiApi || !ollamaApi || !banyaApi) {
-                throw new Error('LLMManager requires GeminiApi, OllamaApi, and BanyaApi instances');
+            if (!ollamaApi) {
+                throw new Error('LLMManager requires OllamaApi instance');
             }
-            LLMManager.instance = new LLMManager(geminiApi, ollamaApi, banyaApi, initialModelType);
+            LLMManager.instance = new LLMManager(ollamaApi, initialModelType);
         }
         return LLMManager.instance;
+    }
+
+    /**
+     * 관리자 모델 설정 적용
+     */
+    public setAdminModelConfig(config: AdminModelConfig): void {
+        this.adminModelApi.setConfig(config);
+    }
+
+    /**
+     * 현재 관리자 모델 설정을 가져옵니다
+     */
+    public getAdminModelConfig(): AdminModelConfig | null {
+        return this.adminModelApi.getConfig();
     }
 
     /**
@@ -75,7 +122,6 @@ export class LLMManager {
      */
     public setCurrentModel(modelType: AiModelType): void {
         this.currentModelType = modelType;
-        console.log(`[LLMManager] Model type set to: ${modelType}`);
     }
 
     /**
@@ -90,10 +136,8 @@ export class LLMManager {
      */
     public async getCurrentModelName(): Promise<string> {
         try {
-            if (this.currentModelType === AiModelType.GEMINI) {
-                return this.geminiApi.getModelName();
-            } else if (this.currentModelType === AiModelType.BANYA) {
-                return this.banyaApi.getModel?.() || this.banyaApi.getCurrentModelName?.() || 'Banya Model';
+            if (this.currentModelType === AiModelType.ADMIN) {
+                return this.adminModelApi.getModel() || 'Admin Model';
             } else if (this.ollamaApi) {
                 return this.ollamaApi.getModel?.() || this.ollamaApi.getCurrentModelName?.() || 'Ollama Model';
             }
@@ -126,17 +170,10 @@ export class LLMManager {
         const apiCall = async (): Promise<string> => {
             let response: string;
 
-            if (this.currentModelType === AiModelType.GEMINI) {
-                response = await this.geminiApi.sendMessage(prompt, undefined, { signal });
-            } else if (this.currentModelType === AiModelType.BANYA) {
-                try {
-                    await this.banyaApi.loadSettingsFromStorage();
-                } catch { }
-                response = await this.banyaApi.sendMessage(prompt, { signal });
+            if (this.currentModelType === AiModelType.ADMIN) {
+                response = await this.adminModelApi.sendMessage(prompt, { signal });
             } else {
-                try {
-                    await this.ollamaApi.loadSettingsFromStorage();
-                } catch { }
+                await this.loadOllamaSettingsSafe();
                 response = await this.ollamaApi.sendMessage(prompt, { signal });
             }
 
@@ -149,14 +186,18 @@ export class LLMManager {
                 return await apiCall();
             }
 
-            // 재시도 로직으로 감싸서 호출
+            // 재시도 로직으로 감싸서 호출 (reactive-compact 연결)
             const result = await withRetry(
                 apiCall,
                 options?.retry,
                 signal,
                 (attempt, error, delayMs) => {
                     console.log(`[LLMManager] sendMessage retry ${attempt + 1}: ${error.message.substring(0, 100)} (waiting ${delayMs}ms)`);
-                }
+                    if (attempt >= HIDDEN_RETRY_THRESHOLD && options?.onRetryNotify) {
+                        options.onRetryNotify(attempt, getRetryUserMessage(error, delayMs));
+                    }
+                },
+                options?.onCompact,
             );
 
             if (result.success && result.result !== undefined) {
@@ -174,6 +215,7 @@ export class LLMManager {
                 throw error;
             }
             console.error('[LLMManager] Failed to send message:', error);
+            this.reportLLMErrorAsync(error, 'sendMessage');
             throw error;
         } finally {
             if (this.currentCallController && !options?.signal) {
@@ -193,56 +235,22 @@ export class LLMManager {
     ): Promise<string> {
         this.currentCallController = new AbortController();
         const signal = options?.signal || this.currentCallController.signal;
+        // 도구 스펙 포함 시 자동으로 thinking 비활성화 (네이티브 툴 콜링 시 제외)
+        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking, !!(options?.nativeTools?.length));
 
         const apiCall = async (): Promise<string> => {
             let response: string;
 
-            if (this.currentModelType === AiModelType.GEMINI) {
-                // Gemini API 형식으로 변환 (Part 타입)
-                const parts: any[] = userParts.map(part => {
-                    if (part.inlineData) {
-                        return { inlineData: part.inlineData };
-                    }
-                    if (part.imageData && part.imageMimeType) {
-                        return {
-                            inlineData: {
-                                data: part.imageData,
-                                mimeType: part.imageMimeType
-                            }
-                        };
-                    }
-                    return { text: part.text || '' };
-                });
-
-                response = await this.geminiApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal });
-
-                // Offline fallback trigger
-                if (typeof response === 'string' && response.startsWith('OFFLINE:')) {
-                    try {
-                        await this.ollamaApi.loadSettingsFromStorage();
-                    } catch { }
-                    // Ollama로 폴백
-                    const ollamaParts = userParts.map(part => ({ text: part.text || '' }));
-                    response = await this.ollamaApi.sendMessageWithSystemPrompt(systemPrompt, ollamaParts, { signal });
-                }
-            } else if (this.currentModelType === AiModelType.BANYA) {
-                try {
-                    await this.banyaApi.loadSettingsFromStorage();
-                } catch { }
-
-                // Banya API 형식으로 변환
-                const parts = userParts.map(part => ({ text: part.text || '' }));
-
-                response = await this.banyaApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal });
+            if (this.currentModelType === AiModelType.ADMIN) {
+                response = await this.adminModelApi.sendMessageWithSystemPrompt(
+                    systemPrompt, LLMManager.normalizeParts(userParts), { signal, disableThinking, thinkingLevel: options?.thinkingLevel, nativeTools: options?.nativeTools }
+                );
             } else {
-                try {
-                    await this.ollamaApi.loadSettingsFromStorage();
-                } catch { }
-
-                // Ollama API 형식으로 변환
-                const parts = userParts.map(part => ({ text: part.text || '' }));
-
-                response = await this.ollamaApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal });
+                await this.loadOllamaSettingsSafe();
+                response = await this.ollamaApi.sendMessageWithSystemPrompt(
+                    systemPrompt, LLMManager.normalizeParts(userParts),
+                    { signal, disableThinking, thinkingLevel: options?.thinkingLevel, nativeTools: options?.nativeTools, maxTokens: options?.maxTokens }
+                );
             }
 
             return response;
@@ -254,14 +262,18 @@ export class LLMManager {
                 return await apiCall();
             }
 
-            // 재시도 로직으로 감싸서 호출
+            // 재시도 로직으로 감싸서 호출 (reactive-compact 연결)
             const result = await withRetry(
                 apiCall,
                 options?.retry,
                 signal,
                 (attempt, error, delayMs) => {
                     console.log(`[LLMManager] sendMessageWithSystemPrompt retry ${attempt + 1}: ${error.message.substring(0, 100)} (waiting ${delayMs}ms)`);
-                }
+                    if (attempt >= HIDDEN_RETRY_THRESHOLD && options?.onRetryNotify) {
+                        options.onRetryNotify(attempt, getRetryUserMessage(error, delayMs));
+                    }
+                },
+                options?.onCompact,
             );
 
             if (result.success && result.result !== undefined) {
@@ -279,6 +291,7 @@ export class LLMManager {
                 throw error;
             }
             console.error('[LLMManager] Failed to send message with system prompt:', error);
+            this.reportLLMErrorAsync(error, 'sendMessageWithSystemPrompt');
             throw error;
         } finally {
             if (this.currentCallController && !options?.signal) {
@@ -379,17 +392,6 @@ export class LLMManager {
     /**
      * 에러 이벤트를 채팅용 포맷으로 변환합니다
      */
-    public formatErrorForChat(evt: { time: number; source: string; message: string; recentLogs: any[] }): string {
-        const header = `터미널 에러 감지 (${new Date(evt.time).toLocaleString()}):\n소스: ${evt.source}\n메시지: ${evt.message}`;
-        const tail = evt.recentLogs && evt.recentLogs.length > 0
-            ? '\n\n최근 로그 (최대 10줄):\n' + evt.recentLogs.slice(-10).map((l: any) => `- ${l.message || l.rawOutput || ''}`).join('\n')
-            : '';
-        return header + tail;
-    }
-
-    /**
-     * 에러 이벤트를 채팅용 포맷으로 변환합니다 (static 메서드)
-     */
     public static formatErrorForChat(evt: { time: number; source: string; message: string; recentLogs: any[] }): string {
         const header = `터미널 에러 감지 (${new Date(evt.time).toLocaleString()}):\n소스: ${evt.source}\n메시지: ${evt.message}`;
         const tail = evt.recentLogs && evt.recentLogs.length > 0
@@ -401,7 +403,7 @@ export class LLMManager {
     /**
      * 특정 모델로 시스템 프롬프트와 함께 메시지를 전송합니다
      * Compactor나 Command 모델 등 메인 모델이 아닌 다른 모델을 사용할 때 호출
-     * @param modelType 사용할 모델 타입 (gemini, ollama, banya)
+     * @param modelType 사용할 모델 타입 (ollama, admin)
      * @param modelName 사용할 모델 이름 (선택사항, 지정하지 않으면 해당 타입의 기본 모델 사용)
      * @param systemPrompt 시스템 프롬프트
      * @param userParts 사용자 메시지 파트
@@ -416,69 +418,22 @@ export class LLMManager {
     ): Promise<string> {
         this.currentCallController = new AbortController();
         const signal = options?.signal || this.currentCallController.signal;
+        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
 
         try {
             let response: string;
 
-            if (modelType === AiModelType.GEMINI) {
-                // Gemini API 형식으로 변환
-                const parts: any[] = userParts.map(part => {
-                    if (part.inlineData) {
-                        return { inlineData: part.inlineData };
-                    }
-                    if (part.imageData && part.imageMimeType) {
-                        return {
-                            inlineData: {
-                                data: part.imageData,
-                                mimeType: part.imageMimeType
-                            }
-                        };
-                    }
-                    return { text: part.text || '' };
-                });
+            const isAdminRouting = modelType === AiModelType.ADMIN
+                || (modelType as string).startsWith('group:');
 
-                // 모델명이 지정된 경우 임시로 모델 변경 후 호출
-                const originalModel = this.geminiApi.getModelName();
-                if (modelName && modelName !== originalModel) {
-                    this.geminiApi.updateModelName(modelName);
-                }
-
-                try {
-                    response = await this.geminiApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal });
-                } finally {
-                    // 원래 모델로 복원
-                    if (modelName && modelName !== originalModel) {
-                        this.geminiApi.updateModelName(originalModel);
-                    }
-                }
-            } else if (modelType === AiModelType.BANYA) {
-                try {
-                    await this.banyaApi.loadSettingsFromStorage();
-                } catch { }
-
-                const parts = userParts.map(part => ({ text: part.text || '' }));
-
-                // 모델명이 지정된 경우 임시로 모델 변경 후 호출
-                const originalModel = this.banyaApi.getModel?.() || '';
-                if (modelName && this.banyaApi.setModel) {
-                    this.banyaApi.setModel(modelName);
-                }
-
-                try {
-                    response = await this.banyaApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal });
-                } finally {
-                    // 원래 모델로 복원
-                    if (modelName && originalModel && this.banyaApi.setModel) {
-                        this.banyaApi.setModel(originalModel);
-                    }
-                }
+            if (isAdminRouting) {
+                response = await this.adminModelApi.sendMessageWithSystemPrompt(
+                    systemPrompt, LLMManager.normalizeParts(userParts), { signal, disableThinking }
+                );
             } else {
                 // Ollama
-                try {
-                    await this.ollamaApi.loadSettingsFromStorage();
-                } catch { }
-
-                const parts = userParts.map(part => ({ text: part.text || '' }));
+                await this.loadOllamaSettingsSafe();
+                const parts = LLMManager.normalizeParts(userParts);
 
                 // 모델명이 지정된 경우 임시로 모델 변경 후 호출
                 const originalModel = this.ollamaApi.getModel?.() || '';
@@ -487,7 +442,9 @@ export class LLMManager {
                 }
 
                 try {
-                    response = await this.ollamaApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal });
+                    response = await this.ollamaApi.sendMessageWithSystemPrompt(
+                        systemPrompt, parts, { signal, disableThinking }
+                    );
                 } finally {
                     // 원래 모델로 복원
                     if (modelName && originalModel && this.ollamaApi.setModel) {
@@ -503,6 +460,7 @@ export class LLMManager {
                 throw error;
             }
             console.error('[LLMManager] Failed to send message with specific model:', error);
+            this.reportLLMErrorAsync(error, 'sendWithSpecificModel');
             throw error;
         } finally {
             if (this.currentCallController && !options?.signal) {
@@ -541,6 +499,7 @@ export class LLMManager {
             getCompactorModelType: () => Promise<string | undefined>;
             getCompactorModelName?: () => Promise<string | undefined>;
             getCompactorApiKey?: () => Promise<string | undefined>;
+            getCompactorAdminConfig?: () => Promise<string | undefined>;
         },
         options?: LLMRequestOptions
     ): Promise<string> {
@@ -548,21 +507,34 @@ export class LLMManager {
 
         // 설정되지 않은 경우 메인 모델 사용
         if (!modelType) {
-            console.log('[LLMManager] Compactor model not configured, using main model');
             return this.sendMessageWithSystemPrompt(systemPrompt, userParts, options);
         }
 
-        // 모델명과 API 키 가져오기
+        // group:/admin 타입 → 저장된 AdminModelConfig 사용
+        if (modelType !== AiModelType.OLLAMA) {
+            const adminConfigJson = stateManager.getCompactorAdminConfig
+                ? await stateManager.getCompactorAdminConfig()
+                : undefined;
+            if (adminConfigJson) {
+                try {
+                    const adminConfig = JSON.parse(adminConfigJson);
+                    // 라우팅 전용 API 키가 있으면 덮어쓰기
+                    const routingApiKey = stateManager.getCompactorApiKey
+                        ? await stateManager.getCompactorApiKey()
+                        : undefined;
+                    if (routingApiKey) adminConfig.apiKey = routingApiKey;
+                    return await this.sendMessageWithAdminConfigSwap(adminConfig, systemPrompt, userParts, options);
+                } catch { }
+            }
+        }
+
+        // 폴백: 기존 방식
         const modelName = stateManager.getCompactorModelName
             ? await stateManager.getCompactorModelName()
             : undefined;
         const apiKey = stateManager.getCompactorApiKey
             ? await stateManager.getCompactorApiKey()
             : undefined;
-
-        console.log(`[LLMManager] Using compactor model - type: ${modelType}, name: ${modelName || 'default'}, apiKey: ${apiKey ? 'set' : 'not set'}`);
-
-        // API 키가 설정된 경우 해당 API로 직접 호출
         return this.sendMessageWithSpecificModelAndApiKey(
             modelType as AiModelType,
             modelName,
@@ -585,6 +557,7 @@ export class LLMManager {
             getCommandModelType: () => Promise<string | undefined>;
             getCommandModelName?: () => Promise<string | undefined>;
             getCommandApiKey?: () => Promise<string | undefined>;
+            getCommandAdminConfig?: () => Promise<string | undefined>;
         },
         options?: LLMRequestOptions
     ): Promise<string> {
@@ -592,21 +565,33 @@ export class LLMManager {
 
         // 설정되지 않은 경우 메인 모델 사용
         if (!modelType) {
-            console.log('[LLMManager] Command model not configured, using main model');
             return this.sendMessageWithSystemPrompt(systemPrompt, userParts, options);
         }
 
-        // 모델명과 API 키 가져오기
+        // group:/admin 타입 → 저장된 AdminModelConfig 사용
+        if (modelType !== AiModelType.OLLAMA) {
+            const adminConfigJson = stateManager.getCommandAdminConfig
+                ? await stateManager.getCommandAdminConfig()
+                : undefined;
+            if (adminConfigJson) {
+                try {
+                    const adminConfig = JSON.parse(adminConfigJson);
+                    const routingApiKey = stateManager.getCommandApiKey
+                        ? await stateManager.getCommandApiKey()
+                        : undefined;
+                    if (routingApiKey) adminConfig.apiKey = routingApiKey;
+                    return await this.sendMessageWithAdminConfigSwap(adminConfig, systemPrompt, userParts, options);
+                } catch { }
+            }
+        }
+
+        // 폴백: 기존 방식
         const modelName = stateManager.getCommandModelName
             ? await stateManager.getCommandModelName()
             : undefined;
         const apiKey = stateManager.getCommandApiKey
             ? await stateManager.getCommandApiKey()
             : undefined;
-
-        console.log(`[LLMManager] Using command model - type: ${modelType}, name: ${modelName || 'default'}, apiKey: ${apiKey ? 'set' : 'not set'}`);
-
-        // API 키가 설정된 경우 해당 API로 직접 호출
         return this.sendMessageWithSpecificModelAndApiKey(
             modelType as AiModelType,
             modelName,
@@ -630,6 +615,7 @@ export class LLMManager {
             getCommandModelType: () => Promise<string | undefined>;
             getCommandModelName?: () => Promise<string | undefined>;
             getCommandApiKey?: () => Promise<string | undefined>;
+            getCommandAdminConfig?: () => Promise<string | undefined>;
         },
         options?: LLMRequestOptions
     ): Promise<string> {
@@ -637,21 +623,33 @@ export class LLMManager {
 
         // 설정되지 않은 경우 메인 모델 사용 (스트리밍)
         if (!modelType) {
-            console.log('[LLMManager] Command model not configured, using main model (streaming)');
             return this.sendMessageWithSystemPromptStreaming(systemPrompt, userParts, onChunk, options);
         }
 
-        // 모델명과 API 키 가져오기
+        // group:/admin 타입 → 저장된 AdminModelConfig 사용 (스트리밍)
+        if (modelType !== AiModelType.OLLAMA) {
+            const adminConfigJson = stateManager.getCommandAdminConfig
+                ? await stateManager.getCommandAdminConfig()
+                : undefined;
+            if (adminConfigJson) {
+                try {
+                    const adminConfig = JSON.parse(adminConfigJson);
+                    const routingApiKey = stateManager.getCommandApiKey
+                        ? await stateManager.getCommandApiKey()
+                        : undefined;
+                    if (routingApiKey) adminConfig.apiKey = routingApiKey;
+                    return await this.sendMessageWithAdminConfigSwapStreaming(adminConfig, systemPrompt, userParts, onChunk, options);
+                } catch { }
+            }
+        }
+
+        // 폴백: 기존 방식
         const modelName = stateManager.getCommandModelName
             ? await stateManager.getCommandModelName()
             : undefined;
         const apiKey = stateManager.getCommandApiKey
             ? await stateManager.getCommandApiKey()
             : undefined;
-
-        console.log(`[LLMManager] Using command model (streaming) - type: ${modelType}, name: ${modelName || 'default'}, apiKey: ${apiKey ? 'set' : 'not set'}`);
-
-        // API 키가 설정된 경우 해당 API로 직접 호출 (스트리밍)
         return this.sendMessageWithSpecificModelAndApiKeyStreaming(
             modelType as AiModelType,
             modelName,
@@ -675,6 +673,7 @@ export class LLMManager {
             getIntentModelType: () => Promise<string | undefined>;
             getIntentModelName?: () => Promise<string | undefined>;
             getIntentApiKey?: () => Promise<string | undefined>;
+            getIntentAdminConfig?: () => Promise<string | undefined>;
         },
         options?: LLMRequestOptions
     ): Promise<string> {
@@ -682,21 +681,303 @@ export class LLMManager {
 
         // 설정되지 않은 경우 메인 모델 사용
         if (!modelType) {
-            console.log('[LLMManager] Intent model not configured, using main model');
             return this.sendMessageWithSystemPrompt(systemPrompt, userParts, options);
         }
 
-        // 모델명과 API 키 가져오기
+        // group:/admin 타입 → 저장된 AdminModelConfig 사용
+        if (modelType !== AiModelType.OLLAMA) {
+            const adminConfigJson = stateManager.getIntentAdminConfig
+                ? await stateManager.getIntentAdminConfig()
+                : undefined;
+            if (adminConfigJson) {
+                try {
+                    const adminConfig = JSON.parse(adminConfigJson);
+                    const routingApiKey = stateManager.getIntentApiKey
+                        ? await stateManager.getIntentApiKey()
+                        : undefined;
+                    if (routingApiKey) adminConfig.apiKey = routingApiKey;
+                    return await this.sendMessageWithAdminConfigSwap(adminConfig, systemPrompt, userParts, options);
+                } catch { }
+            }
+        }
+
+        // 폴백: 기존 방식
         const modelName = stateManager.getIntentModelName
             ? await stateManager.getIntentModelName()
             : undefined;
         const apiKey = stateManager.getIntentApiKey
             ? await stateManager.getIntentApiKey()
             : undefined;
+        return this.sendMessageWithSpecificModelAndApiKey(
+            modelType as AiModelType,
+            modelName,
+            apiKey,
+            systemPrompt,
+            userParts,
+            options
+        );
+    }
 
-        console.log(`[LLMManager] Using intent model - type: ${modelType}, name: ${modelName || 'default'}, apiKey: ${apiKey ? 'set' : 'not set'}`);
+    /**
+     * 에러 폴백 모델로 메시지를 전송합니다
+     * 동일 에러 패턴 3회 반복 시 마지막 재시도에 사용
+     */
+    public async sendMessageWithErrorFallbackModel(
+        systemPrompt: string,
+        userParts: LLMMessagePart[],
+        stateManager: {
+            getErrorFallbackModelType: () => Promise<string | undefined>;
+            getErrorFallbackModelName?: () => Promise<string | undefined>;
+            getErrorFallbackApiKey?: () => Promise<string | undefined>;
+            getErrorFallbackAdminConfig?: () => Promise<string | undefined>;
+        },
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        const modelType = await stateManager.getErrorFallbackModelType();
 
-        // API 키가 설정된 경우 해당 API로 직접 호출
+        // 설정되지 않은 경우 메인 모델 사용
+        if (!modelType) {
+            return this.sendMessageWithSystemPrompt(systemPrompt, userParts, options);
+        }
+
+        // group:/admin 타입 → 저장된 AdminModelConfig 사용
+        if (modelType !== AiModelType.OLLAMA) {
+            const adminConfigJson = stateManager.getErrorFallbackAdminConfig
+                ? await stateManager.getErrorFallbackAdminConfig()
+                : undefined;
+            if (adminConfigJson) {
+                try {
+                    const adminConfig = JSON.parse(adminConfigJson);
+                    const routingApiKey = stateManager.getErrorFallbackApiKey
+                        ? await stateManager.getErrorFallbackApiKey()
+                        : undefined;
+                    if (routingApiKey) adminConfig.apiKey = routingApiKey;
+                    return await this.sendMessageWithAdminConfigSwap(adminConfig, systemPrompt, userParts, options);
+                } catch { }
+            }
+        }
+
+        // 폴백: 기존 방식
+        const modelName = stateManager.getErrorFallbackModelName
+            ? await stateManager.getErrorFallbackModelName()
+            : undefined;
+        const apiKey = stateManager.getErrorFallbackApiKey
+            ? await stateManager.getErrorFallbackApiKey()
+            : undefined;
+        return this.sendMessageWithSpecificModelAndApiKey(
+            modelType as AiModelType,
+            modelName,
+            apiKey,
+            systemPrompt,
+            userParts,
+            options
+        );
+    }
+
+    /**
+     * 소스코드 자동완성 모델로 메시지를 전송합니다
+     * 설정되지 않은 경우 메인 모델 사용
+     */
+    /**
+     * FIM 기반 인라인 코드 완성 (Continue/Copilot 방식)
+     * - Ollama: /api/generate + FIM 토큰 (qwen2.5-coder, starcoder2, deepseek-coder, codellama 지원)
+     * - 클라우드/admin: chat 방식 fallback
+     */
+    /**
+     * 서브에이전트 모델로 메시지를 전송합니다 (비스트리밍)
+     * 설정되지 않은 경우 메인 모델 사용
+     */
+    public async sendMessageWithSubAgentModel(
+        systemPrompt: string,
+        userParts: LLMMessagePart[],
+        stateManager: {
+            getSubagentModelType: () => Promise<string | undefined>;
+            getSubagentModelName?: () => Promise<string | undefined>;
+            getSubagentApiKey?: () => Promise<string | undefined>;
+            getSubagentAdminConfig?: () => Promise<string | undefined>;
+        },
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        const modelType = await stateManager.getSubagentModelType();
+
+        if (!modelType) {
+            return this.sendMessageWithSystemPrompt(systemPrompt, userParts, options);
+        }
+
+        if (modelType !== AiModelType.OLLAMA) {
+            const adminConfigJson = stateManager.getSubagentAdminConfig
+                ? await stateManager.getSubagentAdminConfig()
+                : undefined;
+            if (adminConfigJson) {
+                try {
+                    const adminConfig = JSON.parse(adminConfigJson);
+                    const routingApiKey = stateManager.getSubagentApiKey
+                        ? await stateManager.getSubagentApiKey()
+                        : undefined;
+                    if (routingApiKey) adminConfig.apiKey = routingApiKey;
+                    return await this.sendMessageWithAdminConfigSwap(adminConfig, systemPrompt, userParts, options);
+                } catch { }
+            }
+        }
+
+        const modelName = stateManager.getSubagentModelName
+            ? await stateManager.getSubagentModelName()
+            : undefined;
+        const apiKey = stateManager.getSubagentApiKey
+            ? await stateManager.getSubagentApiKey()
+            : undefined;
+        return this.sendMessageWithSpecificModelAndApiKey(
+            modelType as AiModelType,
+            modelName,
+            apiKey,
+            systemPrompt,
+            userParts,
+            options
+        );
+    }
+
+    /**
+     * 서브에이전트 모델로 메시지를 전송합니다 (스트리밍)
+     * 설정되지 않은 경우 메인 모델 사용
+     */
+    public async sendMessageWithSubAgentModelStreaming(
+        systemPrompt: string,
+        userParts: LLMMessagePart[],
+        onChunk: (chunk: string, done: boolean) => void,
+        stateManager: {
+            getSubagentModelType: () => Promise<string | undefined>;
+            getSubagentModelName?: () => Promise<string | undefined>;
+            getSubagentApiKey?: () => Promise<string | undefined>;
+            getSubagentAdminConfig?: () => Promise<string | undefined>;
+        },
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        const modelType = await stateManager.getSubagentModelType();
+
+        if (!modelType) {
+            return this.sendMessageWithSystemPromptStreaming(systemPrompt, userParts, onChunk, options);
+        }
+
+        if (modelType !== AiModelType.OLLAMA) {
+            const adminConfigJson = stateManager.getSubagentAdminConfig
+                ? await stateManager.getSubagentAdminConfig()
+                : undefined;
+            if (adminConfigJson) {
+                try {
+                    const adminConfig = JSON.parse(adminConfigJson);
+                    const routingApiKey = stateManager.getSubagentApiKey
+                        ? await stateManager.getSubagentApiKey()
+                        : undefined;
+                    if (routingApiKey) adminConfig.apiKey = routingApiKey;
+                    return await this.sendMessageWithAdminConfigSwapStreaming(adminConfig, systemPrompt, userParts, onChunk, options);
+                } catch { }
+            }
+        }
+
+        const modelName = stateManager.getSubagentModelName
+            ? await stateManager.getSubagentModelName()
+            : undefined;
+        const apiKey = stateManager.getSubagentApiKey
+            ? await stateManager.getSubagentApiKey()
+            : undefined;
+        return this.sendMessageWithSpecificModelAndApiKeyStreaming(
+            modelType as AiModelType,
+            modelName,
+            apiKey,
+            systemPrompt,
+            userParts,
+            onChunk,
+            options
+        );
+    }
+
+    public async sendInlineCompletion(
+        prefix: string,
+        suffix: string,
+        stateManager: {
+            getCompletionModelType: () => Promise<string | undefined>;
+            getCompletionModelName?: () => Promise<string | undefined>;
+            getCompletionApiKey?: () => Promise<string | undefined>;
+            getCompletionAdminConfig?: () => Promise<string | undefined>;
+        },
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        const modelType = await stateManager.getCompletionModelType();
+        const signal = options?.signal;
+
+        if (!modelType || modelType === AiModelType.OLLAMA) {
+            // Ollama FIM 경로
+            await this.loadOllamaSettingsSafe();
+            const modelName = stateManager.getCompletionModelName
+                ? await stateManager.getCompletionModelName()
+                : undefined;
+
+            const originalModel = this.ollamaApi.getModel?.() || '';
+            if (modelName && this.ollamaApi.setModel) {
+                this.ollamaApi.setModel(modelName);
+            }
+            try {
+                return await this.ollamaApi.sendFimCompletion(prefix, suffix, { signal, retries: 1 });
+            } finally {
+                if (modelName && originalModel && this.ollamaApi.setModel) {
+                    this.ollamaApi.setModel(originalModel);
+                }
+            }
+        }
+
+        // 클라우드/admin 모델 → chat fallback
+        const CHAT_SYSTEM = `You are a code completion assistant. Return ONLY the raw code to insert at the cursor. No markdown, no explanations.`;
+        const userMsg = `[Code before cursor]\n${prefix}\n[Code after cursor]\n${suffix}\nComplete at cursor:`;
+        return this.sendMessageWithCompletionModel(
+            CHAT_SYSTEM,
+            [{ text: userMsg }],
+            stateManager,
+            { ...options, disableThinking: true, disableRetry: true }
+        );
+    }
+
+    public async sendMessageWithCompletionModel(
+        systemPrompt: string,
+        userParts: LLMMessagePart[],
+        stateManager: {
+            getCompletionModelType: () => Promise<string | undefined>;
+            getCompletionModelName?: () => Promise<string | undefined>;
+            getCompletionApiKey?: () => Promise<string | undefined>;
+            getCompletionAdminConfig?: () => Promise<string | undefined>;
+        },
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        const modelType = await stateManager.getCompletionModelType();
+
+        // 설정되지 않은 경우 메인 모델 사용
+        if (!modelType) {
+            return this.sendMessageWithSystemPrompt(systemPrompt, userParts, options);
+        }
+
+        // group:/admin 타입 → 저장된 AdminModelConfig 사용
+        if (modelType !== AiModelType.OLLAMA) {
+            const adminConfigJson = stateManager.getCompletionAdminConfig
+                ? await stateManager.getCompletionAdminConfig()
+                : undefined;
+            if (adminConfigJson) {
+                try {
+                    const adminConfig = JSON.parse(adminConfigJson);
+                    const routingApiKey = stateManager.getCompletionApiKey
+                        ? await stateManager.getCompletionApiKey()
+                        : undefined;
+                    if (routingApiKey) adminConfig.apiKey = routingApiKey;
+                    return await this.sendMessageWithAdminConfigSwap(adminConfig, systemPrompt, userParts, options);
+                } catch { }
+            }
+        }
+
+        // 폴백: 기존 방식
+        const modelName = stateManager.getCompletionModelName
+            ? await stateManager.getCompletionModelName()
+            : undefined;
+        const apiKey = stateManager.getCompletionApiKey
+            ? await stateManager.getCompletionApiKey()
+            : undefined;
         return this.sendMessageWithSpecificModelAndApiKey(
             modelType as AiModelType,
             modelName,
@@ -719,64 +1000,6 @@ export class LLMManager {
         userParts: LLMMessagePart[],
         options?: LLMRequestOptions
     ): Promise<string> {
-        // Gemini의 경우 API 키와 모델명 임시 변경
-        if (modelType === AiModelType.GEMINI && apiKey) {
-            const originalApiKey = this.geminiApi.getApiKey();
-            const originalModelName = this.geminiApi.getModelName();
-
-            try {
-                // 임시로 API 키와 모델명 변경
-                this.geminiApi.updateApiKey(apiKey);
-                if (modelName) {
-                    this.geminiApi.updateModelName(modelName);
-                }
-
-                const response = await this.sendMessageWithSpecificModel(
-                    modelType,
-                    modelName,
-                    systemPrompt,
-                    userParts,
-                    options
-                );
-
-                return response;
-            } finally {
-                // 원래 설정으로 복원
-                this.geminiApi.updateApiKey(originalApiKey);
-                this.geminiApi.updateModelName(originalModelName);
-            }
-        }
-
-        // Banya의 경우도 API 키 임시 변경
-        if (modelType === AiModelType.BANYA && apiKey) {
-            const originalApiKey = this.banyaApi.getApiKey();
-            const originalModelName = this.banyaApi.getModel?.() || '';
-
-            try {
-                // 임시로 API 키와 모델명 변경
-                this.banyaApi.setApiKey(apiKey);
-                if (modelName && this.banyaApi.setModel) {
-                    this.banyaApi.setModel(modelName);
-                }
-
-                const response = await this.sendMessageWithSpecificModel(
-                    modelType,
-                    modelName,
-                    systemPrompt,
-                    userParts,
-                    options
-                );
-
-                return response;
-            } finally {
-                // 원래 설정으로 복원
-                this.banyaApi.setApiKey(originalApiKey);
-                if (originalModelName && this.banyaApi.setModel) {
-                    this.banyaApi.setModel(originalModelName);
-                }
-            }
-        }
-
         // 기본: 기존 설정으로 호출
         return this.sendMessageWithSpecificModel(
             modelType,
@@ -800,104 +1023,21 @@ export class LLMManager {
         onChunk: (chunk: string, done: boolean) => void,
         options?: LLMRequestOptions
     ): Promise<string> {
-        // Gemini의 경우 API 키와 모델명 임시 변경
-        if (modelType === AiModelType.GEMINI && apiKey) {
-            const originalApiKey = this.geminiApi.getApiKey();
-            const originalModelName = this.geminiApi.getModelName();
+        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
 
-            try {
-                // 임시로 API 키와 모델명 변경
-                this.geminiApi.updateApiKey(apiKey);
-                if (modelName) {
-                    this.geminiApi.updateModelName(modelName);
-                }
-
-                const parts: any[] = userParts.map(part => {
-                    if (part.inlineData) {
-                        return { inlineData: part.inlineData };
-                    }
-                    if (part.imageData && part.imageMimeType) {
-                        return {
-                            inlineData: {
-                                data: part.imageData,
-                                mimeType: part.imageMimeType
-                            }
-                        };
-                    }
-                    return { text: part.text || '' };
-                });
-
-                const response = await this.geminiApi.sendMessageWithSystemPromptStreaming(
-                    systemPrompt,
-                    parts,
-                    onChunk,
-                    { signal: options?.signal }
-                );
-
-                return response;
-            } finally {
-                // 원래 설정으로 복원
-                this.geminiApi.updateApiKey(originalApiKey);
-                this.geminiApi.updateModelName(originalModelName);
-            }
-        }
-
-        // Banya의 경우도 API 키 임시 변경
-        if (modelType === AiModelType.BANYA && apiKey) {
-            const originalApiKey = this.banyaApi.getApiKey();
-            const originalModelName = this.banyaApi.getModel?.() || '';
-
-            try {
-                // 임시로 API 키와 모델명 변경
-                this.banyaApi.setApiKey(apiKey);
-                if (modelName && this.banyaApi.setModel) {
-                    this.banyaApi.setModel(modelName);
-                }
-
-                const parts = userParts.map(part => ({ text: part.text || '' }));
-
-                const response = await this.banyaApi.sendMessageWithSystemPromptStreaming(
-                    systemPrompt,
-                    parts,
-                    onChunk,
-                    { signal: options?.signal }
-                );
-
-                return response;
-            } finally {
-                // 원래 설정으로 복원
-                this.banyaApi.setApiKey(originalApiKey);
-                if (originalModelName && this.banyaApi.setModel) {
-                    this.banyaApi.setModel(originalModelName);
-                }
-            }
-        }
-
-        // Ollama의 경우 (기본)
+        // Ollama의 경우
         if (modelType === AiModelType.OLLAMA) {
-            try {
-                await this.ollamaApi.loadSettingsFromStorage();
-            } catch { }
-
-            const parts = userParts.map(part => ({ text: part.text || '' }));
-
+            await this.loadOllamaSettingsSafe();
             return this.ollamaApi.sendMessageWithSystemPromptStreaming(
                 systemPrompt,
-                parts,
+                LLMManager.normalizeParts(userParts),
                 onChunk,
-                { signal: options?.signal }
+                { signal: options?.signal, disableThinking }
             );
         }
 
         // 기본: 메인 모델 스트리밍
         return this.sendMessageWithSystemPromptStreaming(systemPrompt, userParts, onChunk, options);
-    }
-
-    /**
-     * GeminiApi 인스턴스를 가져옵니다
-     */
-    public getGeminiApi(): GeminiApi {
-        return this.geminiApi;
     }
 
     /**
@@ -908,10 +1048,60 @@ export class LLMManager {
     }
 
     /**
-     * BanyaApi 인스턴스를 가져옵니다
+     * AdminModelConfig를 임시로 교체하여 메시지를 전송합니다
+     * group:/admin 라우팅 모델 사용 시 해당 모델의 설정을 적용
      */
-    public getBanyaApi(): BanyaApi {
-        return this.banyaApi;
+    private async sendMessageWithAdminConfigSwap(
+        adminConfig: AdminModelConfig,
+        systemPrompt: string,
+        userParts: LLMMessagePart[],
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        const originalConfig = this.adminModelApi.getConfig();
+        try {
+            this.adminModelApi.setConfig(adminConfig);
+            const signal = options?.signal || new AbortController().signal;
+            const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
+            return await this.adminModelApi.sendMessageWithSystemPrompt(
+                systemPrompt, LLMManager.normalizeParts(userParts), { signal, disableThinking }
+            );
+        } finally {
+            if (originalConfig) {
+                this.adminModelApi.setConfig(originalConfig);
+            }
+        }
+    }
+
+    /**
+     * AdminModelConfig를 임시로 교체하여 스트리밍 메시지를 전송합니다
+     */
+    private async sendMessageWithAdminConfigSwapStreaming(
+        adminConfig: AdminModelConfig,
+        systemPrompt: string,
+        userParts: LLMMessagePart[],
+        onChunk: (chunk: string, done: boolean) => void,
+        options?: LLMRequestOptions
+    ): Promise<string> {
+        const originalConfig = this.adminModelApi.getConfig();
+        try {
+            this.adminModelApi.setConfig(adminConfig);
+            const signal = options?.signal || new AbortController().signal;
+            const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking);
+            return await this.adminModelApi.sendMessageWithSystemPromptStreaming(
+                systemPrompt, LLMManager.normalizeParts(userParts), onChunk, { signal, disableThinking }
+            );
+        } finally {
+            if (originalConfig) {
+                this.adminModelApi.setConfig(originalConfig);
+            }
+        }
+    }
+
+    /**
+     * AdminModelApi 인스턴스를 가져옵니다
+     */
+    public getAdminModelApi(): AdminModelApi {
+        return this.adminModelApi;
     }
 
     /**
@@ -942,75 +1132,26 @@ export class LLMManager {
     ): Promise<string> {
         this.currentCallController = new AbortController();
         const signal = options?.signal || this.currentCallController.signal;
+        // 도구 스펙 포함 시 자동으로 thinking 비활성화 (네이티브 툴 콜링 시 제외)
+        const disableThinking = LLMManager.resolveDisableThinking(systemPrompt, options?.disableThinking, !!(options?.nativeTools?.length));
 
         const apiCall = async (): Promise<string> => {
             let response: string;
 
-            if (this.currentModelType === AiModelType.GEMINI) {
-                // Gemini API 형식으로 변환 (Part 타입)
-                const parts: any[] = userParts.map(part => {
-                    if (part.inlineData) {
-                        return { inlineData: part.inlineData };
-                    }
-                    if (part.imageData && part.imageMimeType) {
-                        return {
-                            inlineData: {
-                                data: part.imageData,
-                                mimeType: part.imageMimeType
-                            }
-                        };
-                    }
-                    return { text: part.text || '' };
-                });
-
-                response = await this.geminiApi.sendMessageWithSystemPromptStreaming(
+            if (this.currentModelType === AiModelType.ADMIN) {
+                response = await this.adminModelApi.sendMessageWithSystemPromptStreaming(
                     systemPrompt,
-                    parts,
+                    LLMManager.normalizeParts(userParts),
                     onChunk,
-                    { signal }
-                );
-
-                // Offline fallback trigger
-                if (typeof response === 'string' && response.startsWith('OFFLINE:')) {
-                    try {
-                        await this.ollamaApi.loadSettingsFromStorage();
-                    } catch { }
-                    // Ollama로 폴백 (스트리밍)
-                    const ollamaParts = userParts.map(part => ({ text: part.text || '' }));
-                    response = await this.ollamaApi.sendMessageWithSystemPromptStreaming(
-                        systemPrompt,
-                        ollamaParts,
-                        onChunk,
-                        { signal }
-                    );
-                }
-            } else if (this.currentModelType === AiModelType.BANYA) {
-                try {
-                    await this.banyaApi.loadSettingsFromStorage();
-                } catch { }
-
-                // Banya API 형식으로 변환
-                const parts = userParts.map(part => ({ text: part.text || '' }));
-
-                response = await this.banyaApi.sendMessageWithSystemPromptStreaming(
-                    systemPrompt,
-                    parts,
-                    onChunk,
-                    { signal }
+                    { signal, disableThinking, nativeTools: options?.nativeTools, onNativeToolComplete: options?.onNativeToolComplete }
                 );
             } else {
-                try {
-                    await this.ollamaApi.loadSettingsFromStorage();
-                } catch { }
-
-                // Ollama API 형식으로 변환
-                const parts = userParts.map(part => ({ text: part.text || '' }));
-
+                await this.loadOllamaSettingsSafe();
                 response = await this.ollamaApi.sendMessageWithSystemPromptStreaming(
                     systemPrompt,
-                    parts,
+                    LLMManager.normalizeParts(userParts),
                     onChunk,
-                    { signal }
+                    { signal, disableThinking, nativeTools: options?.nativeTools, onNativeToolComplete: options?.onNativeToolComplete }
                 );
             }
 
@@ -1023,14 +1164,18 @@ export class LLMManager {
                 return await apiCall();
             }
 
-            // 스트리밍은 연결 에러에 대해서만 재시도 (청크 수신 중 에러는 재시도하지 않음)
+            // 스트리밍은 연결 에러에 대해서만 재시도 (reactive-compact 연결)
             const result = await withRetry(
                 apiCall,
                 options?.retry,
                 signal,
                 (attempt, error, delayMs) => {
                     console.log(`[LLMManager] streaming retry ${attempt + 1}: ${error.message.substring(0, 100)} (waiting ${delayMs}ms)`);
-                }
+                    if (attempt >= HIDDEN_RETRY_THRESHOLD && options?.onRetryNotify) {
+                        options.onRetryNotify(attempt, getRetryUserMessage(error, delayMs));
+                    }
+                },
+                options?.onCompact,
             );
 
             if (result.success && result.result !== undefined) {
@@ -1048,11 +1193,46 @@ export class LLMManager {
                 throw error;
             }
             console.error('[LLMManager] Failed to send streaming message:', error);
+            this.reportLLMErrorAsync(error, 'streaming');
             throw error;
         } finally {
             if (this.currentCallController && !options?.signal) {
                 this.currentCallController = null;
             }
+        }
+    }
+
+    /**
+     * LLM API 에러를 ErrorReportingService로 비동기 전송 (fire-and-forget)
+     */
+    private reportLLMErrorAsync(error: unknown, method: string): void {
+        try {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            // 에러 메시지에서 HTTP 상태 코드 추출
+            const statusMatch = errorMessage.match(/(\d{3})\s/);
+            const statusCode = statusMatch ? parseInt(statusMatch[1]) : undefined;
+
+            import('../../../services/error/ErrorReportingService').then(({ ErrorReportingService }) => {
+                const reporter = ErrorReportingService.getInstance();
+                const modelName = this.currentModelType === AiModelType.ADMIN
+                    ? this.adminModelApi.getModelName()
+                    : this.ollamaApi?.getModel?.() || 'unknown';
+
+                reporter.reportLLMError(
+                    errorMessage.substring(0, 500),
+                    modelName,
+                    {
+                        method,
+                        modelType: this.currentModelType,
+                        statusCode,
+                        endpoint: this.currentModelType === AiModelType.ADMIN
+                            ? this.adminModelApi.getConfig()?.endpoint
+                            : undefined,
+                    }
+                );
+            }).catch(() => { /* 에러 리포팅 실패는 무시 */ });
+        } catch {
+            // 에러 리포팅 자체가 실패해도 원래 에러 흐름을 방해하지 않음
         }
     }
 

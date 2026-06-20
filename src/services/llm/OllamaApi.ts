@@ -3,18 +3,44 @@ import * as http from 'http';
 import * as https from 'https';
 import { URL } from 'url';
 import { StateManager } from '../../core/managers/state/StateManager';
+import { DEFAULT_OLLAMA_URL } from '../../core/config/ApiDefaults';
+import { Tool } from '../../core/tools/types';
 
-type SendOptions = { signal?: AbortSignal; retries?: number; xmlRetry?: boolean };
+type SendOptions = { signal?: AbortSignal; retries?: number; xmlRetry?: boolean; disableThinking?: boolean; thinkingLevel?: string; nativeTools?: any[]; onNativeToolComplete?: (toolName: string, args: Record<string, any>) => void; maxTokens?: number };
+type OllamaMessage = { role: 'system' | 'user' | 'assistant'; content: string };
+type MessageBuilder = (userContent: string) => OllamaMessage[];
+
+/**
+ * 재시도 가능한 네트워크 에러 (ECONNREFUSED, ETIMEDOUT 등)
+ */
+class RetryableNetworkError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'RetryableNetworkError';
+    }
+}
+
+const RETRYABLE_ERROR_CODES = ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH'];
+
+/**
+ * thinking 내용만 있고 response가 비어있을 때 발생하는 에러
+ */
+class ThinkingOnlyError extends Error {
+    thinking: string;
+    constructor(thinking: string) {
+        super(`모델이 생각만 수행했습니다. 도구 호출 또는 텍스트 응답이 필요합니다. (Thinking length: ${thinking.length})`);
+        this.thinking = thinking;
+        this.name = 'ThinkingOnlyError';
+    }
+}
 
 export class OllamaApi {
     private apiUrl: string;
-    private endpoint: string = '/api/generate';
     private modelName: string = '';
     private extensionContext: vscode.ExtensionContext | undefined;
 
-    constructor(apiUrl?: string, endpoint?: string, extensionContext?: vscode.ExtensionContext) {
-        this.apiUrl = apiUrl || 'http://localhost:11434';
-        this.endpoint = endpoint || '/api/generate';
+    constructor(apiUrl?: string, extensionContext?: vscode.ExtensionContext) {
+        this.apiUrl = apiUrl || DEFAULT_OLLAMA_URL;
         this.extensionContext = extensionContext;
     }
 
@@ -22,16 +48,13 @@ export class OllamaApi {
         return this.apiUrl;
     }
 
-    public getEndpoint(): string {
-        return this.endpoint;
-    }
-
     public getModel(): string {
         return this.modelName;
     }
 
+    /** @deprecated getModel() 사용 */
     public getCurrentModelName(): string {
-        return this.modelName;
+        return this.getModel();
     }
 
     public setModel(modelName: string): void {
@@ -42,10 +65,6 @@ export class OllamaApi {
         this.apiUrl = apiUrl;
     }
 
-    public setEndpoint(endpoint: string): void {
-        this.endpoint = endpoint;
-    }
-
     public async loadSettingsFromStorage(): Promise<void> {
         if (!this.extensionContext) return;
 
@@ -54,28 +73,16 @@ export class OllamaApi {
             const serverType = await stateManager.getOllamaServerType();
             if (serverType === 'remote') {
                 const remoteApiUrl = await stateManager.getRemoteOllamaApiUrl();
-                const remoteEndpoint = await stateManager.getRemoteOllamaEndpoint();
                 const remoteModel = await stateManager.getRemoteOllamaModel();
 
                 if (remoteApiUrl) this.setApiUrl(remoteApiUrl);
-                if (remoteEndpoint) this.setEndpoint(remoteEndpoint);
-
-                // 저장된 모델명이 있으면 설정
-                if (remoteModel) {
-                    this.setModel(remoteModel);
-                }
+                if (remoteModel) this.setModel(remoteModel);
             } else {
                 const localApiUrl = await stateManager.getOllamaApiUrl();
-                const localEndpoint = await stateManager.getOllamaEndpoint();
                 const localModel = await stateManager.getOllamaModel();
 
                 if (localApiUrl) this.setApiUrl(localApiUrl);
-                if (localEndpoint) this.setEndpoint(localEndpoint);
-
-                // 저장된 모델명이 있으면 설정
-                if (localModel) {
-                    this.setModel(localModel);
-                }
+                if (localModel) this.setModel(localModel);
             }
         } catch (error) {
             console.error('[OllamaApi] Failed to load settings from storage:', error);
@@ -83,21 +90,167 @@ export class OllamaApi {
     }
 
     /**
-     * 외부에서 호출하는 메인 메시지 전송 메서드
+     * 외부에서 호출하는 메인 메시지 전송 메서드 (사용자 메시지만)
      */
     public async sendMessage(message: string, options?: SendOptions): Promise<string> {
-        const maxRetries = options?.retries || 3;
+        return this.sendMessageWithRetry(
+            message,
+            (content) => [{ role: 'user', content }],
+            options
+        );
+    }
+
+    /**
+     * FIM(Fill-in-the-Middle) 기반 인라인 코드 완성
+     * /api/generate 엔드포인트 사용 — 채팅 포맷 대신 원시 프롬프트
+     */
+    public async sendFimCompletion(prefix: string, suffix: string, options?: SendOptions): Promise<string> {
+        const fim = OllamaApi.getFimTokens(this.modelName);
+        if (!fim) {
+            // FIM 미지원 모델은 빈 문자열 반환 (chat 방식은 툴콜 JSON 내뱉음)
+            console.log(`[OllamaApi] FIM not supported for model: ${this.modelName}`);
+            return '';
+        }
+
+        const prompt = `${fim.prefix}${prefix}${fim.suffix}${suffix}${fim.middle}`;
+        const url = new URL(`${this.apiUrl}/api/generate`);
+        const stopTokens = [fim.prefix, fim.suffix, ...(fim.extraStop ?? [])];
+        const requestData: any = {
+            model: this.modelName,
+            prompt,
+            stream: false,
+            options: { temperature: 0.1, num_predict: 256, stop: stopTokens },
+        };
+
+        console.log(`[OllamaApi] FIM completion request → ${this.modelName}`);
+        const raw = await this.makeHttpRequest(url, requestData, options);
+        const result = (raw.response ?? '').trim();
+        const cleaned = OllamaApi.cleanFimResponse(result, prefix);
+        if (cleaned === null) return '';
+        return cleaned;
+    }
+
+    /**
+     * FIM 응답 정제 + 유효성 검사 (Continue 방식)
+     * null = 버려야 할 응답
+     */
+    private static cleanFimResponse(raw: string, prefix: string): string | null {
+        if (!raw.trim()) return null;
+
+        // 특수 토큰 제거 (stop 토큰이 응답에 섞여 나오는 경우)
+        let text = raw
+            .replace(/<file_sep>/g, '')
+            .replace(/<\|endoftext\|>/g, '')
+            .replace(/<EOT>/g, '')
+            .replace(/<fim_prefix>|<fim_suffix>|<fim_middle>/g, '')
+            .replace(/<\|fim_prefix\|>|<\|fim_suffix\|>|<\|fim_middle\|>/g, '');
+        // 코드 펜스 제거
+        text = text.replace(/^```[\w]*\r?\n?([\s\S]*?)```\s*$/m, '$1').trim();
+        if (!text) return null;
+
+        const firstLine = text.split('\n')[0].trim();
+        const lines = text.split('\n');
+
+        // prose(자연어) 감지 → 버림 (instruct 모델 오동작)
+        if (/^(It |This |Here |Note |The |You |To |In |A |An |I |We |Please |Sure |Certainly)/i.test(firstLine)) {
+            console.log(`[OllamaApi] FIM: prose discarded → use base model (starcoder2:3b, deepseek-coder:1.3b, qwen2.5-coder:1.5b-base)`);
+            return null;
+        }
+        if (firstLine.endsWith('.') && !firstLine.includes(';') && !firstLine.includes('{')) {
+            console.log(`[OllamaApi] FIM: prose (period) discarded`);
+            return null;
+        }
+
+        // 전체 파일 재생성 감지 → 버림
+        if (lines.length > 15 && /^import /.test(firstLine)) {
+            console.log(`[OllamaApi] FIM: full-file regeneration discarded (${lines.length} lines starting with import)`);
+            return null;
+        }
+        // prefix 앞부분을 그대로 반복
+        const prefixStart = prefix.trimStart().slice(0, 40);
+        if (prefixStart && text.trimStart().startsWith(prefixStart)) {
+            console.log(`[OllamaApi] FIM: response repeats prefix, discarded`);
+            return null;
+        }
+        // 20줄 초과 → cursor completion은 짧아야 함
+        if (lines.length > 20) {
+            console.log(`[OllamaApi] FIM: too long (${lines.length} lines), discarded`);
+            return null;
+        }
+
+        return text;
+    }
+
+    /** 모델명으로 FIM 토큰 감지 */
+    private static getFimTokens(modelName: string): { prefix: string; suffix: string; middle: string; extraStop?: string[] } | null {
+        const n = modelName.toLowerCase();
+        if (n.includes('qwen2.5-coder') || n.includes('qwen2.5_coder')) {
+            return { prefix: '<|fim_prefix|>', suffix: '<|fim_suffix|>', middle: '<|fim_middle|>', extraStop: ['<|endoftext|>'] };
+        }
+        if (n.includes('starcoder2') || n.includes('starcoder')) {
+            return { prefix: '<fim_prefix>', suffix: '<fim_suffix>', middle: '<fim_middle>', extraStop: ['<file_sep>', '<|endoftext|>'] };
+        }
+        if (n.includes('deepseek-coder') || n.includes('deepseek_coder')) {
+            return { prefix: '<｜fim▁begin｜>', suffix: '<｜fim▁hole｜>', middle: '<｜fim▁end｜>', extraStop: ['<|endoftext|>'] };
+        }
+        if (n.includes('codellama') || n.includes('code-llama') || n.includes('code_llama')) {
+            return { prefix: '<PRE> ', suffix: ' <SUF>', middle: ' <MID>', extraStop: ['<EOT>'] };
+        }
+        return null;
+    }
+
+    /**
+     * 시스템 프롬프트와 사용자 메시지를 별도 role로 전송
+     */
+    public async sendMessageWithSystemPrompt(systemPrompt: string, userParts: any[], options?: SendOptions): Promise<string> {
+        return this.sendMessageWithRetry(
+            userParts.map(part => part.text).join('\n'),
+            (content) => [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content }
+            ],
+            options
+        );
+    }
+
+    /**
+     * retry 루프를 담당하는 공통 내부 메서드
+     * messageBuilder: retry 시 보강된 user content를 받아 messages 배열을 생성
+     */
+    private async sendMessageWithRetry(
+        initialContent: string,
+        messageBuilder: MessageBuilder,
+        options?: SendOptions
+    ): Promise<string> {
+        const maxRetries = options?.retries || 5;
         let lastError: Error | null = null;
-        let currentMessage = message;
+        let lastThinking: string | null = null;
+        let currentContent = initialContent;
         let currentOptions = { ...options };
 
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                return await this.sendMessageInternal(currentMessage, currentOptions);
+                return await this.sendMessageInternal(messageBuilder(currentContent), currentOptions);
             } catch (error: any) {
                 lastError = error;
                 const errorMsg = error.message || '';
                 console.warn(`[OllamaApi] Attempt ${attempt}/${maxRetries} failed:`, errorMsg);
+
+                if (error instanceof ThinkingOnlyError) {
+                    lastThinking = error.thinking;
+
+                    // thinking 안에 tool call JSON이 있으면 즉시 추출하여 반환 (모델 버그 workaround)
+                    const extractedFromThinking = this.extractToolCallsFromThinking(error.thinking);
+                    if (extractedFromThinking) {
+                        console.log(`[OllamaApi] Extracted tool calls from thinking on attempt ${attempt} (${extractedFromThinking.length} chars)`);
+                        return `<think>${error.thinking}</think>\n${extractedFromThinking}`;
+                    }
+                }
+
+                // AbortError는 의도적 취소 — 재시도해도 동일하게 취소됨
+                if (error.name === 'AbortError') {
+                    throw error;
+                }
 
                 // 모델을 찾을 수 없는 경우(404)는 재시도해도 소용없으므로 즉시 중단
                 if (errorMsg.includes('404') && errorMsg.includes('not found')) {
@@ -105,54 +258,128 @@ export class OllamaApi {
                     break;
                 }
 
+                // quota/session limit 초과 — 재시도해도 풀리지 않으므로 즉시 중단
+                // (일반 429 rate limit은 LLMRetryHelper에서 대기 후 재시도)
+                if (errorMsg.includes('usage limit') || errorMsg.includes('quota') || errorMsg.includes('session limit') || errorMsg.includes('upgrade')) {
+                    console.error(`[OllamaApi] Quota exceeded — not retrying: ${errorMsg.substring(0, 100)}`);
+                    break;
+                }
+
+                // 네트워크 에러(ECONNREFUSED 등)는 짧은 대기 후 재시도
+                if (error instanceof RetryableNetworkError) {
+                    console.warn(`[OllamaApi] Retryable network error on attempt ${attempt}/${maxRetries}: ${errorMsg}`);
+                }
+
                 // 응답이 비어있거나 생각만 있는 경우 프롬프트 보강 후 재시도
                 if (attempt < maxRetries) {
-                    if (error.message.includes("생각만 수행")) {
-                        currentMessage = `${message}\n\nCRITICAL: You provided thoughts but NO actions or summary in the response field.
-If you are NOT DONE, you MUST output actual tool calls (e.g., { "tool": "list_files", "path": "..." }) in your FINAL RESPONSE.
-If you HAVE FINISHED all tasks, you MUST provide a final summary of your work in the FINAL RESPONSE.
+                    if (error instanceof ThinkingOnlyError) {
+                        currentContent = `${initialContent}\n\n[SYSTEM] CRITICAL: Your previous response was EMPTY — you put content in the "thinking" field instead of the "content" field.
+You MUST output tool calls or text in the RESPONSE/CONTENT field, NOT in thinking.
+Example of correct output: { "tool": "list_files", "path": "src" }
 Do NOT leave the response field empty. Every turn must produce a non-empty response.`;
+                        // disableThinking 상태에서도 재시도 — thinking 필드에 넣는 모델 버그 대응
+                        if (options?.disableThinking) {
+                            console.log(`[OllamaApi] disableThinking=true but got thinking-only. Retrying with reinforced prompt (attempt ${attempt}/${maxRetries})`);
+                        }
                     } else if (!currentOptions.xmlRetry) {
-                        currentMessage = `${message}\n\nCRITICAL: Output ONLY tool calls in { "tool": "...", "path": "..." } format. Do NOT put tool calls in thinking.`;
+                        currentContent = `${initialContent}\n\nCRITICAL: Output ONLY tool calls in { "tool": "...", "path": "..." } format. Do NOT put tool calls in thinking.`;
                         currentOptions.xmlRetry = true;
                     }
                 }
 
                 if (attempt < maxRetries) {
-                    const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+                    const delay = Math.min(2000 * Math.pow(2, attempt - 1), 30000);
                     await new Promise(resolve => setTimeout(resolve, delay));
                 }
             }
+        }
+
+        // thinking-only로 모든 재시도 실패 시: thinking 안에 tool call JSON이 있으면 추출하여 반환
+        if (lastThinking) {
+            const extractedToolCalls = this.extractToolCallsFromThinking(lastThinking);
+            if (extractedToolCalls) {
+                console.log(`[OllamaApi] Extracted tool calls from thinking content (${extractedToolCalls.length} chars)`);
+                return `<think>${lastThinking}</think>\n${extractedToolCalls}`;
+            }
+            console.log(`[OllamaApi] All ${maxRetries} retries failed with thinking-only. Returning thinking as fallback (length: ${lastThinking.length})`);
+            return `<think>${lastThinking}</think>`;
         }
 
         throw new Error(`Failed after ${maxRetries} attempts. Last error: ${lastError?.message}`);
     }
 
     /**
-     * 실제 요청 및 파싱을 담당하는 내부 메서드
+     * /api/chat 포맷으로 실제 요청 및 파싱을 담당하는 내부 메서드
      */
-    private async sendMessageInternal(message: string, options?: SendOptions): Promise<string> {
-        const url = new URL(`${this.apiUrl}${this.endpoint}`);
-        const requestData = {
+    private async sendMessageInternal(messages: OllamaMessage[], options?: SendOptions): Promise<string> {
+        const url = new URL(`${this.apiUrl}/api/chat`);
+        const requestData: any = {
             model: this.modelName,
-            prompt: message,
-            stream: false
+            messages,
+            stream: false,
+            options: { num_predict: options?.maxTokens || 16384 },
         };
+
+        if (options?.disableThinking) {
+            requestData.think = false;
+            console.log(`[OllamaApi] Thinking disabled for this request (tool calling mode)`);
+        }
+
+        // 네이티브 툴 콜링: tools 배열 추가
+        if (options?.nativeTools && options.nativeTools.length > 0) {
+            requestData.tools = options.nativeTools;
+            console.log(`[OllamaApi] Native tool calling enabled, tools count: ${options.nativeTools.length}`);
+        }
 
         console.log(`[OllamaApi] Sending request to ${url.toString()} with model ${this.modelName}`);
 
-        // 1. 요청 로직을 별도 Promise로 분리
         const rawResponse = await this.makeHttpRequest(url, requestData, options);
 
-        console.log('[OllamaApi] Raw response received:', JSON.stringify(rawResponse).length > 500 ? JSON.stringify(rawResponse).substring(0, 500) + '...' : JSON.stringify(rawResponse));
+        console.log(`[OllamaApi] Raw response received: (${JSON.stringify(rawResponse).length} chars)`);
 
-        // 2. 응답 데이터 추출 (다양한 포맷 대응)
+        // 네이티브 tool_calls가 있으면 텍스트 JSON 형식으로 변환 (기존 ToolParser 호환)
+        const nativeToolCalls = rawResponse.message?.tool_calls;
+        if (nativeToolCalls && nativeToolCalls.length > 0) {
+            const thinkingForTools = rawResponse.message?.thinking || '';
+            console.log('[OllamaApi] Native tool_calls received, count:', nativeToolCalls.length);
+
+            // 네임스페이스 strip: "repo_browser.read_file" → "read_file"
+            const stripNamespace = (name: string): string => {
+                const dotIndex = name.lastIndexOf('.');
+                return dotIndex >= 0 ? name.substring(dotIndex + 1) : name;
+            };
+
+            const converted = nativeToolCalls.map((tc: any) => {
+                const fn = tc.function;
+                const args = typeof fn.arguments === 'string' ? JSON.parse(fn.arguments) : (fn.arguments || {});
+                const strippedName = stripNamespace(fn.name);
+                if (strippedName !== fn.name) {
+                    console.log(`[OllamaApi] Tool name namespace stripped: ${fn.name} → ${strippedName}`);
+                }
+                return JSON.stringify({ tool: strippedName, ...args });
+            }).join('\n');
+
+            // strip 후에도 유효하지 않은 도구면 → nativeTools 없이 텍스트 모드로 재호출
+            const hasInvalidTool = nativeToolCalls.some((tc: any) => {
+                const stripped = stripNamespace(tc.function.name);
+                return !this.isKnownToolName(stripped);
+            });
+
+            if (hasInvalidTool) {
+                console.warn('[OllamaApi] Native tool_calls contain unknown tools after stripping — retrying without native tools');
+                const retryOptions = { ...options, nativeTools: undefined };
+                return this.sendMessageInternal(messages, retryOptions);
+            }
+
+            if (thinkingForTools) {
+                return `<think>${thinkingForTools}</think>\n${converted}`;
+            }
+            return converted;
+        }
+
         const responseContent = this.parseResponseFormat(rawResponse);
-        const thinkingContent = rawResponse.thinking || '';
+        const thinkingContent = rawResponse.message?.thinking || '';
 
-        // [수정] thinking 데이터를 함부로 response로 사용하지 않음
-        // 1. responseContent가 시스템 에코나 Junk(예: "Wait...", "We need result")인 경우 필터링
-        // 🔥 핵심: 도구 호출이 포함된 응답은 junk가 아님 (자연어와 섞여있어도 유효)
         const hasToolCall = responseContent && (
             /\{\s*["']tool["']\s*:\s*["']/.test(responseContent)
         );
@@ -161,40 +388,86 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
             responseContent.includes('=== Tool Execution Results') ||
             responseContent.includes('Wait: We should produce') ||
             responseContent.match(/^We need result\./i) ||
-            // 단순히 read_file 문자열만 있고 태그 형식이 아니면서 매우 짧은 경우만 junk로 간주
             (responseContent.length < 20 && responseContent.includes('read_file') && !responseContent.includes('<'))
         );
 
-        // 2. response가 유효하지 않은 경우 (비어있거나 junk인 경우)
         if (!responseContent || isJunkResponse) {
-            // 생각 데이터는 있지만 실제 응답이 없는 경우
-            // 🔥 수정: REVIEW 단계에서 텍스트 요약만 있는 경우도 있으므로,
-            // response가 완전히 비어있을 때만 에러 (최소한 공백이라도 있으면 허용)
             if (thinkingContent && thinkingContent.length > 0 && (!responseContent || responseContent.trim() === '')) {
                 console.log('[OllamaApi] Thought detected but response is empty. Triggering retry.');
-                // 텔레메트리나 로그를 위해 thinking 내용을 에러에 포함
-                throw new Error(`모델이 생각만 수행했습니다. 도구 호출 또는 텍스트 응답이 필요합니다. (Thinking length: ${thinkingContent.length})`);
+                throw new ThinkingOnlyError(thinkingContent);
             }
 
-            // 둘 다 없는 경우
             if (!responseContent && !thinkingContent) {
                 throw new Error("LLM이 아무런 응답도 생성하지 않았습니다.");
             }
         }
 
-        // 3. 정상적인 응답 반환 (최우선: responseContent)
         if (responseContent && !isJunkResponse) {
+            // thinking content가 있으면 <think> 태그로 wrap해서 반환
+            // SubAgentLoop가 onThinking 콜백으로 UI에 전달할 수 있도록
+            if (thinkingContent) {
+                return `<think>${thinkingContent}</think>\n${responseContent}`;
+            }
             return responseContent;
         }
 
-        // 4. 최후의 보루: response가 없고 thinking만 있는 경우 (이미 위에서 에러를 던졌어야 하지만, 재시도 끝에 도달한 경우)
         const extractedContent = responseContent || thinkingContent || '';
         if (!extractedContent.trim()) {
             throw new Error("LLM이 유효한 응답을 생성하지 못했습니다.");
         }
 
-        // 만약 여기까지 왔다면, 어쩔 수 없이 thinking이라도 반환 (하지만 이미 에러를 던졌을 것)
         return extractedContent;
+    }
+
+    /**
+     * thinking 내용에서 tool call JSON을 추출
+     */
+    private extractToolCallsFromThinking(thinking: string): string | null {
+        const toolCallPattern = /\{\s*"tool"\s*:\s*"[^"]+"/g;
+        const matches = thinking.match(toolCallPattern);
+        if (!matches || matches.length === 0) {
+            return null;
+        }
+
+        const jsonBlocks: string[] = [];
+        let searchFrom = 0;
+        for (const match of matches) {
+            const startIdx = thinking.indexOf(match, searchFrom);
+            if (startIdx === -1) continue;
+
+            let braceDepth = 0;
+            let endIdx = startIdx;
+            for (let i = startIdx; i < thinking.length; i++) {
+                if (thinking[i] === '{') braceDepth++;
+                if (thinking[i] === '}') {
+                    braceDepth--;
+                    if (braceDepth === 0) {
+                        endIdx = i + 1;
+                        break;
+                    }
+                }
+            }
+
+            if (endIdx > startIdx) {
+                const block = thinking.substring(startIdx, endIdx);
+                try {
+                    JSON.parse(block);
+                    jsonBlocks.push(block);
+                } catch {
+                    // 유효하지 않은 JSON은 무시
+                }
+                searchFrom = endIdx;
+            }
+        }
+
+        return jsonBlocks.length > 0 ? jsonBlocks.join('\n') : null;
+    }
+
+    /**
+     * 알려진 도구 이름인지 확인 (네이티브 tool_calls 검증용)
+     */
+    private isKnownToolName(name: string): boolean {
+        return Object.values(Tool).includes(name as Tool);
     }
 
     /**
@@ -217,7 +490,9 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
                 res.on('end', () => {
                     try {
                         if (res.statusCode && res.statusCode >= 400) {
-                            reject(new Error(`Ollama API error (${res.statusCode}): ${data}`));
+                            const retryAfter = res.headers['retry-after'];
+                            const retryInfo = retryAfter ? ` Retry-After: ${retryAfter}` : '';
+                            reject(new Error(`Ollama API error (${res.statusCode}):${retryInfo} ${data}`));
                             return;
                         }
                         resolve(JSON.parse(data));
@@ -227,7 +502,13 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
                 });
             });
 
-            req.on('error', (err) => reject(new Error(`Network error: ${err.message}`)));
+            req.on('error', (err: NodeJS.ErrnoException) => {
+                if (RETRYABLE_ERROR_CODES.includes(err.code || '')) {
+                    reject(new RetryableNetworkError(`Network error (${err.code}): ${err.message}`));
+                } else {
+                    reject(new Error(`Network error: ${err.message}`));
+                }
+            });
 
             if (options?.signal) {
                 options.signal.addEventListener('abort', () => {
@@ -242,37 +523,42 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
     }
 
     /**
-     * 다양한 API 응답 포맷을 통일된 문자열로 파싱
+     * /api/chat 응답에서 텍스트 추출
      */
     private parseResponseFormat(response: any): string | null {
         if (!response) return null;
         if (typeof response === 'string') return response;
 
-        // Ollama 기본 포맷
-        if (response.response) return response.response;
-
-        // OpenAI / 기타 호환 포맷
-        if (response.choices?.[0]?.message?.content) return response.choices[0].message.content;
+        // /api/chat 포맷
         if (response.message?.content) return response.message.content;
 
-        // 기타 content/text 필드
+        // OpenAI 호환 포맷 (AdminModelApi 등)
+        if (response.choices?.[0]?.message?.content) return response.choices[0].message.content;
+
+        // 기타
         if (response.content) return response.content;
         if (response.text) return response.text;
 
         return null;
     }
 
-    public async sendMessageWithSystemPrompt(systemPrompt: string, userParts: any[], options?: SendOptions): Promise<string> {
-        const fullPrompt = `${systemPrompt}\n\n${userParts.map(part => part.text).join('\n')}`;
-        return this.sendMessage(fullPrompt, options);
+    /**
+     * 스트리밍 응답 메서드 (사용자 메시지만)
+     */
+    public async sendMessageStreaming(
+        message: string,
+        onChunk: (chunk: string, done: boolean) => void,
+        options?: SendOptions
+    ): Promise<string> {
+        return this.sendMessagesStreaming(
+            [{ role: 'user', content: message }],
+            onChunk,
+            options
+        );
     }
 
     /**
-     * 스트리밍 응답을 위한 메서드
-     * @param systemPrompt 시스템 프롬프트
-     * @param userParts 사용자 메시지 파트
-     * @param onChunk 청크 수신 콜백
-     * @param options 요청 옵션
+     * 시스템 프롬프트와 사용자 메시지를 별도 role로 스트리밍 전송
      */
     public async sendMessageWithSystemPromptStreaming(
         systemPrompt: string,
@@ -280,27 +566,41 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
         onChunk: (chunk: string, done: boolean) => void,
         options?: SendOptions
     ): Promise<string> {
-        const fullPrompt = `${systemPrompt}\n\n${userParts.map(part => part.text).join('\n')}`;
-        return this.sendMessageStreaming(fullPrompt, onChunk, options);
+        return this.sendMessagesStreaming(
+            [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userParts.map(part => part.text).join('\n') }
+            ],
+            onChunk,
+            options
+        );
     }
 
     /**
-     * 스트리밍 메시지 전송 메서드
-     * @param message 메시지
-     * @param onChunk 청크 수신 콜백
-     * @param options 요청 옵션
+     * /api/chat 포맷으로 스트리밍 전송하는 내부 메서드
      */
-    public async sendMessageStreaming(
-        message: string,
+    private async sendMessagesStreaming(
+        messages: OllamaMessage[],
         onChunk: (chunk: string, done: boolean) => void,
         options?: SendOptions
     ): Promise<string> {
-        const url = new URL(`${this.apiUrl}${this.endpoint}`);
-        const requestData = {
+        const url = new URL(`${this.apiUrl}/api/chat`);
+        const requestData: any = {
             model: this.modelName,
-            prompt: message,
-            stream: true
+            messages,
+            stream: true,
+            options: { num_predict: options?.maxTokens || 16384 },
         };
+
+        if (options?.disableThinking) {
+            requestData.think = false;
+            console.log(`[OllamaApi] Streaming: Thinking disabled for this request (tool calling mode)`);
+        }
+
+        if (options?.nativeTools && options.nativeTools.length > 0) {
+            requestData.tools = options.nativeTools;
+            console.log(`[OllamaApi] Streaming: Native tool calling enabled, tools count: ${options.nativeTools.length}`);
+        }
 
         console.log(`[OllamaApi] Sending streaming request to ${url.toString()} with model ${this.modelName}`);
 
@@ -315,44 +615,134 @@ Do NOT leave the response field empty. Every turn must produce a non-empty respo
             };
 
             let fullText = '';
+            let thinkingText = '';
+            let ndjsonBuffer = '';
+            const streamingToolCalls: Array<{ name: string; arguments: Record<string, any> }> = [];
             const req = (url.protocol === 'https:' ? https : http).request(url, requestOptions, (res) => {
                 if (res.statusCode && res.statusCode >= 400) {
                     let errorData = '';
                     res.on('data', (chunk) => { errorData += chunk; });
                     res.on('end', () => {
                         onChunk('', true);
-                        reject(new Error(`Ollama API error (${res.statusCode}): ${errorData}`));
+                        const retryAfter = res.headers['retry-after'];
+                        const retryInfo = retryAfter ? ` Retry-After: ${retryAfter}` : '';
+                        reject(new Error(`Ollama API error (${res.statusCode}):${retryInfo} ${errorData}`));
                     });
                     return;
                 }
 
                 res.on('data', (chunk) => {
-                    try {
-                        const lines = chunk.toString().split('\n').filter((line: string) => line.trim());
-                        for (const line of lines) {
+                    ndjsonBuffer += chunk.toString();
+                    const lines = ndjsonBuffer.split('\n');
+                    ndjsonBuffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        try {
                             const parsed = JSON.parse(line);
-                            if (parsed.response) {
-                                fullText += parsed.response;
-                                onChunk(parsed.response, false);
+                            const textChunk = parsed.message?.content || '';
+                            const thinkChunk = parsed.message?.thinking || '';
+
+                            if (textChunk) {
+                                fullText += textChunk;
+                                onChunk(textChunk, false);
+                            }
+                            if (thinkChunk) {
+                                thinkingText += thinkChunk;
+                            }
+                            const nativeToolCalls = parsed.message?.tool_calls;
+                            if (nativeToolCalls?.length) {
+                                for (const tc of nativeToolCalls) {
+                                    const fn = tc.function;
+                                    const args = typeof fn.arguments === 'string'
+                                        ? JSON.parse(fn.arguments)
+                                        : (fn.arguments || {});
+                                    streamingToolCalls.push({ name: fn.name, arguments: args });
+                                    // Ollama는 청크마다 완성된 tool_call이 옴 → 즉시 콜백
+                                    try { options?.onNativeToolComplete?.(fn.name, args); } catch { /* skip */ }
+                                }
                             }
                             if (parsed.done) {
                                 onChunk('', true);
                             }
+                        } catch {
+                            // JSON 파싱 실패는 무시
                         }
-                    } catch (e) {
-                        // JSON 파싱 실패는 무시 (불완전한 청크일 수 있음)
                     }
                 });
 
                 res.on('end', () => {
+                    // 버퍼에 남은 데이터 처리
+                    if (ndjsonBuffer.trim()) {
+                        try {
+                            const parsed = JSON.parse(ndjsonBuffer);
+                            const textChunk = parsed.message?.content || '';
+                            const thinkChunk = parsed.message?.thinking || '';
+
+                            if (textChunk) {
+                                fullText += textChunk;
+                                onChunk(textChunk, false);
+                            }
+                            if (thinkChunk) {
+                                thinkingText += thinkChunk;
+                            }
+                            const nativeToolCallsEnd = parsed.message?.tool_calls;
+                            if (nativeToolCallsEnd?.length) {
+                                const prevLen = streamingToolCalls.length;
+                                for (const tc of nativeToolCallsEnd) {
+                                    const fn = tc.function;
+                                    const args = typeof fn.arguments === 'string'
+                                        ? JSON.parse(fn.arguments)
+                                        : (fn.arguments || {});
+                                    streamingToolCalls.push({ name: fn.name, arguments: args });
+                                }
+                                // end 버퍼에서 새로 추가된 것만 콜백 (data 이벤트에서 이미 fired된 것 제외)
+                                for (let i = prevLen; i < streamingToolCalls.length; i++) {
+                                    try { options?.onNativeToolComplete?.(streamingToolCalls[i].name, streamingToolCalls[i].arguments); } catch { /* skip */ }
+                                }
+                            }
+                        } catch {}
+                    }
+
                     onChunk('', true);
+
+                    if (streamingToolCalls.length > 0) {
+                        const converted = streamingToolCalls
+                            .map(tc => JSON.stringify({ tool: tc.name, ...tc.arguments }))
+                            .join('\n');
+                        const fullResult = thinkingText.trim()
+                            ? `<think>${thinkingText}</think>\n${converted}`
+                            : converted;
+                        console.log(`[OllamaApi] Streaming: Native tool_calls converted, count: ${streamingToolCalls.length}`);
+                        resolve(fullResult);
+                        return;
+                    }
+
+                    if (thinkingText.trim()) {
+                        let responseBody = fullText;
+                        if (!fullText.trim()) {
+                            const extracted = this.extractToolCallsFromThinking(thinkingText);
+                            if (extracted) {
+                                console.log(`[OllamaApi] Streaming: Extracted tool calls from thinking (${extracted.length} chars)`);
+                                responseBody = extracted;
+                            }
+                        }
+                        const result = `<think>${thinkingText}</think>${responseBody ? '\n' + responseBody : ''}`;
+                        resolve(result);
+                        return;
+                    }
+
                     resolve(fullText);
                 });
             });
 
-            req.on('error', (err) => {
+            req.on('error', (err: NodeJS.ErrnoException) => {
                 onChunk('', true);
-                reject(new Error(`Network error: ${err.message}`));
+                if (RETRYABLE_ERROR_CODES.includes(err.code || '')) {
+                    reject(new RetryableNetworkError(`Network error (${err.code}): ${err.message}`));
+                } else {
+                    reject(new Error(`Network error: ${err.message}`));
+                }
             });
 
             if (options?.signal) {

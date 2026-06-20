@@ -1,3 +1,11 @@
 
 # Ignore sensitive keys
 node_modules/
+
+# TypeScript compilation output in src/ (webpack handles bundling to dist/)
+src/**/*.js
+src/**/*.js.map
+!src/core/tools/code/index.js
+
+# Debug log output
+debug_log/

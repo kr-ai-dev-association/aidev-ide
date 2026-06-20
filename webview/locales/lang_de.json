@@ -114,7 +114,7 @@
   "banyaLicenseDeleteError": "Fehler beim Löschen der Banya-Lizenz:",
   "verifyButton": "Verifizieren",
   "aiModelSelectLabel": "KI-Modell-Auswahl",
-  "geminiOption": "Gemini 2.5 Pro Flash",
+  "geminiOption": "Google AI",
   "ollamaOption": "Ollama",
   "banyaOption": "Banya",
   "aiModelSaved": "KI-Modell erfolgreich gespeichert.",

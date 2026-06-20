@@ -8,6 +8,7 @@ import * as pathModule from 'path';
 import { Tool, ToolUse, ToolResponse } from '../../../tools/types';
 import { WebviewBridge } from '../../../webview/WebviewBridge';
 import { InlineDiffManager } from '../../diff/InlineDiffManager';
+import { AgentConfig } from '../../../config/AgentConfig';
 
 /** read_file 도구의 파일 결과 항목 */
 interface ReadFileResultItem {
@@ -32,7 +33,8 @@ export class ToolExecutionCoordinator {
         toolCalls: ToolUse[],
         toolResults: ToolResponse[],
         createdFiles: string[],
-        modifiedFiles: string[]
+        modifiedFiles: string[],
+        deletedFiles?: string[]
     ): void {
         toolCalls.forEach((call, index) => {
             const result = toolResults[index];
@@ -49,6 +51,10 @@ export class ToolExecutionCoordinator {
                 if (!modifiedFiles.includes(filePath)) {
                     modifiedFiles.push(filePath);
                 }
+            } else if (call.name === Tool.REMOVE_FILE && deletedFiles) {
+                if (!deletedFiles.includes(filePath) && deletedFiles.length < AgentConfig.MAX_DELETED_FILES) {
+                    deletedFiles.push(filePath);
+                }
             }
         });
     }
@@ -63,9 +69,13 @@ export class ToolExecutionCoordinator {
             [Tool.REMOVE_FILE]: '파일 삭제',
             [Tool.READ_FILE]: '파일 읽기',
             [Tool.LIST_FILES]: '파일 목록',
-            [Tool.SEARCH_FILES]: '파일 검색',
+            [Tool.GLOB_SEARCH]: '파일 검색',
             [Tool.RIPGREP_SEARCH]: '코드 검색',
             [Tool.RUN_COMMAND]: '명령 실행',
+            [Tool.ASK_QUESTION]: '사용자 확인 대기',
+            [Tool.WORK_PLAN]: '작업 계획',
+            [Tool.SPAWN_AGENT]: '에이전트 스폰',
+            [Tool.STOP_AGENT]: '에이전트 중단',
             'plan': '계획 수립',
             'task_progress': '작업 진행'
         };
@@ -83,6 +93,9 @@ export class ToolExecutionCoordinator {
             summary += `Status: ${res.success ? 'Success' : 'Failed'}\n`;
             if (res.message && !res.success) {
                 summary += `Error Message: ${res.message}\n`;
+                if (res.error?.message && res.error.message !== res.message) {
+                    summary += `Detail: ${res.error.message}\n`;
+                }
             } else if (res.message && res.success && !res.data && !res.fileContent) {
                 // 데이터는 없지만 성공 메시지가 있는 경우 (예: 파일 생성 성공)
                 summary += `Message: ${res.message}\n`;
@@ -126,7 +139,7 @@ export class ToolExecutionCoordinator {
     }
 
     /**
-     * 🔥 도구 실행 시작 시 진행 상태 전송 (Processing Steps 업데이트)
+     * 도구 실행 시작 시 진행 상태 전송 (Processing Steps 업데이트)
      * executeTools의 onToolStart 콜백에서 호출
      */
     public static sendToolStartStatus(
@@ -171,16 +184,21 @@ export class ToolExecutionCoordinator {
             statusMessage = `명령 실행 중: ${shortCommand}`;
         }
         // 검색 도구
-        else if (toolName === Tool.RIPGREP_SEARCH || toolName === Tool.SEARCH_FILES) {
+        else if (toolName === Tool.RIPGREP_SEARCH) {
             const pattern = params.pattern || params.query || '';
-            statusMessage = `검색 중: ${pattern}`;
+            statusMessage = `코드 검색 중: ${pattern}`;
+        }
+        // glob 검색 도구
+        else if (toolName === Tool.GLOB_SEARCH) {
+            const pattern = params.pattern || '';
+            statusMessage = `파일 검색 중: ${pattern}`;
         }
 
-        WebviewBridge.sendProcessingStatus(webview, 'execution', statusMessage);
+        WebviewBridge.sendProcessingStatus(webview, 'executing', statusMessage);
     }
 
     /**
-     * 🔥 단일 Tool 실행 결과를 즉시 UI에 전송 (실시간 업데이트용)
+     * 단일 Tool 실행 결과를 즉시 UI에 전송 (실시간 업데이트용)
      * executeTools의 onToolComplete 콜백에서 호출
      */
     public static sendSingleToolResultToUI(
@@ -274,13 +292,48 @@ export class ToolExecutionCoordinator {
                 // read_file, list_files 등은 UI에 표시하지 않음
             } else {
                 // 실패
-                const errorMsg = `❌ [Failed] ${ToolExecutionCoordinator.getToolLabel(toolName)}: ${res.message || 'Unknown error'}`;
-                WebviewBridge.receiveMessage(webview, 'System', errorMsg);
-                collectedMessages.push({ sender: 'System', text: errorMsg, type: 'action' });
+                if (toolName === Tool.RUN_COMMAND || toolName === 'run_terminal') {
+                    // PreToolUseValidator에 의해 차단된 경우 차단 사유 표시
+                    if (res.error?.code === 'BLOCKED_BY_VALIDATOR') {
+                        const blockedMsg = `🚫 [위험한 명령어 차단] ${command || ''}`;
+                        WebviewBridge.receiveMessage(webview, 'System', blockedMsg);
+                        collectedMessages.push({ sender: 'System', text: blockedMsg, type: 'action' });
+                    } else {
+                        // 일반 명령 실패: 명령어와 에러 출력 표시
+                        const failedCommand = command || res.message || 'Unknown command';
+                        const exitCode = res.data?.exitCode;
+                        const headerMsg = `❌ [명령 실패] ${failedCommand}${exitCode !== undefined ? ` (exit ${exitCode})` : ''}`;
+                        WebviewBridge.receiveMessage(webview, 'System', headerMsg);
+                        collectedMessages.push({ sender: 'System', text: headerMsg, type: 'action' });
+
+                        // stderr와 stdout 모두 표시 (에러 내용 + 일반 출력)
+                        const stderr = res.data?.error || '';
+                        const stdout = res.data?.output || '';
+                        const combinedOutput = [stderr, stdout].filter(Boolean).join('\n').trim();
+                        if (combinedOutput) {
+                            const errorMarkdown = `\`\`\`bash\n${combinedOutput}\n\`\`\``;
+                            WebviewBridge.receiveMessage(webview, 'CODEPILOT', errorMarkdown);
+                            collectedMessages.push({ sender: 'CODEPILOT', text: errorMarkdown, type: 'code' });
+                        }
+                    }
+                } else if (res.error?.code === 'BLOCKED_BY_VALIDATOR') {
+                    // PreToolUseValidator에 의해 차단된 비-명령어 도구 (파일 보호 등)
+                    const blockedMsg = `🚫 [보안 차단] ${res.message || 'Blocked'}`;
+                    WebviewBridge.receiveMessage(webview, 'System', blockedMsg);
+                    collectedMessages.push({ sender: 'System', text: blockedMsg, type: 'action' });
+                } else if (res.error?.code === 'CREATE_BLOCKED_AFTER_READ_FAIL') {
+                    // 하드 가드에 의한 create_file 차단 — 내부 동작이므로 UI에 노출하지 않음
+                    // LLM에게는 createToolResultSummary의 Detail로 전달됨
+                    console.log(`[ToolExecutionCoordinator] create_file blocked (read_fail guard): ${res.message}`);
+                } else {
+                    const errorMsg = `❌ [Failed] ${ToolExecutionCoordinator.getToolLabel(toolName)}: ${res.message || 'Unknown error'}`;
+                    WebviewBridge.receiveMessage(webview, 'System', errorMsg);
+                    collectedMessages.push({ sender: 'System', text: errorMsg, type: 'action' });
+                }
             }
         }
 
-        // 🔥 파일 변경 후 pending changes 상태를 webview에 전송 (실시간 버튼 업데이트)
+        // 파일 변경 후 pending changes 상태를 webview에 전송 (실시간 버튼 업데이트)
         ToolExecutionCoordinator.sendPendingChangesUpdate(webview);
 
         return collectedMessages;
@@ -300,7 +353,7 @@ export class ToolExecutionCoordinator {
         console.log(`[ToolExecutionCoordinator] sendToolExecutionResultsToUI called with ${results.length} results, webview=${!!webview}`);
         const collectedMessages: Array<{ sender: 'USER' | 'CODEPILOT' | 'System'; text: string; type?: 'action' | 'code' | 'summary' | 'message' }> = [];
 
-        // 🔥 forEach → for...of로 변경 (async/await 지원)
+        // forEach → for...of로 변경 (async/await 지원)
         for (let i = 0; i < results.length; i++) {
             const res = results[i];
             const toolName = calls[i].name;
@@ -318,16 +371,6 @@ export class ToolExecutionCoordinator {
                     // ✅ 수정: CREATE_FILE도 res.fileContent 사용 (params.content는 LLM 입력, res.fileContent는 처리된 실제 내용)
                     const content = res.fileContent || params.content || '';
                     const ext = path.split('.').pop() || '';
-
-                    // ✅ 디버깅: content 값 확인
-                    console.log(`[ToolExecutionCoordinator] ${toolName} content debug:`, {
-                        hasResFileContent: !!res.fileContent,
-                        resFileContentLength: res.fileContent?.length || 0,
-                        hasParamsContent: !!params.content,
-                        paramsContentLength: params.content?.length || 0,
-                        finalContentLength: content.length,
-                        resKeys: Object.keys(res)
-                    });
 
                     // ✅ 추가/삭제 라인 수 계산
                     let addedLines = 0;
@@ -404,7 +447,7 @@ export class ToolExecutionCoordinator {
                     WebviewBridge.receiveMessage(webview, 'System', headerMsg);
                     collectedMessages.push({ sender: 'System', text: headerMsg, type: 'action' });
 
-                    // 2. 코드 내용 전송 (🔥 스트리밍 효과로 타이핑)
+                    // 2. 코드 내용 전송 (스트리밍 효과로 타이핑)
                     // ✅ 라인 수 정보를 언어 라벨에 포함
                     if (content) {
                         let langLabel = ext;
@@ -418,8 +461,6 @@ export class ToolExecutionCoordinator {
                                 parts.push(`+${addedLines} lines`);
                             }
                             langLabel = `${ext} ${parts.join(' ')}`;
-                            console.log(`[ToolExecutionCoordinator] Line count info: ${langLabel} (deleted: ${deletedLines}, added: ${addedLines})`);
-                            console.log(`[ToolExecutionCoordinator] RAW langLabel string: "${langLabel}"`);
                         }
                         // ✅ 파일 경로 정보를 langLabel에 포함 (파일 열기 아이콘용)
                         const langLabelWithPath = path ? `${langLabel} [file:${path}]` : langLabel;
@@ -432,7 +473,7 @@ export class ToolExecutionCoordinator {
                         collectedMessages.push({ sender: 'CODEPILOT', text: codeMarkdown, type: 'code' });
                         console.log(`[ToolExecutionCoordinator] AFTER sending code block`);
                     }
-                    continue; // 🔥 return → continue (for 루프 내에서)
+                    continue; // return → continue (for 루프 내에서)
                 }
 
                 // 나머지 도구들은 기존처럼 System 스타일 메시지로 표시 (테두리/색상 적용)
@@ -451,10 +492,6 @@ export class ToolExecutionCoordinator {
                     case Tool.LIST_FILES:
                     case 'list_files':
                         displayMsg = `📂 [Listed] ${path || 'root'}`;
-                        break;
-                    case Tool.SEARCH_FILES:
-                    case 'search_files':
-                        displayMsg = `🔍 [Searched] ${params.pattern || params.query || ''}`;
                         break;
                     case Tool.RIPGREP_SEARCH:
                     case 'ripgrep_search':
@@ -488,8 +525,6 @@ export class ToolExecutionCoordinator {
 
                         // 터미널 실행 결과가 있으면 추가로 표시 (사용자 요청 반영)
                         const output = res.data?.output || '';
-                        // console.log(`[ToolExecutionCoordinator] 🔥 DEBUG run_command output: "${output?.substring(0, 200)}..." (${output?.length || 0} chars)`);
-                        // console.log(`[ToolExecutionCoordinator] 🔥 DEBUG res.data:`, JSON.stringify(res.data || {}).substring(0, 500));
                         if (output) {
                             // 헤더 먼저 전송
                             WebviewBridge.receiveMessage(webview, 'System', displayMsg);
@@ -501,20 +536,21 @@ export class ToolExecutionCoordinator {
                             continue;
                         }
                         break;
-                    case Tool.ANALYZE_CODE:
-                    case 'analyze_code':
-                        displayMsg = `🔬 [Analyzed] ${path}`;
-                        break;
                     default:
                         displayMsg = `✔️ [Success] ${ToolExecutionCoordinator.getToolLabel(toolName)}`;
                 }
                 WebviewBridge.receiveMessage(webview, 'System', displayMsg);
                 collectedMessages.push({ sender: 'System', text: displayMsg, type: 'action' });
             } else {
-                // 실패 시에는 항상 System 스타일로 에러 표시
-                const errorMsg = `❌ [Failed] ${ToolExecutionCoordinator.getToolLabel(toolName)}: ${res.message || 'Unknown error'}`;
-                WebviewBridge.receiveMessage(webview, 'System', errorMsg);
-                collectedMessages.push({ sender: 'System', text: errorMsg, type: 'action' });
+                if (res.error?.code === 'CREATE_BLOCKED_AFTER_READ_FAIL') {
+                    // 하드 가드에 의한 create_file 차단 — UI에 노출하지 않음
+                    console.log(`[ToolExecutionCoordinator] create_file blocked (read_fail guard): ${res.message}`);
+                } else {
+                    // 실패 시에는 항상 System 스타일로 에러 표시
+                    const errorMsg = `❌ [Failed] ${ToolExecutionCoordinator.getToolLabel(toolName)}: ${res.message || 'Unknown error'}`;
+                    WebviewBridge.receiveMessage(webview, 'System', errorMsg);
+                    collectedMessages.push({ sender: 'System', text: errorMsg, type: 'action' });
+                }
             }
         }
 

@@ -7,6 +7,8 @@
 import { SettingsManager } from '../state/SettingsManager';
 import { LLMApiClient } from '../model/LLMApiClient';
 import { AiModelType } from '../../../services';
+import { UsageMetricsManager } from '../state/UsageMetricsManager';
+import { estimateTokens } from '../../../utils';
 import {
     getSplitInstructionPrompt,
     getSplitInstructionSystemPrompt,
@@ -24,7 +26,7 @@ export interface PlanItem {
 export class PlanManager {
     private static instance: PlanManager;
     private llmService?: LLMApiClient;
-    private currentModelType: AiModelType = AiModelType.GEMINI;
+    private currentModelType: AiModelType = AiModelType.ADMIN;
 
     private constructor() {
         console.log('[PlanManager] Initialized');
@@ -51,7 +53,6 @@ export class PlanManager {
     public async splitUserInstructionIntoActions(
         userQuery: string,
         extensionContext?: any,
-        geminiApi?: any,
         ollamaApi?: any,
         abortSignal?: AbortSignal
     ): Promise<string[]> {
@@ -69,22 +70,21 @@ export class PlanManager {
             const parts = [{ text: splitPrompt }];
             const systemPromptForSplit = getSplitInstructionSystemPrompt(forceKorean);
 
-            if (!geminiApi && !ollamaApi) {
+            if (!ollamaApi) {
                 return [userQuery];
             }
 
             let response: string;
-            if (this.currentModelType === AiModelType.GEMINI && geminiApi) {
-                response = await geminiApi.sendMessageWithSystemPrompt(systemPromptForSplit, parts, { signal: abortSignal });
-            } else if (ollamaApi) {
-                try { await ollamaApi.loadSettingsFromStorage(); } catch { }
-                response = await ollamaApi.sendMessageWithSystemPrompt(systemPromptForSplit, parts, { signal: abortSignal });
-            } else {
-                return [userQuery];
-            }
+            try { await ollamaApi.loadSettingsFromStorage(); } catch { }
+            const _llmStart = Date.now();
+            response = await ollamaApi.sendMessageWithSystemPrompt(systemPromptForSplit, parts, { signal: abortSignal });
+            try {
+                UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, estimateTokens(response), true);
+            } catch { /* metrics should never break main flow */ }
 
-            // JSON 파싱
-            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            // JSON 파싱 (think 블록 제거 후)
+            const stripped = response.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+            const jsonMatch = stripped.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
                 const parsed = JSON.parse(jsonMatch[0]);
                 if (parsed.actions && Array.isArray(parsed.actions) && parsed.actions.length > 0) {
@@ -317,7 +317,6 @@ export class PlanManager {
      */
     public async summarizePlanItemsForQueue(
         items: Array<{ title: string, detail?: string }>,
-        geminiApi?: any,
         ollamaApi?: any,
         abortSignal?: AbortSignal
     ): Promise<Array<{ title: string, detail?: string }> | null> {
@@ -332,19 +331,17 @@ export class PlanManager {
             const parts = [{ text: summaryPrompt }];
             const systemPrompt = getSummarizePlanSystemPrompt(forceKorean);
 
-            if (!geminiApi && !ollamaApi) {
+            if (!ollamaApi) {
                 return null;
             }
 
             let response: string;
-            if (this.currentModelType === AiModelType.GEMINI && geminiApi) {
-                response = await geminiApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal: abortSignal });
-            } else if (ollamaApi) {
-                try { await ollamaApi.loadSettingsFromStorage(); } catch { }
-                response = await ollamaApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal: abortSignal });
-            } else {
-                return null;
-            }
+            try { await ollamaApi.loadSettingsFromStorage(); } catch { }
+            const _llmStart2 = Date.now();
+            response = await ollamaApi.sendMessageWithSystemPrompt(systemPrompt, parts, { signal: abortSignal });
+            try {
+                UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart2, estimateTokens(response), true);
+            } catch { /* metrics should never break main flow */ }
 
             if (!response || !response.trim()) {
                 return null;

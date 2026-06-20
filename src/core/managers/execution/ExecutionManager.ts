@@ -374,7 +374,7 @@ export class ExecutionManager {
                     console.warn(`[ExecutionManager] Timeout after ${timeout}ms for PID=${pid}`);
 
                     if (killOnTimeout) {
-                        childProcess.kill('SIGTERM');
+                        childProcess.kill(process.platform === 'win32' ? undefined : 'SIGTERM');
                     }
 
                     // 타임아웃 시 버퍼에 축적된 출력을 포함

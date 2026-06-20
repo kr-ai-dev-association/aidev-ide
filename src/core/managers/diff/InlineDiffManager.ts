@@ -12,9 +12,40 @@
  */
 
 import * as vscode from 'vscode';
+import * as crypto from 'crypto';
 import * as diff from 'diff';
 import * as path from 'path';
 import { UsageMetricsManager } from '../state/UsageMetricsManager';
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 직렬화 타입 (globalState 영구 저장용)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+interface SerializableRange {
+    start: { line: number; character: number };
+    end: { line: number; character: number };
+}
+interface SerializableInlineChange extends Omit<InlineChange, 'range'> {
+    range: SerializableRange;
+}
+interface SerializableCheckpoint extends Omit<AICheckpoint, 'changes'> {
+    changes: SerializableInlineChange[];
+}
+interface SerializableTurnCheckpoint {
+    id: string;
+    conversationTurnId: string;
+    fileSnapshots: [string, string][];
+    createdAt: number;
+}
+interface PersistedDiffState {
+    version: 2 | 3;
+    savedAt: number;
+    pendingChanges: [string, SerializableInlineChange[]][];
+    checkpoints: [string, SerializableCheckpoint][];
+    shadow: [string, string][];
+    disk: [string, string][];
+    fileHashes: [string, string][];
+    turnCheckpointStack?: SerializableTurnCheckpoint[]; // v3
+}
 
 /**
  * InlineChange: 변경 단위 모델
@@ -50,6 +81,7 @@ export interface InlineChange {
     status: ChangeStatus; // change 단위 상태
     checkpointId: string; // 체크포인트 연결 (Undo용)
     createdAt: number; // 생성 시점 (timestamp, checkpoint advance 판정용)
+    conversationTurnId: string; // LLM 턴 식별자 (턴 단위 Accept/Reject용)
 }
 
 /**
@@ -59,12 +91,27 @@ export interface InlineChange {
  * - Reject 시 기준점으로 사용
  * - VS Code Undo와 완전히 분리
  */
-interface AICheckpoint {
+export interface AICheckpoint {
     id: string;
     fileUri: string;
     beforeContent: string; // AI 요청 직전 상태 (Reject 기준점)
     changes: InlineChange[]; // AI가 제안한 변경사항
     status: 'pending' | 'accepted' | 'rejected'; // checkpoint 전체 상태
+    createdAt: number;
+    conversationTurnId: string; // LLM 턴 식별자 (턴 단위 Accept/Reject용)
+}
+
+/**
+ * Turn Checkpoint (턴 단위 스냅샷)
+ * - 각 LLM 턴이 파일을 수정하기 직전 상태를 저장
+ * - 스택 구조: oldest-first 순서
+ * - "Undo Turn N"은 Turn N 이전 상태로 복원 (이후 턴도 cascade undo)
+ * - Cursor, Cline 등 표준 체크포인트 패턴
+ */
+export interface TurnCheckpoint {
+    id: string;
+    conversationTurnId: string;
+    fileSnapshots: Map<string, string>; // filePath → 이 턴이 수정하기 전 내용
     createdAt: number;
 }
 
@@ -98,6 +145,36 @@ export class InlineDiffManager {
     private visibleEditorsDisposable: vscode.Disposable | undefined;
     private documentChangeDisposable: vscode.Disposable | undefined;
     private fileSystemWatcher: vscode.FileSystemWatcher | undefined;
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // Persistence (globalState 영구 저장)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    private extensionContext: vscode.ExtensionContext | undefined;
+    private saveTimer: NodeJS.Timeout | undefined;
+    private storedFileHashes: Map<string, string> = new Map();
+    private restorationDisposable: vscode.Disposable | undefined;
+    // 병렬 에이전트 race condition 방지 — 파일별 Promise-chain 직렬화
+    private readonly fileLocks = new Map<string, Promise<void>>();
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // Turn Checkpoint Stack (표준 체크포인트)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    private turnCheckpointStack: TurnCheckpoint[] = []; // oldest-first 순서
+
+    /**
+     * 턴 체크포인트 스택 클리어 (세션 초기화 시 호출)
+     */
+    public clearTurnCheckpointStack(): void {
+        this.turnCheckpointStack = [];
+        this.savePersistedState();
+        console.log('[InlineDiffManager] Turn checkpoint stack cleared');
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 이벤트 (턴 레벨 UI 연동)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    private _onPendingChangedEmitter = new vscode.EventEmitter<void>();
+    public readonly onPendingChanged = this._onPendingChangedEmitter.event;
     private documentCache: Map<string, { document: vscode.TextDocument; version: number; timestamp: number }> = new Map(); // Document 캐싱
 
     private constructor() {
@@ -191,7 +268,7 @@ export class InlineDiffManager {
      * - 앞뒤 공백 제거
      * - 빈 줄 제거
      *
-     * 🔥 Solution 2: 다른 코드 어시스턴트처럼 indentation 차이를 무시하고 의미적 동일성 판단
+     * Solution 2: 다른 코드 어시스턴트처럼 indentation 차이를 무시하고 의미적 동일성 판단
      */
     private normalizeTextForComparison(text: string): string {
         return text
@@ -207,10 +284,10 @@ export class InlineDiffManager {
      * 중복 change 확인 (더 강력한 로직)
      * 1. Offset 기반 비교
      * 2. 텍스트 내용 비교 (정확히 일치)
-     * 3. 🔥 의미적 텍스트 비교 (whitespace 무시) - Solution 2
+     * 3. 의미적 텍스트 비교 (whitespace 무시) - Solution 2
      * 4. Range 중복 확인 (90% 이상 겹침)
      *
-     * 🔥 Solution 2: 다른 코드 어시스턴트처럼 semantic duplicate 감지
+     * Solution 2: 다른 코드 어시스턴트처럼 semantic duplicate 감지
      * 예: "    </div>" vs "      </div>" → 같은 코드로 판단
      */
     private isDuplicateChange(
@@ -231,7 +308,7 @@ export class InlineDiffManager {
                 return true;
             }
 
-            // 🔥 3. 의미적 텍스트 비교 (whitespace 무시) - Solution 2
+            // 3. 의미적 텍스트 비교 (whitespace 무시) - Solution 2
             // 다른 코드 어시스턴트(Cursor, Copilot)처럼 indentation 차이 무시
             const normalizedNewOld = this.normalizeTextForComparison(newChange.oldText);
             const normalizedNewNew = this.normalizeTextForComparison(newChange.newText);
@@ -243,7 +320,7 @@ export class InlineDiffManager {
                 return true;
             }
 
-            // 🔥 3-1. newText만 의미적으로 같은 경우도 중복으로 간주 (같은 코드 추가 시도)
+            // 3-1. newText만 의미적으로 같은 경우도 중복으로 간주 (같은 코드 추가 시도)
             if (normalizedNewNew === normalizedExistingNew &&
                 normalizedNewNew.length > 10) {  // 너무 짧은 코드는 제외 (false positive 방지)
                 return true;
@@ -484,15 +561,59 @@ export class InlineDiffManager {
                 return;
             }
 
-            // ✅ Undo/Redo는 VS Code undo 스택에 맡기고 pending diff를 폐기
+            // ✅ Undo/Redo: 겹치는 change만 dirty 마킹, 무관한 change는 유지
             if (
                 e.reason === vscode.TextDocumentChangeReason.Undo ||
                 e.reason === vscode.TextDocumentChangeReason.Redo
             ) {
-                this.invalidateFile(filePath, {
-                    reason: 'undo-redo',
-                    source: 'document-change',
-                });
+                const affectedChanges: InlineChange[] = [];
+                for (const docChange of e.contentChanges) {
+                    for (const aiChange of changes) {
+                        if (aiChange.status !== 'pending') continue;
+                        try {
+                            const aiRange = this.getCurrentRange(aiChange, e.document);
+                            if (docChange.range.intersection(aiRange)) {
+                                affectedChanges.push(aiChange);
+                            }
+                        } catch {
+                            // range 계산 실패 시 보수적으로 dirty 처리
+                            affectedChanges.push(aiChange);
+                        }
+                    }
+                }
+
+                if (affectedChanges.length === 0) {
+                    // Undo가 AI 변경과 무관 → offset 재계산만 수행
+                    this.documentVersions.set(filePath, e.document.version);
+                    this.recalculateAllOffsetsFromDocument(filePath, e.document);
+                    return;
+                }
+
+                // 겹치는 change만 dirty 마킹
+                for (const c of affectedChanges) {
+                    c.status = 'dirty';
+                }
+
+                // 전부 dirty/accepted/rejected면 전체 무효화
+                const stillPending = changes.filter(c => c.status === 'pending');
+                if (stillPending.length === 0) {
+                    this.invalidateFile(filePath, {
+                        reason: 'undo-redo',
+                        source: 'document-change',
+                    });
+                } else {
+                    // 남은 pending change의 offset 재계산 + 데코레이션 갱신
+                    this.recalculateAllOffsetsFromDocument(filePath, e.document);
+                    this.pendingChanges.set(filePath, changes);
+                    const currentEditors = vscode.window.visibleTextEditors.filter(
+                        ed => ed.document.uri.fsPath === filePath
+                    );
+                    for (const ed of currentEditors) {
+                        this.applyDecorationsToEditor(ed, changes);
+                    }
+                    const { DiffCodeLensProvider } = require('./DiffCodeLensProvider');
+                    DiffCodeLensProvider.getInstance().refresh();
+                }
                 return;
             }
 
@@ -746,6 +867,16 @@ export class InlineDiffManager {
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         this.shadow.delete(filePath);
         this.disk.delete(filePath);
+
+        // ✅ Turn Checkpoint Stack: 해당 파일 스냅샷 제거 + 빈 체크포인트 정리
+        for (const tc of this.turnCheckpointStack) {
+            tc.fileSnapshots.delete(filePath);
+        }
+        this.turnCheckpointStack = this.turnCheckpointStack.filter(tc => tc.fileSnapshots.size > 0);
+
+        // Persistence + 이벤트
+        this.scheduleSave();
+        this._onPendingChangedEmitter.fire();
     }
 
     public static getInstance(): InlineDiffManager {
@@ -797,6 +928,17 @@ export class InlineDiffManager {
 
         // ✅ formatter 방금 종료됨 플래그 설정 (다음 document 변경 1회만 무시)
         this.formatterJustFinished.add(filePath);
+
+        // ✅ Formatter가 실제 파일을 변경했으므로 shadow를 실제 파일 내용으로 동기화
+        // 이렇게 해야 LLM이 다음 턴에서 formatter 적용 후 내용을 기준으로 search pattern 생성
+        // (shadow 미동기화 시: LLM=single quotes, 실제 파일=double quotes → SEARCH 실패)
+        if (this.shadow.has(filePath)) {
+            try {
+                const fs = require('fs') as typeof import('fs');
+                const actualContent = fs.readFileSync(filePath, 'utf8');
+                this.shadow.set(filePath, actualContent);
+            } catch { /* 파일 읽기 실패 시 무시 (formatter가 파일 삭제했을 경우 등) */ }
+        }
     }
 
     public getCheckpointBeforeContent(filePath: string): string | undefined {
@@ -808,8 +950,27 @@ export class InlineDiffManager {
     }
 
     /**
+     * 파일별 Promise-chain mutex — 병렬 에이전트가 같은 파일을 동시 수정할 때 직렬화
+     */
+    private async withFileLock<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
+        const current = this.fileLocks.get(filePath) ?? Promise.resolve();
+        let release!: () => void;
+        const next = new Promise<void>(r => { release = r; });
+        this.fileLocks.set(filePath, next);
+        try {
+            await current;
+            return await fn();
+        } finally {
+            release();
+            if (this.fileLocks.get(filePath) === next) {
+                this.fileLocks.delete(filePath);
+            }
+        }
+    }
+
+    /**
      * 파일의 변경사항을 인라인 diff로 표시
-     * 
+     *
      * STEP 1: Checkpoint 생성 (AI가 파일을 수정하기 직전의 전체 스냅샷)
      * STEP 2: LLM 응답을 문서에 즉시 적용
      * STEP 3: Diff 계산 (checkpoint.content vs document.getText())
@@ -821,8 +982,10 @@ export class InlineDiffManager {
     public async showInlineDiff(
         filePath: string,
         originalContent: string,
-        newContent: string
+        newContent: string,
+        conversationTurnId: string = 'legacy',
     ): Promise<void> {
+        return this.withFileLock(filePath, async () => {
         const uri = vscode.Uri.file(filePath);
 
         // ✅ 새 파일 여부를 명확히 판단
@@ -850,6 +1013,13 @@ export class InlineDiffManager {
             } catch (error) {
                 console.error('[InlineDiffManager] Failed to create new file:', error);
                 vscode.window.showErrorMessage(`Failed to create file: ${error}`);
+
+                // 에러 리포팅
+                import('../../../services/error/ErrorReportingService').then(({ ErrorReportingService }) => {
+                    const msg = error instanceof Error ? error.message : String(error);
+                    ErrorReportingService.getInstance().reportFileError(filePath, msg);
+                }).catch(() => {});
+
                 return;
             }
         }
@@ -920,6 +1090,11 @@ export class InlineDiffManager {
         }
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ✅ STEP 2.5: Turn Checkpoint Stack - 턴 스냅샷 캡처
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        this.pushTurnSnapshot(filePath, checkpointBeforeContent, conversationTurnId);
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // ✅ STEP 3: LLM 응답을 문서에 적용
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         if (isNewFile) {
@@ -977,6 +1152,7 @@ export class InlineDiffManager {
                 status: 'pending',
                 checkpointId: '',
                 createdAt: Date.now(),
+                conversationTurnId,
             });
         }
 
@@ -1051,10 +1227,20 @@ export class InlineDiffManager {
             change.filePath = filePath;
             change.status = 'pending';
             change.checkpointId = checkpointId;
+            change.conversationTurnId = conversationTurnId;
         });
 
         // ✅ 기존 pending change의 range를 새 change에 맞게 업데이트
         // 새 change가 추가되면 기존 change의 라인 번호가 shift될 수 있음
+        // ✅ afterContent 기준 라인별 offset 테이블 (startOffset/endOffset 재계산용)
+        const afterLines = afterContent.split('\n');
+        const afterLineStartOffsets: number[] = [0];
+        let runningOffset = 0;
+        for (let i = 0; i < afterLines.length - 1; i++) {
+            runningOffset += afterLines[i].length + 1; // +1 for \n
+            afterLineStartOffsets.push(runningOffset);
+        }
+
         const updatedExistingPendingChanges = existingPendingChanges.map(existingChange => {
             // 새 change 중에서 기존 change보다 앞에 있는 것들의 라인 수 변화 계산
             let lineOffset = 0;
@@ -1067,17 +1253,28 @@ export class InlineDiffManager {
                 }
             }
 
-            // range 업데이트
+            // range + offset 업데이트
+            const updatedChange = lineOffset !== 0 ? { ...existingChange } : { ...existingChange };
             if (lineOffset !== 0) {
-                const updatedChange = { ...existingChange };
                 updatedChange.range = new vscode.Range(
                     new vscode.Position(existingChange.range.start.line + lineOffset, existingChange.range.start.character),
                     new vscode.Position(existingChange.range.end.line + lineOffset, existingChange.range.end.character)
                 );
                 updatedChange.line = existingChange.line + lineOffset;
-                return updatedChange;
             }
-            return existingChange;
+
+            // ✅ startOffset/endOffset 재계산 (afterContent 기준)
+            // getCurrentRange()가 offset을 우선 사용하므로, document 교체 후 정확한 offset 필수
+            const startLine = updatedChange.range.start.line;
+            const endLine = updatedChange.range.end.line;
+            if (startLine >= 0 && startLine < afterLineStartOffsets.length) {
+                updatedChange.startOffset = afterLineStartOffsets[startLine] + updatedChange.range.start.character;
+            }
+            if (endLine >= 0 && endLine < afterLineStartOffsets.length) {
+                updatedChange.endOffset = afterLineStartOffsets[endLine] + updatedChange.range.end.character;
+            }
+
+            return updatedChange;
         });
 
         // ✅ STEP 4: InlineChange 객체 병합
@@ -1095,6 +1292,7 @@ export class InlineDiffManager {
             changes: finalNewChanges, // 이 checkpoint에 연결된 change만 포함 (중복 제거됨)
             status: 'pending',
             createdAt: Date.now(),
+            conversationTurnId,
         };
 
         // 하위 호환성: originalContents 저장
@@ -1125,6 +1323,12 @@ export class InlineDiffManager {
         // 새 파일인 경우 document가 완전히 로드될 때까지 대기
         // ✅ editor를 직접 전달하여 VSCode 재시작 후에도 decoration이 적용되도록 함
         await this.applyDecorationsWithRetry(filePath, allChanges, afterContent, isNewFile, 0, editor);
+
+        // Persistence + 이벤트
+        this.updateFileHash(filePath);
+        this.scheduleSave();
+        this._onPendingChangedEmitter.fire();
+        }); // end withFileLock
     }
 
     /**
@@ -1176,6 +1380,7 @@ export class InlineDiffManager {
                     status: 'pending' as const,
                     checkpointId: '', // 나중에 showInlineDiff에서 설정됨
                     createdAt: Date.now(),
+                    conversationTurnId: '', // 나중에 showInlineDiff에서 설정됨
                 });
             }
 
@@ -1231,6 +1436,7 @@ export class InlineDiffManager {
                         status: 'pending',
                         checkpointId: '',
                         createdAt: Date.now(),
+                        conversationTurnId: '',
                     });
                     pendingDelete = null;
                 } else {
@@ -1248,6 +1454,7 @@ export class InlineDiffManager {
                         status: 'pending',
                         checkpointId: '',
                         createdAt: Date.now(),
+                        conversationTurnId: '',
                     });
                 }
 
@@ -1271,6 +1478,7 @@ export class InlineDiffManager {
                         status: 'pending',
                         checkpointId: '',
                         createdAt: Date.now(),
+                        conversationTurnId: '',
                     });
                     pendingDelete = null;
                 }
@@ -1296,6 +1504,7 @@ export class InlineDiffManager {
                 status: 'pending',
                 checkpointId: '',
                 createdAt: Date.now(),
+                conversationTurnId: '',
             });
         }
 
@@ -1335,7 +1544,7 @@ export class InlineDiffManager {
      * - pending: 초록색 배경
      * - dirty: 주황색 배경 (선택적)
      * 
-     * 🔥 핵심: 삭제된 코드는 decoration.before로 표시 (문서에 실제로 존재하지 않음)
+     * 핵심: 삭제된 코드는 decoration.before로 표시 (문서에 실제로 존재하지 않음)
      */
     private applyDecorationsToEditor(editor: vscode.TextEditor, changes: InlineChange[]): void {
         if (!editor || !editor.document) {
@@ -1580,7 +1789,7 @@ export class InlineDiffManager {
             return;
         }
 
-        // 🔥 Accept: 문서에는 이미 newContent가 있으므로, decoration만 제거하면 됨
+        // Accept: 문서에는 이미 newContent가 있으므로, decoration만 제거하면 됨
         // (삭제된 라인은 decoration.before로만 표시되었으므로 문서에서 제거할 필요 없음)
         // ⚠️ VS Code Undo 스택과 분리: 문서 수정 없음
         // ✅ Accept는 의미적 커밋이지만, 파일 저장은 showInlineDiff()에서 담당
@@ -1714,6 +1923,10 @@ export class InlineDiffManager {
         if (editors.length > 0 && editors[0].document) {
             this.documentVersions.set(filePath, editors[0].document.version);
         }
+
+        // Persistence + 이벤트
+        this.scheduleSave();
+        this._onPendingChangedEmitter.fire();
     }
 
     /**
@@ -1770,6 +1983,12 @@ export class InlineDiffManager {
         }
 
         await vscode.workspace.applyEdit(edit);
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ✅ Reject 후 sibling offset 재계산
+        // reject로 인해 문서 내용이 변경되어 나머지 pending change의 offset이 drift됨
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        this.recalculateOffsetsAfterReject(changes, change, editor.document);
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // ✅ Shadow Document Pattern: Reject 시 shadow 업데이트
@@ -1845,8 +2064,7 @@ export class InlineDiffManager {
                 }
             } else {
                 // ✅ 나머지 pending changes에 대해 decoration 재적용
-                // reject된 change는 이미 문서에서 제거되었으므로, 나머지 change의 range를 업데이트할 필요 없음
-                // (각 change는 offset 기반이므로 자동으로 올바른 위치를 가리킴)
+                // reject 후 recalculateOffsetsAfterReject()에서 sibling offset이 이미 보정됨
 
                 // 모든 에디터에 decoration 재적용
                 for (const e of currentEditors) {
@@ -1863,6 +2081,92 @@ export class InlineDiffManager {
                 this.documentVersions.set(filePath, currentEditors[0].document.version);
             }
         }, 100);
+
+        // Persistence + 이벤트
+        this.scheduleSave();
+        this._onPendingChangedEmitter.fire();
+    }
+
+    /**
+     * Reject 후 sibling pending change들의 offset을 재계산
+     * reject로 인해 문서 길이가 변경되면 이후 위치의 change들의 frozen offset이 틀어짐
+     */
+    private recalculateOffsetsAfterReject(
+        changes: InlineChange[],
+        rejectedChange: InlineChange,
+        document: vscode.TextDocument
+    ): void {
+        // delete 타입은 line 기반 삽입이므로 document 텍스트에서 재탐색
+        if (rejectedChange.type === 'delete') {
+            const docText = document.getText();
+            for (const sibling of changes) {
+                if (sibling.id === rejectedChange.id || sibling.status !== 'pending') continue;
+                if (sibling.newText) {
+                    // 기존 offset 근처에서 우선 탐색
+                    const searchStart = Math.max(0, sibling.startOffset - 500);
+                    const idx = docText.indexOf(sibling.newText, searchStart);
+                    if (idx !== -1) {
+                        sibling.startOffset = idx;
+                        sibling.endOffset = idx + sibling.newText.length;
+                    }
+                }
+            }
+            return;
+        }
+
+        // add/modify: 수학적 delta 계산
+        const rejectionPoint = rejectedChange.startOffset;
+        let offsetDelta = 0;
+        if (rejectedChange.type === 'add') {
+            // newText가 삭제됨 → 문서 축소
+            offsetDelta = -rejectedChange.newText.length;
+        } else if (rejectedChange.type === 'modify') {
+            // newText → oldText 교체
+            offsetDelta = rejectedChange.oldText.length - rejectedChange.newText.length;
+        }
+        if (offsetDelta === 0) return;
+
+        for (const sibling of changes) {
+            if (sibling.id === rejectedChange.id || sibling.status !== 'pending') continue;
+            if (sibling.startOffset >= rejectionPoint) {
+                sibling.startOffset += offsetDelta;
+                sibling.endOffset += offsetDelta;
+            }
+        }
+    }
+
+    /**
+     * Undo 등 외부 변경 후 pending change들의 offset을 document에서 재탐색하여 갱신
+     * 각 change의 newText를 기존 offset 근처에서 먼저 찾고, 없으면 전체 탐색
+     */
+    private recalculateAllOffsetsFromDocument(filePath: string, document: vscode.TextDocument): void {
+        const changes = this.pendingChanges.get(filePath);
+        if (!changes) return;
+
+        const docText = document.getText();
+        for (const change of changes) {
+            if (change.status !== 'pending') continue;
+            if (!change.newText || change.newText.length < 10) continue; // 짧은 텍스트는 false positive 위험
+
+            // 기존 offset 근처 ±500자에서 우선 탐색
+            const searchStart = Math.max(0, change.startOffset - 500);
+            const searchEnd = Math.min(docText.length, change.endOffset + 500);
+            const window = docText.substring(searchStart, searchEnd);
+            const localIdx = window.indexOf(change.newText);
+
+            if (localIdx !== -1) {
+                change.startOffset = searchStart + localIdx;
+                change.endOffset = change.startOffset + change.newText.length;
+            } else {
+                // 근처에 없으면 전체 문서에서 탐색
+                const globalIdx = docText.indexOf(change.newText);
+                if (globalIdx !== -1) {
+                    change.startOffset = globalIdx;
+                    change.endOffset = globalIdx + change.newText.length;
+                }
+                // 못 찾으면 기존 offset 유지 (isChangeAlive에서 dirty 감지)
+            }
+        }
     }
 
     /**
@@ -1912,7 +2216,7 @@ export class InlineDiffManager {
 
     /**
      * 모든 변경사항 거부
-     * 🔥 체크포인트의 beforeContent로 정확히 복원
+     * 체크포인트의 beforeContent로 정확히 복원
      * ⚠️ VS Code Undo 스택과 분리: WorkspaceEdit 사용
      */
     public async rejectAllChanges(filePath: string): Promise<void> {
@@ -2187,10 +2491,573 @@ export class InlineDiffManager {
         }
     }
 
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // Persistence: 영구 저장/복원
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    public setContext(context: vscode.ExtensionContext): void {
+        this.extensionContext = context;
+        this.loadPersistedState();
+    }
+
+    private serializeChange(c: InlineChange): SerializableInlineChange {
+        return {
+            ...c,
+            range: {
+                start: { line: c.range.start.line, character: c.range.start.character },
+                end: { line: c.range.end.line, character: c.range.end.character },
+            },
+        };
+    }
+
+    private deserializeChange(sc: SerializableInlineChange): InlineChange {
+        return {
+            ...sc,
+            range: new vscode.Range(
+                new vscode.Position(sc.range.start.line, sc.range.start.character),
+                new vscode.Position(sc.range.end.line, sc.range.end.character),
+            ),
+        };
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // Turn Checkpoint Stack 메서드
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    /**
+     * 턴 스냅샷 캡처: 파일이 수정되기 직전 상태를 턴 체크포인트 스택에 저장
+     * - 같은 턴에서 같은 파일을 여러번 수정해도 첫 스냅샷만 유지
+     * - 'legacy' turnId는 스킵 (하위 호환)
+     */
+    private pushTurnSnapshot(filePath: string, beforeContent: string, conversationTurnId: string): void {
+        if (!conversationTurnId || conversationTurnId === 'legacy') { return; }
+
+        let tc = this.turnCheckpointStack.find(t => t.conversationTurnId === conversationTurnId);
+        if (!tc) {
+            tc = {
+                id: `tc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                conversationTurnId,
+                fileSnapshots: new Map(),
+                createdAt: Date.now(),
+            };
+            this.turnCheckpointStack.push(tc);
+        }
+
+        if (!tc.fileSnapshots.has(filePath)) {
+            tc.fileSnapshots.set(filePath, beforeContent);
+        }
+    }
+
+    /**
+     * 파일 복원: 전체 내용을 교체 (cascade undo용)
+     * - 빈 문자열이면 새 파일이었으므로 삭제
+     */
+    private async restoreFileContent(filePath: string, content: string): Promise<void> {
+        const uri = vscode.Uri.file(filePath);
+
+        // 빈 문자열 = 새 파일이었으므로 삭제
+        if (content === '') {
+            try {
+                await vscode.workspace.fs.delete(uri);
+                console.log(`[InlineDiffManager] Deleted new file on undo: ${path.basename(filePath)}`);
+            } catch { /* 이미 삭제됨 */ }
+            return;
+        }
+
+        let doc: vscode.TextDocument;
+        try {
+            doc = await vscode.workspace.openTextDocument(uri);
+        } catch { return; }
+
+        const fullRange = new vscode.Range(
+            new vscode.Position(0, 0),
+            doc.positionAt(doc.getText().length)
+        );
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(uri, fullRange, content);
+        await vscode.workspace.applyEdit(edit);
+
+        if (doc.isDirty) {
+            try { await doc.save(); } catch { /* non-fatal */ }
+        }
+    }
+
+    private scheduleSave(): void {
+        if (this.saveTimer) { clearTimeout(this.saveTimer); }
+        this.saveTimer = setTimeout(() => { void this.savePersistedState(); }, 100);
+    }
+
+    private async savePersistedState(): Promise<void> {
+        if (!this.extensionContext) { return; }
+        try {
+            // pending 상태가 있는 파일만 저장
+            const pendingEntries: [string, SerializableInlineChange[]][] = [];
+            const checkpointEntries: [string, SerializableCheckpoint][] = [];
+            const shadowEntries: [string, string][] = [];
+            const diskEntries: [string, string][] = [];
+            const hashEntries: [string, string][] = [];
+
+            for (const [filePath, changes] of this.pendingChanges.entries()) {
+                const pending = changes.filter(c => c.status === 'pending');
+                if (pending.length === 0) { continue; }
+                pendingEntries.push([filePath, changes.map(c => this.serializeChange(c))]);
+
+                const cp = this.checkpoints.get(filePath);
+                if (cp) {
+                    checkpointEntries.push([filePath, {
+                        ...cp,
+                        changes: cp.changes.map(c => this.serializeChange(c)),
+                    }]);
+                }
+                const sh = this.shadow.get(filePath);
+                if (sh !== undefined) { shadowEntries.push([filePath, sh]); }
+                const dk = this.disk.get(filePath);
+                if (dk !== undefined) { diskEntries.push([filePath, dk]); }
+                // 디스크에서 실시간 해시 계산 (포맷터 실행 후 변경 반영)
+                try {
+                    const fs = require('fs');
+                    const currentContent = fs.readFileSync(filePath, 'utf8');
+                    const freshHash = crypto.createHash('sha256').update(currentContent).digest('hex');
+                    hashEntries.push([filePath, freshHash]);
+                    this.storedFileHashes.set(filePath, freshHash);
+                } catch {
+                    // 파일을 읽을 수 없으면 캐시된 해시 사용
+                    const hash = this.storedFileHashes.get(filePath);
+                    if (hash) { hashEntries.push([filePath, hash]); }
+                }
+            }
+
+            if (pendingEntries.length === 0) {
+                await this.extensionContext.globalState.update('inlineDiffState_v2', undefined);
+                return;
+            }
+
+            // Turn Checkpoint Stack 직렬화
+            const serializedTurnStack: SerializableTurnCheckpoint[] = this.turnCheckpointStack.map(tc => ({
+                id: tc.id,
+                conversationTurnId: tc.conversationTurnId,
+                fileSnapshots: Array.from(tc.fileSnapshots.entries()),
+                createdAt: tc.createdAt,
+            }));
+
+            const state: PersistedDiffState = {
+                version: 3,
+                savedAt: Date.now(),
+                pendingChanges: pendingEntries,
+                checkpoints: checkpointEntries,
+                shadow: shadowEntries,
+                disk: diskEntries,
+                fileHashes: hashEntries,
+                turnCheckpointStack: serializedTurnStack,
+            };
+            await this.extensionContext.globalState.update('inlineDiffState_v2', state);
+        } catch (e) {
+            console.error('[InlineDiffManager] Failed to persist state:', e);
+        }
+    }
+
+    private async loadPersistedState(): Promise<void> {
+        if (!this.extensionContext) { return; }
+        try {
+            const state = this.extensionContext.globalState.get<PersistedDiffState>('inlineDiffState_v2');
+            if (!state || (state.version !== 2 && state.version !== 3)) { return; }
+
+            // 24시간 초과 시 폐기
+            const MAX_AGE = 24 * 60 * 60 * 1000;
+            if (Date.now() - state.savedAt > MAX_AGE) {
+                console.log('[InlineDiffManager] Persisted state expired (>24h), discarding');
+                await this.extensionContext.globalState.update('inlineDiffState_v2', undefined);
+                return;
+            }
+
+            let restoredFiles = 0;
+            const fs = require('fs').promises;
+
+            for (const [filePath, serializedChanges] of state.pendingChanges) {
+                // 파일 해시 무결성 검사
+                const savedHash = state.fileHashes.find(([fp]) => fp === filePath)?.[1];
+                if (savedHash) {
+                    try {
+                        const currentContent = await fs.readFile(filePath, 'utf8');
+                        const currentHash = crypto.createHash('sha256').update(currentContent).digest('hex');
+                        if (currentHash !== savedHash) {
+                            console.log(`[InlineDiffManager] File hash mismatch for ${filePath} (saved=${savedHash.substring(0, 8)}..., current=${currentHash.substring(0, 8)}...), discarding`);
+                            continue;
+                        }
+                    } catch {
+                        console.log(`[InlineDiffManager] Cannot read file ${filePath}, discarding`);
+                        continue;
+                    }
+                }
+
+                // 복원
+                const changes = serializedChanges.map(sc => this.deserializeChange(sc));
+                this.pendingChanges.set(filePath, changes);
+                if (savedHash) { this.storedFileHashes.set(filePath, savedHash); }
+
+                // checkpoint 복원
+                const cpEntry = state.checkpoints.find(([fp]) => fp === filePath);
+                if (cpEntry) {
+                    const [, scp] = cpEntry;
+                    this.checkpoints.set(filePath, {
+                        ...scp,
+                        changes: scp.changes.map(sc => this.deserializeChange(sc)),
+                    });
+                }
+
+                // shadow / disk 복원
+                const shEntry = state.shadow.find(([fp]) => fp === filePath);
+                if (shEntry) { this.shadow.set(filePath, shEntry[1]); }
+                const dkEntry = state.disk.find(([fp]) => fp === filePath);
+                if (dkEntry) { this.disk.set(filePath, dkEntry[1]); }
+
+                restoredFiles++;
+            }
+
+            // Turn Checkpoint Stack 복원 (v3+)
+            if (state.turnCheckpointStack && state.turnCheckpointStack.length > 0) {
+                this.turnCheckpointStack = state.turnCheckpointStack.map(stc => ({
+                    id: stc.id,
+                    conversationTurnId: stc.conversationTurnId,
+                    fileSnapshots: new Map(stc.fileSnapshots),
+                    createdAt: stc.createdAt,
+                }));
+                console.log(`[InlineDiffManager] Restored turn checkpoint stack: ${this.turnCheckpointStack.length} entries`);
+            }
+
+            if (restoredFiles > 0) {
+                console.log(`[InlineDiffManager] Restored persisted state: ${restoredFiles} files`);
+                this.scheduleDecorationRestore();
+                this._onPendingChangedEmitter.fire();
+            }
+
+            // 복원 완료 후 저장된 상태 제거 (다음 변경 시 다시 저장됨)
+            await this.extensionContext.globalState.update('inlineDiffState_v2', undefined);
+        } catch (e) {
+            console.error('[InlineDiffManager] Failed to load persisted state:', e);
+        }
+    }
+
+    private scheduleDecorationRestore(): void {
+        // 이미 열린 에디터에 500ms 후 적용
+        setTimeout(() => {
+            for (const editor of vscode.window.visibleTextEditors) {
+                const filePath = editor.document.uri.fsPath;
+                const changes = this.pendingChanges.get(filePath);
+                if (changes) {
+                    this.applyDecorationsToEditor(editor, changes);
+                }
+            }
+        }, 500);
+
+        // 나중에 열리는 에디터도 30초간 감시
+        this.restorationDisposable = vscode.window.onDidChangeVisibleTextEditors(editors => {
+            for (const editor of editors) {
+                const filePath = editor.document.uri.fsPath;
+                const changes = this.pendingChanges.get(filePath);
+                if (changes) {
+                    this.applyDecorationsToEditor(editor, changes);
+                }
+            }
+        });
+        setTimeout(() => {
+            if (this.restorationDisposable) {
+                this.restorationDisposable.dispose();
+                this.restorationDisposable = undefined;
+            }
+        }, 30000);
+    }
+
+    private updateFileHash(filePath: string): void {
+        try {
+            const fs = require('fs');
+            const content = fs.readFileSync(filePath, 'utf8');
+            this.storedFileHashes.set(filePath, crypto.createHash('sha256').update(content).digest('hex'));
+        } catch {
+            // 파일을 읽을 수 없으면 해시 제거
+            this.storedFileHashes.delete(filePath);
+        }
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // Turn-level Accept/Reject API
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    /**
+     * 턴 단위 Accept: 해당 turnId의 모든 pending change를 파일별로 accept
+     */
+    public async acceptChangesByTurn(conversationTurnId: string): Promise<void> {
+        console.log(`[InlineDiffManager] acceptChangesByTurn: ${conversationTurnId}`);
+
+        // 에디터가 열려있는 파일은 acceptChange로 처리 (decoration 즉시 제거)
+        // 에디터가 닫혀있는 파일은 직접 status 변경 + 정리
+        for (const [filePath, changes] of this.pendingChanges.entries()) {
+            const turnChanges = changes.filter(
+                c => c.conversationTurnId === conversationTurnId && c.status === 'pending'
+            );
+            if (turnChanges.length === 0) { continue; }
+
+            const editors = vscode.window.visibleTextEditors.filter(
+                e => e.document.uri.fsPath === filePath
+            );
+
+            if (editors.length > 0) {
+                // 에디터 열려있음 → 기존 acceptChange (decoration 처리 포함)
+                for (const change of turnChanges) {
+                    await this.acceptChange(filePath, change.id);
+                }
+            } else {
+                // 에디터 닫혀있음 → status만 직접 변경
+                for (const change of turnChanges) {
+                    change.status = 'accepted';
+                }
+                this.pendingChanges.set(filePath, changes);
+
+                // 남은 pending changes 확인하여 파일 정리
+                const remainingPending = changes.filter(c => c.status === 'pending');
+                if (remainingPending.length === 0) {
+                    this.pendingChanges.delete(filePath);
+                    this.originalContents.delete(filePath);
+                    this.lastAppliedChanges.delete(filePath);
+                    const shadowContent = this.shadow.get(filePath);
+                    if (shadowContent !== undefined) {
+                        this.disk.set(filePath, shadowContent);
+                    }
+                    this.clearAllDecorationsForFile(filePath);
+                }
+            }
+        }
+
+        // TurnCheckpoint 스택에서 제거 (accepted → 더 이상 undo 불필요)
+        const idx = this.turnCheckpointStack.findIndex(
+            tc => tc.conversationTurnId === conversationTurnId
+        );
+        if (idx !== -1) {
+            this.turnCheckpointStack.splice(idx, 1);
+            console.log(`[InlineDiffManager] Removed TurnCheckpoint for ${conversationTurnId.substring(0, 8)}, stack size: ${this.turnCheckpointStack.length}`);
+        }
+
+        this.scheduleSave();
+        this._onPendingChangedEmitter.fire();
+    }
+
+    /**
+     * Turn-level Reject with cascade undo (표준 체크포인트 패턴)
+     * - Turn N을 undo하면 이후 모든 턴도 함께 undo (point-in-time restore)
+     * - TurnCheckpoint의 파일 스냅샷으로 전체 파일 복원
+     * - TurnCheckpoint가 없으면 레거시 per-change 방식 fallback
+     */
+    public async rejectChangesByTurn(conversationTurnId: string): Promise<void> {
+        const targetIndex = this.turnCheckpointStack.findIndex(
+            tc => tc.conversationTurnId === conversationTurnId
+        );
+
+        if (targetIndex === -1) {
+            console.warn(`[InlineDiffManager] No TurnCheckpoint for ${conversationTurnId}, legacy fallback`);
+            return this.rejectChangesByTurnLegacy(conversationTurnId);
+        }
+
+        // 1. Cascade: target + 이후 모든 턴 undo 대상
+        const turnsToUndo = this.turnCheckpointStack.slice(targetIndex);
+        const turnIdsToUndo = new Set(turnsToUndo.map(tc => tc.conversationTurnId));
+        console.log(`[InlineDiffManager] Cascade undo: ${turnsToUndo.length} turn(s) from index ${targetIndex}`);
+
+        // 2. pending 변경이 실제로 있는지 확인
+        let hasPending = false;
+        for (const [, changes] of this.pendingChanges) {
+            if (changes.some(c => turnIdsToUndo.has(c.conversationTurnId) && c.status === 'pending')) {
+                hasPending = true;
+                break;
+            }
+        }
+        if (!hasPending) {
+            // pending 없음 → 스택만 정리
+            this.turnCheckpointStack.splice(targetIndex);
+            this.scheduleSave();
+            this._onPendingChangedEmitter.fire();
+            return;
+        }
+
+        // 3. 각 파일별 복원 대상 콘텐츠 결정 (가장 오래된 스냅샷 우선)
+        const filesToRestore = new Map<string, string>();
+        for (const tc of turnsToUndo) {
+            for (const [fp, content] of tc.fileSnapshots) {
+                if (!filesToRestore.has(fp)) {
+                    filesToRestore.set(fp, content);
+                }
+            }
+        }
+
+        // 4. 파일 복원 (전체 내용 교체)
+        for (const [fp, content] of filesToRestore) {
+            await this.restoreFileContent(fp, content);
+        }
+
+        // 5. pending changes 정리
+        for (const [fp] of filesToRestore) {
+            const changes = this.pendingChanges.get(fp);
+            if (!changes) { continue; }
+
+            const remaining = changes.filter(c => !turnIdsToUndo.has(c.conversationTurnId));
+            if (remaining.length === 0) {
+                // 이 파일의 모든 변경이 undo 대상
+                this.pendingChanges.delete(fp);
+                this.originalContents.delete(fp);
+                this.lastAppliedChanges.delete(fp);
+                this.checkpoints.delete(fp);
+                this.clearAllDecorationsForFile(fp);
+
+                const restored = filesToRestore.get(fp)!;
+                if (restored === '') {
+                    // 새로 생성된 파일 → UNDO 시 파일 삭제
+                    this.shadow.delete(fp);
+                    this.disk.delete(fp);
+                    try {
+                        const fileUri = vscode.Uri.file(fp);
+                        await vscode.workspace.fs.delete(fileUri);
+                        console.log(`[InlineDiffManager] Deleted newly created file on undo: ${fp}`);
+                    } catch (delErr) {
+                        console.warn(`[InlineDiffManager] Failed to delete file on undo: ${fp}`, delErr);
+                    }
+                } else {
+                    this.shadow.set(fp, restored);
+                    this.disk.set(fp, restored);
+                }
+            } else {
+                // 이전 턴의 변경이 남아있음
+                this.pendingChanges.set(fp, remaining);
+                this.shadow.set(fp, filesToRestore.get(fp)!);
+                this.refreshDecorations(fp);
+            }
+            this.documentVersions.delete(fp);
+        }
+
+        // 6. 스택에서 undo된 턴 제거
+        this.turnCheckpointStack.splice(targetIndex);
+
+        // 7. 정리
+        const { DiffCodeLensProvider } = require('./DiffCodeLensProvider');
+        DiffCodeLensProvider.getInstance().refresh();
+        this.scheduleSave();
+        this._onPendingChangedEmitter.fire();
+        console.log(`[InlineDiffManager] Cascade undo complete. Stack size: ${this.turnCheckpointStack.length}`);
+    }
+
+    /**
+     * 레거시 fallback: TurnCheckpoint 없는 턴의 per-change 방식 reject
+     */
+    private async rejectChangesByTurnLegacy(conversationTurnId: string): Promise<void> {
+        console.log(`[InlineDiffManager] rejectChangesByTurnLegacy: ${conversationTurnId}`);
+        const filesToProcess: Map<string, InlineChange[]> = new Map();
+
+        for (const [filePath, changes] of this.pendingChanges.entries()) {
+            const turnChanges = changes.filter(
+                c => c.conversationTurnId === conversationTurnId && c.status === 'pending'
+            );
+            if (turnChanges.length > 0) {
+                filesToProcess.set(filePath, turnChanges);
+            }
+        }
+
+        for (const [filePath, turnChanges] of filesToProcess.entries()) {
+            const sorted = [...turnChanges].sort((a, b) => b.startOffset - a.startOffset);
+            for (const change of sorted) {
+                await this.rejectChange(filePath, change.id);
+            }
+        }
+
+        this.scheduleSave();
+        this._onPendingChangedEmitter.fire();
+    }
+
+    /**
+     * 턴별 pending 변경 통계 (webview 버튼 표시용)
+     */
+    public getPendingChangesByTurn(): Array<{
+        conversationTurnId: string;
+        files: Array<{ filePath: string; fileName: string; addedLines: number; deletedLines: number; isNewFile: boolean }>;
+        totalFiles: number;
+        totalChanges: number;
+        cascadeUndoTurnCount: number; // 이 턴 undo 시 함께 undo되는 턴 수
+    }> {
+        const turnMap = new Map<string, Map<string, { addedLines: number; deletedLines: number }>>();
+
+        for (const [filePath, changes] of this.pendingChanges.entries()) {
+            for (const change of changes) {
+                if (change.status !== 'pending' || !change.conversationTurnId) { continue; }
+                let fileMap = turnMap.get(change.conversationTurnId);
+                if (!fileMap) {
+                    fileMap = new Map();
+                    turnMap.set(change.conversationTurnId, fileMap);
+                }
+                let stats = fileMap.get(filePath);
+                if (!stats) {
+                    stats = { addedLines: 0, deletedLines: 0 };
+                    fileMap.set(filePath, stats);
+                }
+                if (change.type === 'add') {
+                    stats.addedLines += change.newText.split('\n').length;
+                } else if (change.type === 'delete') {
+                    stats.deletedLines += change.oldText.split('\n').length;
+                } else if (change.type === 'modify') {
+                    stats.addedLines += change.newText.split('\n').length;
+                    stats.deletedLines += change.oldText.split('\n').length;
+                }
+            }
+        }
+
+        const result: Array<{
+            conversationTurnId: string;
+            files: Array<{ filePath: string; fileName: string; addedLines: number; deletedLines: number; isNewFile: boolean }>;
+            totalFiles: number;
+            totalChanges: number;
+            cascadeUndoTurnCount: number;
+        }> = [];
+
+        for (const [turnId, fileMap] of turnMap.entries()) {
+            const files: Array<{ filePath: string; fileName: string; addedLines: number; deletedLines: number; isNewFile: boolean }> = [];
+            let totalChanges = 0;
+            for (const [fp, stats] of fileMap.entries()) {
+                // 새 파일 여부: checkpoint의 beforeContent가 빈 문자열이면 새 파일
+                const checkpoint = this.checkpoints.get(fp);
+                const isNewFile = checkpoint ? checkpoint.beforeContent === '' : false;
+                files.push({
+                    filePath: fp,
+                    fileName: path.basename(fp),
+                    addedLines: stats.addedLines,
+                    deletedLines: stats.deletedLines,
+                    isNewFile,
+                });
+                totalChanges += stats.addedLines + stats.deletedLines;
+            }
+            // Cascade 정보: 이 턴부터 스택 끝까지 몇 개 턴이 함께 undo 되는지
+            const stackIndex = this.turnCheckpointStack.findIndex(
+                tc => tc.conversationTurnId === turnId
+            );
+            const cascadeUndoTurnCount = stackIndex !== -1
+                ? this.turnCheckpointStack.length - stackIndex
+                : 1;
+
+            result.push({
+                conversationTurnId: turnId,
+                files,
+                totalFiles: files.length,
+                totalChanges,
+                cascadeUndoTurnCount,
+            });
+        }
+
+        return result;
+    }
+
     /**
      * 정리
      */
     public dispose(): void {
+        // dispose 전 마지막 저장
+        if (this.saveTimer) { clearTimeout(this.saveTimer); }
+        this.savePersistedState();
+
         if (this.editorChangeDisposable) {
             this.editorChangeDisposable.dispose();
         }
@@ -2203,14 +3070,21 @@ export class InlineDiffManager {
         if (this.fileSystemWatcher) {
             this.fileSystemWatcher.dispose();
         }
+        if (this.restorationDisposable) {
+            this.restorationDisposable.dispose();
+        }
+        this._onPendingChangedEmitter.dispose();
         this.addedDecoration.dispose();
         this.deletedDecoration.dispose();
         this.pendingChanges.clear();
         this.originalContents.clear();
         this.checkpoints.clear();
         this.documentVersions.clear();
+        this.storedFileHashes.clear();
         // ✅ Shadow Document Pattern: dispose 시 shadow/disk 정리
         this.shadow.clear();
         this.disk.clear();
+        // ✅ Turn Checkpoint Stack 정리
+        this.turnCheckpointStack = [];
     }
 }

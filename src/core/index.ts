@@ -73,7 +73,7 @@ export type { LLMMessagePart, LLMRequestOptions } from './managers/model/LLMApiC
 export { LLMManager } from './managers/model/LLMManager';
 export type { LLMMessagePart as LLMManagerMessagePart, LLMRequestOptions as LLMManagerRequestOptions, LLMResponse } from './managers/model/LLMManager';
 export { ModelConnectionService } from './managers/model/ModelConnectionService';
-export type { ParsedLLMResponse } from './managers/model/llm/ILLMAdapter';
+
 
 // =============== Project ===============
 export { ProjectManager } from './managers/project/ProjectManager';
@@ -113,8 +113,6 @@ export * from './managers/execution/os/LinuxAdapter';
 export * from './managers/execution/os/OSAdapterFactory';
 
 // =============== LLM Abstraction (from model) ===============
-export * from './managers/model/llm/ILLMAdapter';
-export * from './managers/model/llm/GptAdapter';
 
 // =============== Framework Abstraction (from project) ===============
 

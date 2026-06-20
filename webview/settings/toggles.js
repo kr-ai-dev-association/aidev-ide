@@ -12,10 +12,15 @@ export function bindToggleEvents(elements) {
     autoUpdateToggle,
     autoDeleteToggle,
     streamingToggle,
+    nativeToolCallingToggle,
+    thinkingToggle,
     autoTestRetryToggle,
     autoCorrectionToggle,
     autoExecuteToggle,
     autoToolToggle,
+    autoMcpToolToggle,
+    orchestrationToggle,
+    inlineCompletionToggle,
     vscode,
   } = elements;
 
@@ -59,6 +64,36 @@ export function bindToggleEvents(elements) {
     });
   }
 
+  // 네이티브 툴 콜링 토글
+  if (nativeToolCallingToggle) {
+    nativeToolCallingToggle.addEventListener("change", () => {
+      const enabled = nativeToolCallingToggle.checked;
+      if (vscode) {
+        vscode.postMessage({ command: "setNativeToolCallingEnabled", enabled });
+      }
+    });
+  }
+
+  // Thinking(추론) 토글
+  if (thinkingToggle) {
+    thinkingToggle.addEventListener("change", () => {
+      const enabled = thinkingToggle.checked;
+      if (vscode) {
+        vscode.postMessage({ command: "setThinkingEnabled", enabled });
+      }
+    });
+  }
+
+  // Thinking 레벨 선택
+  const thinkingLevelSelect = document.getElementById("thinking-level-select");
+  if (thinkingLevelSelect) {
+    thinkingLevelSelect.addEventListener("change", () => {
+      if (vscode) {
+        vscode.postMessage({ command: "setThinkingLevel", level: thinkingLevelSelect.value });
+      }
+    });
+  }
+
   // 자동 테스트 재시도 토글
   if (autoTestRetryToggle) {
     autoTestRetryToggle.addEventListener("change", () => {
@@ -79,12 +114,63 @@ export function bindToggleEvents(elements) {
     });
   }
 
+  // MCP 도구 자동 실행 토글
+  if (autoMcpToolToggle) {
+    autoMcpToolToggle.addEventListener("change", () => {
+      const enabled = autoMcpToolToggle.checked;
+      if (vscode) {
+        vscode.postMessage({ command: "setAutoMcpToolExecutionEnabled", enabled });
+      }
+    });
+  }
+
+  // 오케스트레이션 토글
+  if (orchestrationToggle) {
+    orchestrationToggle.addEventListener("change", () => {
+      const enabled = orchestrationToggle.checked;
+      if (vscode) {
+        vscode.postMessage({ command: "setOrchestrationEnabled", enabled });
+      }
+    });
+  }
+
   // 명령어 자동 실행 토글
   if (autoExecuteToggle) {
     autoExecuteToggle.addEventListener("change", () => {
       const enabled = autoExecuteToggle.checked;
       if (vscode) {
         vscode.postMessage({ command: "setAutoExecuteCommandsEnabled", enabled });
+      }
+    });
+  }
+
+  const blockOutsideProjectToggle = document.getElementById("block-outside-project-toggle");
+  if (blockOutsideProjectToggle) {
+    blockOutsideProjectToggle.addEventListener("change", () => {
+      const enabled = blockOutsideProjectToggle.checked;
+      if (vscode) {
+        vscode.postMessage({ command: "setBlockOutsideProjectEnabled", enabled });
+      }
+    });
+  }
+
+  // 소스코드 자동완성 토글
+  if (inlineCompletionToggle) {
+    inlineCompletionToggle.addEventListener("change", () => {
+      const enabled = inlineCompletionToggle.checked;
+      if (vscode) {
+        vscode.postMessage({ command: "setInlineCompletionEnabled", enabled });
+      }
+    });
+  }
+
+  // 다음 작업 제안 토글
+  const promptSuggestionToggle = document.getElementById("prompt-suggestion-toggle");
+  if (promptSuggestionToggle) {
+    promptSuggestionToggle.addEventListener("change", () => {
+      const enabled = promptSuggestionToggle.checked;
+      if (vscode) {
+        vscode.postMessage({ command: "setPromptSuggestionEnabled", enabled });
       }
     });
   }

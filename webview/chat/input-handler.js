@@ -205,20 +205,32 @@ export function removeAtSymbolFromInput(chatInput) {
 /**
  * 메시지 전송 버튼 스타일 업데이트
  * @param {HTMLElement} sendBtn - 전송 버튼 요소
- * @param {string} currentMode - 현재 모드 ('ASK' 또는 'CODE')
- * @param {boolean} isLightTheme - 라이트 테마 여부
+ * @param {string} currentMode - 현재 모드 ('ASK', 'PLAN', 'CODE')
+ * @param {boolean} isLightTheme - 라이트 테마 여부 (미사용, 하위 호환성 유지)
  */
 export function updateSendButtonStyle(sendBtn, currentMode, isLightTheme) {
   if (!sendBtn) return;
 
   const iconImg = sendBtn.querySelector(".icon-img");
   const isAskMode = currentMode === "ASK";
+  const isPlanMode = currentMode === "PLAN";
+
+  const isAgentMode = currentMode === "AGENT";
 
   if (isAskMode) {
     sendBtn.classList.add("ask-mode");
-    sendBtn.style.backgroundColor = isLightTheme ? "#2563eb" : "var(--vscode-button-background)";
+    sendBtn.classList.remove("plan-mode", "agent-mode");
+    sendBtn.style.backgroundColor = "#10B981";
+  } else if (isPlanMode) {
+    sendBtn.classList.remove("ask-mode", "agent-mode");
+    sendBtn.classList.add("plan-mode");
+    sendBtn.style.backgroundColor = "#2563EB";
+  } else if (isAgentMode) {
+    sendBtn.classList.remove("ask-mode", "plan-mode");
+    sendBtn.classList.add("agent-mode");
+    sendBtn.style.backgroundColor = "#000000";
   } else {
-    sendBtn.classList.remove("ask-mode");
+    sendBtn.classList.remove("ask-mode", "plan-mode", "agent-mode");
     sendBtn.style.backgroundColor = "transparent";
     if (iconImg) {
       iconImg.style.filter = "";

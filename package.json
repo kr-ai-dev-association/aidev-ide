@@ -2,7 +2,7 @@
   "name": "codepilot",
   "displayName": "codepilot",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "9.7.3",
+  "version": "1.0.79",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -59,6 +59,14 @@
     },
     "commands": [
       {
+        "command": "codepilot.login",
+        "title": "CodePilot: 로그인"
+      },
+      {
+        "command": "codepilot.logout",
+        "title": "CodePilot: 로그아웃"
+      },
+      {
         "command": "codepilot.openSettingsPanel",
         "title": "Setting"
       },
@@ -85,10 +93,6 @@
       {
         "command": "codepilot.testOllamaBlocker",
         "title": "Test Ollama Blocker (Debug)"
-      },
-      {
-        "command": "codepilot.testFirebaseConnection",
-        "title": "Test Firebase Connection (Debug)"
       },
       {
         "command": "codepilot.testTerminalMonitoring",
@@ -177,67 +181,70 @@
           "default": "",
           "description": "AIDEV API Key를 설정합니다. Secret Storage에 안전하게 저장됩니다.",
           "scope": "resource",
-          "markdownDescription": "AIDEV API Key를 설정합니다. 이는 VS Code의 Secret Storage에 안전하게 저장되며, 확장이 이 키를 사용하여 Gemini API에 접근합니다. [여기](https://aistudio.google.com/app/apikey)에서 API 키를 얻을 수 있습니다."
+          "markdownDescription": "AIDEV API Key를 설정합니다. 이는 VS Code의 Secret Storage에 안전하게 저장됩니다."
         },
-        "codepilot.banyaApiKey": {
+        "codepilot.backendUrl": {
           "type": "string",
-          "default": "",
-          "description": "Banya API Key를 설정합니다. Secret Storage에 안전하게 저장됩니다.",
-          "scope": "resource",
-          "markdownDescription": "Banya API Key를 설정합니다. 이는 VS Code의 Secret Storage에 안전하게 저장됩니다."
-        },
-        "codepilot.banyaApiUrl": {
-          "type": "string",
-          "default": "http://210.109.53.87:8083/v1/chat/completions",
-          "description": "Banya API 엔드포인트 URL을 설정합니다.",
+          "default": "https://api-codepilot.banya.ai/api/v1",
+          "description": "CodePilot 백엔드 서버 URL",
           "scope": "resource"
         },
-        "codepilot.banyaModel": {
+        "codepilot.googleClientId": {
           "type": "string",
-          "default": "Banya Solar:100b",
-          "enum": [
-            "Banya Solar:100b",
-            "Banya Qwen-Coder:32b"
-          ],
-          "description": "사용할 Banya 모델을 선택합니다.",
+          "default": "750553530776-uccbdv3bs17sv815qdifbo498drfuouh.apps.googleusercontent.com",
+          "description": "Google OAuth Client ID (로그인용, 데스크톱앱 타입)",
+          "scope": "resource"
+        },
+        "codepilot.githubClientId": {
+          "type": "string",
+          "default": "",
+          "description": "GitHub OAuth Client ID (로그인용)",
           "scope": "resource"
         },
         "codepilot.aiModel": {
           "type": "string",
           "default": "ollama",
           "enum": [
-            "gemini",
             "ollama",
-            "banya"
+            "admin"
           ],
           "description": "사용할 AI 모델 엔진을 선택합니다.",
           "scope": "resource"
         },
         "codepilot.streamingEnabled": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "LLM 응답을 스트리밍 방식으로 받을지 여부를 설정합니다. 활성화하면 응답이 실시간으로 표시됩니다.",
           "scope": "resource"
         },
-        "codepilot.geminiModel": {
+        "codepilot.nativeToolCallingEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "네이티브 툴 콜링 활성화. ON이면 모델이 지원하는 경우 native tool_calls 사용, OFF이면 텍스트 기반 파싱만 사용합니다.",
+          "scope": "resource"
+        },
+        "codepilot.thinkingEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Thinking(추론) 활성화. ON이면 모델이 지원하는 경우 thinking을 사용합니다. OFF이면 항상 비활성화합니다.",
+          "scope": "resource"
+        },
+        "codepilot.thinkingLevel": {
           "type": "string",
-          "default": "gemini-3-pro-preview",
-          "enum": [
-            "gemini-3-pro-preview",
-            "gemini-3-flash-preview"
-          ],
-          "description": "사용할 Gemini 모델을 선택합니다.",
+          "default": "medium",
+          "enum": ["low", "medium", "high"],
+          "description": "Thinking 레벨. low(빠름/저비용), medium(균형), high(깊은 추론/고비용).",
           "scope": "resource"
         },
         "codepilot.autoUpdateFiles": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Enable or disable automatic updating of files based on LLM's code block suggestions. If disabled, you will be prompted before updating.",
           "scope": "resource"
         },
         "codepilot.autoDeleteFiles": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Enable or disable automatic deletion of files. If disabled, you will be prompted before deleting any file.",
           "scope": "resource"
         },
@@ -278,13 +285,13 @@
         },
         "codepilot.autoCorrectionEnabled": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Enable or disable automatic terminal error correction.",
           "scope": "resource"
         },
         "codepilot.autoTestRetryEnabled": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Enable or disable automatic retry when automated tests (Smoke Test, Lint Check) fail. When enabled, the system will automatically retry failed tests up to the configured number of times.",
           "scope": "resource"
         },
@@ -296,16 +303,64 @@
           "description": "Set the maximum number of automatic test retry attempts when automated tests fail. (1-10 times, default: 5 times)",
           "scope": "resource"
         },
+        "codepilot.validationCommand": {
+          "type": "string",
+          "default": "",
+          "description": "Custom validation command to run after code generation (e.g., 'tsc --noEmit'). If empty, auto-detection is used.",
+          "scope": "resource"
+        },
+        "codepilot.formatterCommand": {
+          "type": "string",
+          "default": "",
+          "description": "Custom formatter command to run after code generation (e.g., 'prettier --write .'). If empty, auto-detection is used.",
+          "scope": "resource"
+        },
         "codepilot.autoExecuteCommands": {
           "type": "boolean",
           "default": true,
           "description": "Enable or disable automatic execution of bash/powershell/cmd commands from LLM responses.",
           "scope": "resource"
         },
+        "codepilot.blockOutsideProject": {
+          "type": "boolean",
+          "default": true,
+          "description": "프로젝트 디렉토리 외부의 파일 생성/수정/삭제를 차단합니다. 활성화하면 워크스페이스 밖의 파일 조작이 차단됩니다.",
+          "scope": "resource"
+        },
         "codepilot.autoToolExecution": {
           "type": "boolean",
           "default": true,
           "description": "Enable or disable automatic execution of all tools (read, search, etc). When disabled, you will be prompted before executing any tool.",
+          "scope": "resource"
+        },
+        "codepilot.autoMcpToolExecution": {
+          "type": "boolean",
+          "default": true,
+          "description": "MCP 도구를 승인 없이 자동 실행할지 여부. 비활성화 시 첫 실행마다 확인 메시지가 표시됩니다.",
+          "scope": "resource"
+        },
+        "codepilot.errorReportingEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable or disable automatic error reporting to the backend server. When enabled, IDE errors are sent to the server and visible in codepilot-admin error logs.",
+          "scope": "resource"
+        },
+        "codepilot.orchestration": {
+          "type": "boolean",
+          "default": true,
+          "description": "멀티 에이전트 모드를 활성화합니다. 복잡한 작업을 여러 에이전트가 병렬로 분담하여 처리합니다. 토큰 소모량이 단일 에이전트 대비 많아질 수 있습니다. 비활성화 시 기존 단일 에이전트 방식으로 동작합니다.",
+          "scope": "resource"
+        },
+        "codepilot.inlineCompletion": {
+          "type": "boolean",
+          "default": false,
+          "description": "소스코드 인라인 자동완성(Ghost Text)을 활성화합니다. 입력 중 AI가 코드를 자동 완성합니다. Tab 키로 수락합니다.",
+          "scope": "resource"
+        },
+        "codepilot.promptSuggestion": {
+          "type": "boolean",
+          "default": false,
+          "description": "다음 작업 제안을 활성화합니다. 작업 완료 후 후속 작업을 버튼으로 제안합니다. 활성화 시 LLM 호출이 1회 추가됩니다.",
           "scope": "resource"
         },
         "codepilot.chatTheme": {
@@ -339,7 +394,9 @@
     "@tensorflow/tfjs-node": "^4.22.0",
     "cheerio": "^1.2.0",
     "diff": "^8.0.2",
+    "fast-glob": "^3.3.3",
     "firebase": "^10.7.0",
+    "iconv-lite": "^0.7.2",
     "korean-text-analytics": "^0.0.7",
     "markdown-it-container": "^4.0.0",
     "tree-sitter-wasms": "^0.1.11",

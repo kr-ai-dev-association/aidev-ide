@@ -1,0 +1,290 @@
+/**
+ * Gemini Native Provider
+ * Google Gemini REST API (generativelanguage.googleapis.com)
+ * 스트리밍: JSON 배열 형태 (SSE가 아닌 커스텀 JSON 청크)
+ */
+
+import { AdminModelConfig, AdminModelMessagePart, SendOptions, ChunkCallback } from '../AdminModelTypes';
+import { ILLMProvider } from './ILLMProvider';
+import { buildRequest, assertResponseField } from './providerUtils';
+
+const GEMINI_SAFETY_SETTINGS = [
+    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+];
+
+export class GeminiProvider implements ILLMProvider {
+    constructor(private config: AdminModelConfig) {}
+
+    private buildBody(
+        userText: string,
+        systemPrompt?: string,
+        options?: SendOptions,
+        streaming = false
+    ): Record<string, unknown> {
+        const hasNativeTools = options?.nativeTools && options.nativeTools.length > 0;
+
+        const body: Record<string, unknown> = {
+            contents: [{ role: 'user', parts: [{ text: userText }] }],
+            generationConfig: {
+                temperature: this.config.defaultTemperature ?? 0.7,
+                topP: this.config.topP ?? 0.9,
+                maxOutputTokens: this.config.maxOutputTokens || this.config.maxTokens || 65536,
+            },
+            safetySettings: GEMINI_SAFETY_SETTINGS,
+        };
+
+        if (systemPrompt) {
+            body.systemInstruction = { parts: [{ text: systemPrompt }] };
+        }
+
+        // Gemini thinking: 3.x → thinkingLevel, 2.5 → thinkingBudget (Cline/litellm 기준)
+        if (!options?.disableThinking) {
+            const isGemini3 = this.config.model.includes('gemini-3');
+            const level = options?.thinkingLevel || 'medium';
+            (body.generationConfig as Record<string, unknown>).thinkingConfig = isGemini3
+                ? { thinkingLevel: level, includeThoughts: true }
+                : { thinkingBudget: -1, includeThoughts: true };
+        }
+
+        if (hasNativeTools) {
+            const functionDeclarations = options!.nativeTools!.map((t: any) => t.function || t);
+            body.tools = [{ functionDeclarations }];
+            body.tool_config = { function_calling_config: { mode: 'AUTO' } };
+            console.log(`[GeminiProvider] Native tool calling enabled, streaming=${streaming}, tools count:`, options!.nativeTools!.length);
+        }
+
+        return body;
+    }
+
+    async send(
+        messageOrParts: string | AdminModelMessagePart[],
+        systemPrompt?: string,
+        options?: SendOptions
+    ): Promise<string> {
+        const userText = typeof messageOrParts === 'string'
+            ? messageOrParts
+            : messageOrParts.map(p => p.text || '').join('\n');
+
+        const body = this.buildBody(userText, systemPrompt, options, false);
+        const endpoint = this.config.endpoint.replace(/\/+$/, '');
+        const model = this.config.model;
+        const { url, headers } = buildRequest(this.config, `${endpoint}/models/${model}:generateContent`);
+        console.log(`[GeminiProvider] model=${model} streaming=false nativeTools=${!!options?.nativeTools}`);
+
+        const response = await fetch(url, {
+            method: 'POST', headers, body: JSON.stringify(body), signal: options?.signal
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            const userTextLen = typeof messageOrParts === 'string' ? messageOrParts.length : messageOrParts.reduce((s, p) => s + (p.text?.length || 0), 0);
+            const systemLen = systemPrompt?.length || 0;
+            const estimatedTokens = Math.round((userTextLen + systemLen) / 4);
+            console.error(
+                `[GeminiProvider] ❌ API Error ${response.status}`,
+                JSON.stringify({
+                    model,
+                    status: response.status,
+                    streaming: false,
+                    nativeTools: !!options?.nativeTools,
+                    userTextChars: userTextLen,
+                    systemPromptChars: systemLen,
+                    estimatedTokens,
+                    thinkingEnabled: !options?.disableThinking && !(options?.nativeTools?.length),
+                    maxOutputTokens: this.config.maxOutputTokens || this.config.maxTokens || 65536,
+                    errorPreview: errorText.substring(0, 500),
+                })
+            );
+            throw new Error(`Admin Model API (Gemini) error: ${response.status} ${response.statusText} - ${errorText}`);
+        }
+
+        const data: any = await response.json();
+        assertResponseField(data, 'candidates');
+        const parts = data.candidates?.[0]?.content?.parts;
+
+        if (parts) {
+            const functionCallParts = parts.filter((p: any) => p.functionCall);
+            if (functionCallParts.length > 0) {
+                console.log('[GeminiProvider] Native functionCall received, count:', functionCallParts.length);
+                return functionCallParts.map((p: any) => {
+                    const fc = p.functionCall!;
+                    return JSON.stringify({ tool: fc.name, ...fc.args });
+                }).join('\n');
+            }
+        }
+
+        const allParts = data.candidates?.[0]?.content?.parts || [];
+        const thinkParts: string[] = [];
+        const answerParts: string[] = [];
+        for (const part of allParts) {
+            if (part.thought === true && part.text) { thinkParts.push(part.text); }
+            else if (part.text) { answerParts.push(part.text); }
+        }
+        const answer = answerParts.join('');
+        const maxTokensReached = data.candidates?.[0]?.finishReason === 'MAX_TOKENS';
+        const text = thinkParts.length > 0 ? `<think>${thinkParts.join('')}</think>\n${answer}` : answer;
+        return maxTokensReached ? text + '\n[MAX_TOKENS_REACHED]' : text;
+    }
+
+    async stream(
+        systemPrompt: string,
+        userParts: AdminModelMessagePart[],
+        onChunk: ChunkCallback,
+        options?: SendOptions
+    ): Promise<string> {
+        const userText = userParts.map(p => p.text || '').join('\n');
+        const body = this.buildBody(userText, systemPrompt, options, true);
+
+        const endpoint = this.config.endpoint.replace(/\/+$/, '');
+        const model = this.config.model;
+        const { url, headers } = buildRequest(this.config, `${endpoint}/models/${model}:streamGenerateContent`);
+        const thinkingEnabled = !options?.disableThinking;
+        console.log(`[GeminiProvider] model=${model} streaming=true nativeTools=${!!options?.nativeTools} thinkingEnabled=${thinkingEnabled} thinkingConfig=${JSON.stringify((body.generationConfig as any)?.thinkingConfig)}`);
+
+        const response = await fetch(url, {
+            method: 'POST', headers, body: JSON.stringify(body), signal: options?.signal
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            const userTextLen = userText.length;
+            const systemLen = systemPrompt?.length || 0;
+            const estimatedTokens = Math.round((userTextLen + systemLen) / 4);
+            console.error(
+                `[GeminiProvider] ❌ API Error ${response.status}`,
+                JSON.stringify({
+                    model,
+                    status: response.status,
+                    streaming: true,
+                    nativeTools: !!options?.nativeTools,
+                    userTextChars: userTextLen,
+                    systemPromptChars: systemLen,
+                    estimatedTokens,
+                    thinkingEnabled: !options?.disableThinking && !(options?.nativeTools?.length),
+                    maxOutputTokens: this.config.maxOutputTokens || this.config.maxTokens || 65536,
+                    errorPreview: errorText.substring(0, 500),
+                })
+            );
+            onChunk('', true);
+            throw new Error(`Admin Model API (Gemini) error: ${response.status} ${response.statusText} - ${errorText}`);
+        }
+
+        if (!response.body) {
+            onChunk('', true);
+            throw new Error('No response body for streaming');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let fullText = '';
+        let thinkingText = '';
+        let buffer = '';
+        let inThinking = false;
+        let lastFinishReason = '';
+        const streamingFunctionCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+
+            // Gemini 스트리밍: JSON 배열 형태에서 개별 객체 추출
+            let startIdx = 0;
+            while (startIdx < buffer.length) {
+                const objStart = buffer.indexOf('{', startIdx);
+                if (objStart === -1) break;
+
+                let depth = 0;
+                let objEnd = -1;
+                let inString = false;
+                let escape = false;
+
+                for (let i = objStart; i < buffer.length; i++) {
+                    const char = buffer[i];
+                    if (escape) { escape = false; continue; }
+                    if (char === '\\' && inString) { escape = true; continue; }
+                    if (char === '"') { inString = !inString; continue; }
+                    if (!inString) {
+                        if (char === '{') depth++;
+                        else if (char === '}') {
+                            depth--;
+                            if (depth === 0) { objEnd = i; break; }
+                        }
+                    }
+                }
+
+                if (objEnd === -1) break;
+
+                try {
+                    const json: any = JSON.parse(buffer.substring(objStart, objEnd + 1));
+                    const candidate0 = json.candidates?.[0];
+                    if (candidate0?.finishReason) { lastFinishReason = candidate0.finishReason; }
+                    const parts = candidate0?.content?.parts || [];
+                    for (const part of parts) {
+                        if (part.thought === true && part.text) {
+                            if (!inThinking) {
+                                onChunk('<think>', false);
+                                inThinking = true;
+                            }
+                            thinkingText += part.text;
+                            onChunk(part.text, false);
+                        } else if (part.text) {
+                            if (inThinking) {
+                                onChunk('</think>\n', false);
+                                inThinking = false;
+                            }
+                            fullText += part.text;
+                            onChunk(part.text, false);
+                        }
+                        if (part.functionCall) {
+                            if (inThinking) {
+                                onChunk('</think>\n', false);
+                                inThinking = false;
+                            }
+                            streamingFunctionCalls.push({ name: part.functionCall.name, args: part.functionCall.args || {} });
+                            // Gemini provides complete functionCalls per chunk — fire immediately
+                            try {
+                                options?.onNativeToolComplete?.(part.functionCall.name, part.functionCall.args || {});
+                            } catch { /* skip */ }
+                        }
+                    }
+                } catch { /* skip */ }
+
+                startIdx = objEnd + 1;
+            }
+
+            if (startIdx > 0) {
+                buffer = buffer.substring(startIdx);
+            }
+        }
+
+        // 스트림 종료 후 thinking이 닫히지 않은 경우 처리
+        if (inThinking) {
+            onChunk('</think>\n', false);
+        }
+
+        const maxTokensReached = lastFinishReason === 'MAX_TOKENS';
+        if (maxTokensReached) { console.log('[GeminiProvider] ⚠️ MAX_TOKENS reached in streaming'); }
+
+        if (streamingFunctionCalls.length > 0) {
+            const converted = streamingFunctionCalls
+                .map(fc => JSON.stringify({ tool: fc.name, ...fc.args }))
+                .join('\n');
+            console.log(`[GeminiProvider] Streaming: Native functionCalls converted, count: ${streamingFunctionCalls.length}`);
+            onChunk('', true);
+            const thinkPrefix = thinkingText.trim() ? `<think>${thinkingText}</think>\n` : '';
+            return thinkPrefix + converted;
+        }
+
+        onChunk('', true);
+        if (thinkingText.trim()) {
+            const text = `<think>${thinkingText}</think>\n${fullText}`;
+            return maxTokensReached ? text + '\n[MAX_TOKENS_REACHED]' : text;
+        }
+        return maxTokensReached ? fullText + '\n[MAX_TOKENS_REACHED]' : fullText;
+    }
+}

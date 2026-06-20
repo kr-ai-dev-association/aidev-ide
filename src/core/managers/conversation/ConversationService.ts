@@ -5,10 +5,11 @@
  */
 
 import * as vscode from 'vscode';
-import { PromptType, GeminiApi, OllamaApi, AiModelType, NotificationService, GitRepositoryService } from '../../../services';
+import { PromptType, OllamaApi, AiModelType, NotificationService } from '../../../services';
 import { ConversationManager } from './ConversationManager';
 import { SettingsManager } from '../state/SettingsManager';
 import { StateManager } from '../state/StateManager';
+import { OrchestrationRouter } from '../../orchestration/OrchestrationRouter';
 
 export interface ConversationServiceOptions {
     userQuery: string;
@@ -17,15 +18,14 @@ export interface ConversationServiceOptions {
     imageData?: string;
     imageMimeType?: string;
     selectedFiles?: string[];
+    selectedCode?: string; // 에디터에서 선택된 코드
     terminalContext?: string;
     diagnosticsContext?: string;
     extensionContext?: vscode.ExtensionContext;
-    geminiApi?: GeminiApi;
     ollamaApi?: OllamaApi;
     currentModelType?: AiModelType;
     userOS?: string;
     notificationService?: NotificationService;
-    gitRepositoryService?: GitRepositoryService;
     abortSignal?: AbortSignal;
 }
 
@@ -34,18 +34,25 @@ export interface ConversationServiceOptions {
  * ConversationManager를 사용하여 사용자 메시지를 처리하는 진입점
  */
 export class ConversationService {
+    /** 현재 진행 중인 메시지 처리 AbortController */
+    private static _currentAbortController: AbortController | null = null;
+
     /**
      * 사용자 메시지를 처리하고 응답을 생성합니다
      */
     public static async handleUserMessage(options: ConversationServiceOptions): Promise<void> {
-        const conversationManager = ConversationManager.getInstance();
-
         // 필요한 정보 수집
         const extensionContext = options.extensionContext;
-        let geminiApi = options.geminiApi;
         let ollamaApi = options.ollamaApi;
         let currentModelType = options.currentModelType;
         let userOS = options.userOS;
+
+        // 이전 호출 취소 후 새 AbortController 생성
+        if (ConversationService._currentAbortController) {
+            ConversationService._currentAbortController.abort();
+        }
+        const abortController = new AbortController();
+        ConversationService._currentAbortController = abortController;
 
         // extensionContext가 있으면 설정에서 정보 가져오기
         if (extensionContext) {
@@ -62,31 +69,48 @@ export class ConversationService {
             }
         }
 
-        // ConversationManager에 옵션 전달
-        await conversationManager.handleUserMessageAndRespond({
+        const resolvedOptions = {
             userQuery: options.userQuery,
             webviewToRespond: options.webviewToRespond,
             promptType: options.promptType,
             imageData: options.imageData,
             imageMimeType: options.imageMimeType,
             selectedFiles: options.selectedFiles,
+            selectedCode: options.selectedCode,
             terminalContext: options.terminalContext,
             diagnosticsContext: options.diagnosticsContext,
             extensionContext: options.extensionContext,
-            geminiApi: geminiApi,
             ollamaApi: ollamaApi,
             currentModelType: currentModelType,
             userOS: userOS,
             notificationService: options.notificationService,
-            gitRepositoryService: options.gitRepositoryService,
-            abortSignal: options.abortSignal
-        });
+            abortSignal: options.abortSignal ?? abortController.signal
+        };
+
+        try {
+            // OrchestrationRouter를 통해 분기
+            // OFF → ConversationManager 직접 호출 (기존 동작)
+            // ON → Orchestrator 실행 → 단순 작업이면 자동 폴백
+            await OrchestrationRouter.route(resolvedOptions);
+        } finally {
+            // 완료 후 정리
+            if (ConversationService._currentAbortController === abortController) {
+                ConversationService._currentAbortController = null;
+            }
+        }
     }
 
     /**
      * 현재 호출을 취소합니다
      */
     public static cancelCurrentCall(): void {
+        // OrchestrationRouter AbortSignal 취소
+        if (ConversationService._currentAbortController) {
+            ConversationService._currentAbortController.abort();
+            ConversationService._currentAbortController = null;
+            console.log('[ConversationService] AbortController signal aborted');
+        }
+        // ConversationManager (non-orchestration) 취소
         try {
             const conversationManager = ConversationManager.getInstance();
             conversationManager.cancelCurrentCall();
@@ -99,16 +123,41 @@ export class ConversationService {
 
     /**
      * 히스토리를 초기화합니다
+     * Claude Code /clear 방식: 새 세션 생성 + 모든 캐시 클리어
      */
     public static async clearHistory(promptType: PromptType, extensionContext?: vscode.ExtensionContext): Promise<void> {
         if (!extensionContext) return;
 
         const { SessionManager } = await import('../state/SessionManager');
         const sessionManager = SessionManager.getInstance(extensionContext);
-        
-        // 현재 세션의 대화 히스토리 및 토큰 사용량 초기화
+
+        // 1. 현재 세션의 대화 히스토리 및 토큰 사용량 초기화
+        // 히스토리가 비면 이전 세션 요약 주입(Injected previous session summary)도 자동 방지
         sessionManager.clearConversationHistory();
         sessionManager.resetTokensUsed();
+
+        // 3. ProjectContextCache 클리어 (stale 파일 내용 방지)
+        try {
+            const { ProjectContextCache } = await import('../context/ProjectContextCache');
+            const cache = ProjectContextCache.getInstance();
+            cache.clearAll();
+        } catch { /* not initialized */ }
+
+        // 4. ToolSpecBuilder 캐시 클리어 (이전 Rules 기준 방지)
+        try {
+            const { ToolSpecBuilder } = await import('../../tools/ToolSpecBuilder');
+            ToolSpecBuilder.clearSpecCache();
+        } catch { /* not initialized */ }
+
+        // 5. InlineDiffManager 턴 체크포인트 스택 클리어
+        // pending changes는 ChatViewProvider에서 UI 초기화 시 처리됨
+        try {
+            const { InlineDiffManager } = await import('../diff/InlineDiffManager');
+            const diffMgr = InlineDiffManager.getInstance();
+            diffMgr.clearTurnCheckpointStack();
+        } catch { /* not initialized */ }
+
+        console.log('[ConversationService] Session cleared: history + caches flushed');
     }
 }
 

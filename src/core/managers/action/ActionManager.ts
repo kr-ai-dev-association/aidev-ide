@@ -88,7 +88,6 @@ export class ActionManager {
      */
     public setFileChangeTracker(tracker: FileChangeTracker): void {
         this.fileChangeTracker = tracker;
-        console.log('[ActionManager] FileChangeTracker set');
     }
 
     /**
@@ -97,7 +96,6 @@ export class ActionManager {
      */
     public setFileContextTracker(tracker: FileContextTracker): void {
         this.fileContextTracker = tracker;
-        console.log('[ActionManager] FileContextTracker set');
     }
 
     public static getInstance(): ActionManager {
@@ -112,10 +110,6 @@ export class ActionManager {
      */
     public setContext(context: ActionContext): void {
         this.context = context;
-        console.log('[ActionManager] Context set:', {
-            projectRoot: context.projectRoot,
-            currentFile: context.currentFile
-        });
     }
 
     /**
@@ -129,9 +123,6 @@ export class ActionManager {
      * LLM 요청을 분석하여 액션으로 매핑합니다
      */
     public async mapRequest(llmRequest: LLMRequest): Promise<ActionMappingResult> {
-        console.log('[ActionManager] Mapping LLM request to actions');
-        console.log('[ActionManager] Query:', llmRequest.query.substring(0, 100) + '...');
-
         try {
             // LLM 응답이 직접 전달된 경우 (이미 처리된 응답)
             const llmResponse: LLMResponse = {
@@ -146,8 +137,6 @@ export class ActionManager {
             // 컨텍스트 주입
             this.injectContext(mappingResult.actions);
 
-            console.log(`[ActionManager] Mapped ${mappingResult.actions.length} actions`);
-
             return mappingResult;
         } catch (error) {
             console.error('[ActionManager] Error mapping request:', error);
@@ -159,13 +148,9 @@ export class ActionManager {
      * LLM 응답을 액션으로 매핑합니다
      */
     public async mapResponse(llmResponse: LLMResponse): Promise<ActionMappingResult> {
-        console.log('[ActionManager] Mapping LLM response to actions');
-
         try {
             const mappingResult = this.mapper.mapResponse(llmResponse);
             this.injectContext(mappingResult.actions);
-
-            console.log(`[ActionManager] Mapped ${mappingResult.actions.length} actions`);
 
             return mappingResult;
         } catch (error) {
@@ -178,8 +163,6 @@ export class ActionManager {
      * 액션을 검증합니다
      */
     public async validateAction(action: Action): Promise<ValidationResult> {
-        console.log(`[ActionManager] Validating action: ${action.id} (${action.type})`);
-
         try {
             // 등록된 액션 정의 가져오기
             const definition = this.registry.get(action.type);
@@ -199,8 +182,6 @@ export class ActionManager {
 
             if (!result.valid) {
                 console.warn(`[ActionManager] Validation failed for action ${action.id}:`, result.errors);
-            } else {
-                console.log(`[ActionManager] Validation passed for action ${action.id}`);
             }
 
             return result;
@@ -221,7 +202,6 @@ export class ActionManager {
      * 액션 배열의 의존성을 검증합니다
      */
     public validateDependencies(actions: Action[]): ValidationResult {
-        console.log(`[ActionManager] Validating dependencies for ${actions.length} actions`);
         return this.validator.validateDependencies(actions);
     }
 
@@ -230,8 +210,6 @@ export class ActionManager {
      * 실제 실행은 Execution Manager에 위임됩니다
      */
     public async executeAction(action: Action): Promise<ActionResult> {
-        console.log(`[ActionManager] Executing action: ${action.id} (${action.type})`);
-
         try {
             // 검증
             const validationResult = await this.validateAction(action);
@@ -287,8 +265,6 @@ export class ActionManager {
             // 활성 목록에서 제거
             this.activeActions.delete(action.id);
 
-            console.log(`[ActionManager] Action ${action.id} completed in ${duration}ms`);
-
             return {
                 ...result,
                 duration
@@ -315,8 +291,6 @@ export class ActionManager {
      * 여러 액션을 순차적으로 실행합니다
      */
     public async executeActions(actions: Action[]): Promise<ActionResult[]> {
-        console.log(`[ActionManager] Executing ${actions.length} actions sequentially`);
-
         // 의존성 검증
         const depValidation = this.validateDependencies(actions);
         if (!depValidation.valid) {
@@ -376,8 +350,8 @@ export class ActionManager {
 
         for (const action of actions) {
             // 파일 경로가 상대 경로인 경우 프로젝트 루트 기준으로 변환
-            if (action.params.filePath && !action.params.filePath.startsWith('/')) {
-                action.params.filePath = `${this.context.projectRoot}/${action.params.filePath}`;
+            if (action.params.filePath && !path.isAbsolute(action.params.filePath)) {
+                action.params.filePath = path.join(this.context.projectRoot, action.params.filePath);
             }
 
             // CWD 설정
@@ -498,7 +472,6 @@ export class ActionManager {
                     } catch (accessError: any) {
                         // 파일이 존재하지 않으면 (ENOENT) 추적만 시작하고 안정화 대기는 건너뜀
                         if (accessError.code === 'ENOENT') {
-                            console.log(`[ActionManager] File does not exist yet, will track after creation: ${absolutePath}`);
                             // 파일 생성 후 추적 시작
                         } else {
                             // 다른 에러는 재발생
@@ -531,13 +504,10 @@ export class ActionManager {
                 }
             }
 
-            const contentBytes = Buffer.from(code, 'utf8');
-            console.log(`[ActionManager] File created/updated: ${absolutePath} (${contentBytes.length} bytes)`);
-
             // package.json 파일 자체를 수정하는 경우는 import 분석을 건너뜀 (무한 루프 방지)
             const fileName = path.basename(absolutePath).toLowerCase();
             if (fileName === 'package.json') {
-                console.log('[ActionManager] Skipping package.json import analysis for package.json file itself');
+                // Skip import analysis for package.json itself
             } else {
                 // TypeScript/JavaScript 파일인 경우 import 문 분석하여 package.json 업데이트
                 const fileExt = path.extname(absolutePath).toLowerCase();
@@ -561,6 +531,12 @@ export class ActionManager {
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             console.error(`[ActionManager] Error executing code generation:`, error);
+
+            // 에러 리포팅
+            import('../../../services/error/ErrorReportingService').then(({ ErrorReportingService }) => {
+                ErrorReportingService.getInstance().reportFileError(filePath, errorMessage);
+            }).catch(() => {});
+
             return this.createErrorResult(
                 action.id,
                 'EXECUTION_ERROR',
@@ -603,11 +579,8 @@ export class ActionManager {
 
         // package.json이 없으면 스킵
         if (!fs.existsSync(packageJsonPath)) {
-            console.log(`[ActionManager] package.json not found at ${packageJsonPath}, skipping dependency update`);
             return;
         }
-
-        console.log(`[ActionManager] Using package.json at: ${packageJsonPath}`);
 
         // import 문에서 외부 패키지 추출
         const externalPackages = this.extractExternalPackages(code);
@@ -641,8 +614,6 @@ export class ActionManager {
 
             if (!existsInDeps && !existsInDevDeps) {
                 // 의존성 추가는 LLM이 프롬프트의 패키지 버전 정보를 참조하여 package.json에 직접 추가하도록 함
-                // 이 함수는 자동으로 패키지를 추가하지 않고, LLM이 코드 생성 시 package.json을 수정하도록 의존
-                console.log(`[ActionManager] Package ${pkgName} not found in package.json. LLM should add it with appropriate version from prompt guidelines.`);
 
                 // TypeScript 프로젝트이고 @types 패키지가 필요한 경우
                 // react-router-dom v6는 타입이 내장되어 있으므로 @types가 필요없음
@@ -659,7 +630,6 @@ export class ActionManager {
 
                     if (!packageJson.devDependencies[typesPackageName]) {
                         // 타입 정의 패키지 추가는 LLM이 프롬프트의 패키지 버전 정보를 참조하여 package.json에 직접 추가하도록 함
-                        console.log(`[ActionManager] Type definitions package ${typesPackageName} not found. LLM should add it with appropriate version from prompt guidelines.`);
                     }
                 }
             }
@@ -725,7 +695,6 @@ export class ActionManager {
                     // eslint 관련 패키지는 자동 추가하지 않음 (설정 파일에서 관리)
                     if (packageName.toLowerCase().includes('eslint') ||
                         packageName.toLowerCase().includes('prettier')) {
-                        console.log(`[ActionManager] Skipping eslint/prettier package: ${packageName}`);
                         continue;
                     }
 
@@ -1029,6 +998,12 @@ export class ActionManager {
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             console.error(`[ActionManager] Error executing file operation:`, error);
+
+            // 에러 리포팅
+            import('../../../services/error/ErrorReportingService').then(({ ErrorReportingService }) => {
+                ErrorReportingService.getInstance().reportFileError(sourcePath || 'unknown', errorMessage, { operation });
+            }).catch(() => {});
+
             return {
                 success: false,
                 actionId: action.id,

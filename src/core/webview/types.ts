@@ -25,8 +25,8 @@ export interface SendMessageCommand {
     imageData?: string;
 }
 
-export interface CancelGeminiCallCommand {
-    command: 'cancelGeminiCall';
+export interface CancelLLMCallCommand {
+    command: 'cancelGeminiCall';  // kept for webview backward compat
 }
 
 export interface CancelAutoCorrectionCommand {
@@ -64,6 +64,10 @@ export interface OpenDiffCommand {
 export interface ExecuteBashCommandsCommand {
     command: 'executeBashCommands';
     commands: string[];
+}
+
+export interface StopBashCommandCommand {
+    command: 'stopBashCommand';
 }
 
 export interface DisplayUserMessageCommand {
@@ -133,12 +137,7 @@ export interface GetCurrentSettingsCommand {
 }
 
 export interface SaveApiKeyCommand {
-    command: 'saveApiKey' | 'saveGeminiApiKey';
-    apiKey: string;
-}
-
-export interface SaveBanyaApiKeyCommand {
-    command: 'saveBanyaApiKey';
+    command: 'saveApiKey';
     apiKey: string;
 }
 
@@ -188,16 +187,6 @@ export interface GetOllamaModelsCommand {
 
 export interface SetOllamaModelCommand {
     command: 'setOllamaModel' | 'saveOllamaModel' | 'saveRemoteOllamaModel';
-    model: string;
-}
-
-export interface SetGeminiModelCommand {
-    command: 'setGeminiModel';
-    model: string;
-}
-
-export interface SetBanyaModelCommand {
-    command: 'setBanyaModel';
     model: string;
 }
 
@@ -274,7 +263,7 @@ export interface SaveAgentPolicyCommand {
 export type WebviewToExtensionMessage =
     // Chat
     | SendMessageCommand
-    | CancelGeminiCallCommand
+    | CancelLLMCallCommand
     | CancelAutoCorrectionCommand
     | StopCommandExecutionCommand
     | ClearHistoryCommand
@@ -300,7 +289,6 @@ export type WebviewToExtensionMessage =
     // Settings
     | GetCurrentSettingsCommand
     | SaveApiKeyCommand
-    | SaveBanyaApiKeyCommand
     | SaveAiModelCommand
     | SaveLanguageCommand
     | GetLanguageCommand
@@ -312,8 +300,6 @@ export type WebviewToExtensionMessage =
     // Model
     | GetOllamaModelsCommand
     | SetOllamaModelCommand
-    | SetGeminiModelCommand
-    | SetBanyaModelCommand
     | ProjectTypeSelectedCommand
     // MCP
     | GetMcpServersCommand
@@ -328,10 +314,16 @@ export type WebviewToExtensionMessage =
 
 // ==================== Extension → Webview Messages ====================
 
+export interface MessageTokenInfo {
+    tokens: number;
+    model?: string;
+}
+
 export interface ReceiveMessageResponse {
     command: 'receiveMessage';
     sender: string;
     text: string;
+    tokenInfo?: MessageTokenInfo;
 }
 
 export interface StartStreamingMessageResponse {
@@ -346,6 +338,29 @@ export interface StreamMessageChunkResponse {
 
 export interface EndStreamingMessageResponse {
     command: 'endStreamingMessage';
+}
+
+export interface UpdateMessageTokenInfoResponse {
+    command: 'updateMessageTokenInfo';
+    tokenInfo: MessageTokenInfo;
+}
+
+/** 참조 추적 항목 */
+export interface ReferenceItem {
+    type: 'rag' | 'local_rule' | 'local_skill' | 'server_rule' | 'server_skill';
+    name: string;
+    source?: string;       // RAG: source_name, local: 'local', server: 'server'
+    similarity?: number;   // RAG 유사도 (0~1)
+}
+
+/** 참조 추적 정보 */
+export interface ReferenceInfo {
+    items: ReferenceItem[];
+}
+
+export interface UpdateReferenceInfoResponse {
+    command: 'updateReferenceInfo';
+    referenceInfo: ReferenceInfo;
 }
 
 export interface ShowLoadingResponse {
@@ -547,6 +562,7 @@ export type ExtensionToWebviewMessage =
     | HideLoadingResponse
     | SetProcessingStepResponse
     | UpdateProcessingStatusResponse
+    | UpdateReferenceInfoResponse
     | UpdateTaskQueueResponse
     | UpdateContextInfoResponse
     | ClearChatResponse

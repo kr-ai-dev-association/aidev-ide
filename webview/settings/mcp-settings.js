@@ -7,6 +7,8 @@ import { showStatus } from "./api-keys.js";
 
 // 현재 서버 목록 캐시
 let mcpServers = [];
+// 관리자 MCP 서버 캐시
+let adminMcpServers = [];
 
 /**
  * MCP 서버 카드 HTML 생성
@@ -59,7 +61,7 @@ function createServerCard(server) {
           <span style="font-size: 0.85em; color: var(--vscode-descriptionForeground); ${disabledStyle}">
             (${server.type === "stdio" ? "로컬" : "HTTP"})
           </span>
-          <span class="info-message ${statusClass}-message" style="font-size: 0.85em;">
+          <span class="info-message ${statusClass}-message" style="font-size: 0.85em; margin: 0;">
             ${statusText}
           </span>
         </div>
@@ -97,7 +99,186 @@ function createServerCard(server) {
 }
 
 /**
- * MCP 서버 목록 렌더링
+ * 관리자 MCP 서버 카드 HTML (연결 + 도구만)
+ */
+function createAdminServerCard(server) {
+  const isEnabled = server.enabled !== false;
+  const isRequired = server.enforcement === 'required';
+  const statusClass = !isEnabled
+    ? ""
+    : server.status === "connected"
+      ? "success"
+      : server.status === "error"
+        ? "error"
+        : "";
+  const statusText = !isEnabled
+    ? "비활성"
+    : server.status === "connected"
+      ? "연결됨"
+      : server.status === "error"
+        ? "오류"
+        : "대기";
+  const toolCount = server.tools?.length || 0;
+  const disabledStyle = !isEnabled ? "opacity: 0.5;" : "";
+  const enforcementBadge = isRequired
+    ? '<span class="badge-required">필수</span>'
+    : '<span class="badge-recommended">권장</span>';
+
+  const toolsHtml = server.tools && server.tools.length > 0
+    ? server.tools.map((tool) => `
+        <div style="padding: 6px 8px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; margin-bottom: 4px;">
+          <strong style="font-size: 0.85em;">${tool.name}</strong>
+          <span style="font-size: 0.8em; color: var(--vscode-descriptionForeground); margin-left: 6px;">${tool.description || "설명 없음"}</span>
+        </div>`).join("")
+    : '<p class="info-message" style="margin: 4px 0; font-size: 0.85em;">도구 없음 - 연결 테스트를 실행해주세요</p>';
+
+  // 권장 서버만 토글 표시
+  const toggleHtml = !isRequired ? `
+    <label class="mcp-toggle" title="${isEnabled ? "비활성화" : "활성화"}">
+      <input type="checkbox" class="mcp-toggle-input admin-mcp-toggle-input" data-server-id="${server.id}" ${isEnabled ? "checked" : ""} />
+      <span class="mcp-toggle-slider"></span>
+    </label>` : '';
+
+  return `
+    <div class="api-key-section admin-mcp-server-card" data-server-id="${server.id}" style="margin-bottom: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          ${toggleHtml}
+          <strong style="${disabledStyle}">${server.name}</strong>
+          <span style="font-size: 0.85em; color: var(--vscode-descriptionForeground); ${disabledStyle}">
+            (${server.type === "stdio" ? "로컬" : "HTTP"})
+          </span>
+          ${enforcementBadge}
+          <span class="info-message ${statusClass}-message" style="font-size: 0.85em; margin: 0;">
+            ${statusText}
+          </span>
+        </div>
+        <div style="display: flex; gap: 5px;">
+          <button class="admin-mcp-test-btn" data-server-id="${server.id}" title="연결 테스트" ${!isEnabled ? "disabled" : ""}>
+            연결
+          </button>
+          <button class="admin-mcp-tools-btn" data-server-id="${server.id}" title="도구 목록 토글 (${toolCount}개)" ${!isEnabled ? "disabled" : ""}>
+            도구 ${toolCount}
+          </button>
+        </div>
+      </div>
+      <!-- 인라인 도구 목록 (토글) -->
+      <div class="admin-mcp-inline-tools" data-server-id="${server.id}" style="display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--vscode-panel-border);">
+        <p style="margin: 0 0 6px 0; font-size: 0.85em; font-weight: bold;">도구 목록 (${toolCount}개)</p>
+        ${toolsHtml}
+      </div>
+      <!-- 인라인 테스트 결과 -->
+      <div class="admin-mcp-inline-status" data-server-id="${server.id}" style="display: none; margin-top: 8px; padding: 6px 8px; border-radius: 4px; font-size: 0.85em;">
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * 관리자 MCP 서버 목록 렌더링
+ */
+function renderAdminServerList() {
+  const listEl = document.getElementById("admin-mcp-server-list");
+  const personalLabel = document.getElementById("personal-label-mcp");
+  if (!listEl) return;
+
+  if (adminMcpServers.length === 0) {
+    listEl.style.display = "none";
+    if (personalLabel) personalLabel.style.display = "none";
+    return;
+  }
+
+  listEl.style.display = "block";
+  if (personalLabel) personalLabel.style.display = "flex";
+
+  // preset(super admin)과 org admin/project 설정 분리
+  const teamServers = adminMcpServers.filter(s => s.enforcement !== 'preset' && s.source !== 'project');
+  const projectServers = adminMcpServers.filter(s => s.source === 'project');
+  const presetServers = adminMcpServers.filter(s => s.enforcement === 'preset');
+
+  let html = '';
+
+  // 팀 기본 MCP
+  if (teamServers.length > 0) {
+    html += '<div class="org-settings-section">';
+    html += `<div class="org-settings-header">팀 기본 설정 <span class="org-count">(${teamServers.length})</span></div>`;
+    html += teamServers.map(createAdminServerCard).join("");
+    html += '</div>';
+  }
+
+  // 프로젝트 MCP
+  if (projectServers.length > 0) {
+    html += '<div class="org-settings-section" style="margin-top:8px;">';
+    html += `<div class="org-settings-header" style="color:var(--vscode-button-background);">프로젝트 설정 <span class="org-count">(${projectServers.length})</span></div>`;
+    html += projectServers.map(createAdminServerCard).join("");
+    html += '</div>';
+  }
+
+  // 기본 제공 MCP (preset - super admin 등록)
+  if (presetServers.length > 0) {
+    html += '<div class="org-settings-section">';
+    html += `<div class="org-settings-header">기본 설정 <span class="org-count">(${presetServers.length})</span></div>`;
+    html += presetServers.map(createAdminServerCard).join("");
+    html += '</div>';
+  }
+
+  listEl.innerHTML = html;
+
+  bindAdminServerCardEvents();
+}
+
+/**
+ * 관리자 서버 카드 이벤트 바인딩
+ */
+function bindAdminServerCardEvents() {
+  // 권장 서버 토글
+  document.querySelectorAll(".admin-mcp-toggle-input").forEach((toggle) => {
+    toggle.addEventListener("change", (e) => {
+      const serverId = e.currentTarget.dataset.serverId;
+      const enabled = e.currentTarget.checked;
+      window.vscode?.postMessage({
+        command: "toggleAdminMcpServer",
+        serverId,
+        enabled,
+      });
+    });
+  });
+
+  // 테스트 버튼
+  document.querySelectorAll(".admin-mcp-test-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const serverId = e.currentTarget.dataset.serverId;
+      const statusEl = document.querySelector(
+        `.admin-mcp-inline-status[data-server-id="${serverId}"]`
+      );
+      if (statusEl) {
+        statusEl.style.display = "block";
+        statusEl.style.backgroundColor = "var(--vscode-textBlockQuote-background)";
+        statusEl.textContent = "연결 테스트 중...";
+      }
+      window.vscode?.postMessage({ command: "testMcpServer", serverId });
+    });
+  });
+
+  // 도구 목록 토글
+  document.querySelectorAll(".admin-mcp-tools-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const serverId = e.currentTarget.dataset.serverId;
+      const card = document.querySelector(`.admin-mcp-server-card[data-server-id="${serverId}"]`);
+      const toolsEl = card?.querySelector(`.admin-mcp-inline-tools`);
+      if (toolsEl) {
+        toolsEl.style.display = toolsEl.style.display === "none" ? "block" : "none";
+      }
+    });
+  });
+}
+
+/**
+ * MCP 서버 목록 렌더링 (개인)
  */
 function renderServerList() {
   const listEl = document.getElementById("mcp-server-list");
@@ -223,6 +404,27 @@ function showInlineTestResult(serverId, success, message) {
   setTimeout(() => {
     statusEl.style.display = "none";
   }, 5000);
+}
+
+/**
+ * 관리자 서버 인라인 테스트 결과 표시
+ */
+function showAdminInlineTestResult(serverId, success, message) {
+  const statusEl = document.querySelector(
+    `.admin-mcp-inline-status[data-server-id="${serverId}"]`
+  );
+  if (!statusEl) return;
+
+  statusEl.style.display = "block";
+  if (success) {
+    statusEl.style.backgroundColor = "var(--vscode-testing-iconPassed, #28a745)";
+    statusEl.style.color = "#fff";
+  } else {
+    statusEl.style.backgroundColor = "var(--vscode-testing-iconFailed, #dc3545)";
+    statusEl.style.color = "#fff";
+  }
+  statusEl.textContent = message;
+  setTimeout(() => { statusEl.style.display = "none"; }, 5000);
 }
 
 /**
@@ -579,9 +781,13 @@ export function bindMcpSettingsEvents(vscode) {
 /**
  * MCP 서버 목록 업데이트
  */
-export function updateMcpServers(servers) {
+export function updateMcpServers(servers, adminServersData) {
   mcpServers = servers || [];
+  if (adminServersData !== undefined) {
+    adminMcpServers = adminServersData || [];
+  }
   renderServerList();
+  renderAdminServerList();
 }
 
 /**
@@ -604,7 +810,7 @@ export function updateMcpServerStatus(serverId, status, tools = null) {
 export function handleMcpMessage(data) {
   switch (data.command) {
     case "mcpServers":
-      updateMcpServers(data.servers);
+      updateMcpServers(data.servers, data.adminServers);
       break;
     case "mcpServerAdded":
       if (data.server) {
@@ -628,29 +834,54 @@ export function handleMcpMessage(data) {
     case "mcpServerStatus":
       updateMcpServerStatus(data.serverId, data.status, data.tools);
       break;
-    case "mcpTestResult":
+    case "mcpTestResult": {
+      const isAdminTest = adminMcpServers.some(s => s.id === data.serverId);
       if (data.success) {
-        showInlineTestResult(
-          data.serverId,
-          true,
-          `연결 성공! ${data.toolCount || 0}개 도구 발견`,
-        );
-        updateMcpServerStatus(data.serverId, "connected", data.tools);
+        if (isAdminTest) {
+          showAdminInlineTestResult(data.serverId, true, `연결 성공! ${data.toolCount || 0}개 도구 발견`);
+          const as = adminMcpServers.find(s => s.id === data.serverId);
+          if (as) { as.status = "connected"; if (data.tools) as.tools = data.tools; }
+          renderAdminServerList();
+        } else {
+          showInlineTestResult(data.serverId, true, `연결 성공! ${data.toolCount || 0}개 도구 발견`);
+          updateMcpServerStatus(data.serverId, "connected", data.tools);
+        }
       } else {
-        showInlineTestResult(data.serverId, false, `연결 실패: ${data.error}`);
-        updateMcpServerStatus(data.serverId, "error");
+        if (isAdminTest) {
+          showAdminInlineTestResult(data.serverId, false, `연결 실패: ${data.error}`);
+          const as = adminMcpServers.find(s => s.id === data.serverId);
+          if (as) as.status = "error";
+          renderAdminServerList();
+        } else {
+          showInlineTestResult(data.serverId, false, `연결 실패: ${data.error}`);
+          updateMcpServerStatus(data.serverId, "error");
+        }
       }
       break;
+    }
     case "mcpServerToggled": {
       const server = mcpServers.find((s) => s.id === data.serverId);
       if (server) {
         server.enabled = data.enabled;
-        server.status =
-          data.status || (data.enabled ? "disconnected" : "disconnected");
+        server.status = data.status || "disconnected";
+        if (data.tools) server.tools = data.tools;
         if (!data.enabled) {
           server.tools = [];
         }
         renderServerList();
+      }
+      break;
+    }
+    case "adminMcpServerToggled": {
+      const adminServer = adminMcpServers.find((s) => s.id === data.serverId);
+      if (adminServer) {
+        adminServer.enabled = data.enabled;
+        adminServer.status = data.status || "disconnected";
+        if (data.tools) adminServer.tools = data.tools;
+        if (!data.enabled) {
+          adminServer.tools = [];
+        }
+        renderAdminServerList();
       }
       break;
     }

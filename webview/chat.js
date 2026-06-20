@@ -50,6 +50,7 @@ import {
   displaySystemMessage as displaySystemMessageModule,
   scrollToUserMessage as scrollToUserMessageModule,
   showLoading as showLoadingModule,
+  appendBeforeThinkingBubble,
 } from "./chat/message-display.js";
 // 새로 분리된 모듈들
 import {
@@ -57,6 +58,7 @@ import {
   startStreamingMessage as startStreamingMessageModule,
   appendStreamingChunk as appendStreamingChunkModule,
   endStreamingMessage as endStreamingMessageModule,
+  removeLastMessage as removeLastMessageModule,
   setThinkingBubbleElement as setStreamingThinkingBubble,
 } from "./chat/streaming.js";
 import {
@@ -70,7 +72,27 @@ import {
   showErrorCorrection as showErrorCorrectionModule,
   setThinkingBubbleElement as setProcessingThinkingBubble,
   getThinkingBubbleElement,
+  updateThinkingContent as updateThinkingContentModule,
+  clearThinkingContent as clearThinkingContentModule,
 } from "./chat/processing-steps.js";
+import {
+  setCurrentOllamaModel,
+  requestOllamaModels,
+  setModelLabel,
+  populateModelDropdown,
+  bindModelDropdownEvents,
+} from "./chat/model-selector.js";
+import {
+  applyTheme,
+  updateSendButtonStyle,
+  updateChatContainerPadding,
+  loadLanguage,
+  applyLanguage,
+  setCurrentLanguage,
+  setLanguageData,
+  initLanguageSelect,
+} from "./chat/theme-language.js";
+
 // mention-handler.js 모듈은 chat.js 내부 변수(chatInput, selectedFiles)에 의존하여
 // 현재는 로컬 구현 사용. 향후 완전 분리 시 아래 import 활성화
 // import { initMentionHandler, ... } from "./chat/mention-handler.js";
@@ -100,11 +122,55 @@ if (
 }
 const vscode = window.vscode || null;
 
+// ═══════════ 로그인 게이트 (Google OAuth) ═══════════
+(function initLoginGate() {
+  const loginScreen = document.getElementById("chat-login-screen");
+  const chatApp = document.getElementById("chat-app");
+  const googleBtn = document.getElementById("chat-google-login-btn");
+  const loginError = document.getElementById("chat-login-error");
+
+  if (!loginScreen || !chatApp || !googleBtn) return;
+
+  // Google 로그인 버튼 클릭
+  googleBtn.addEventListener("click", () => {
+    if (!vscode) return;
+    googleBtn.disabled = true;
+    googleBtn.style.opacity = "0.7";
+    if (loginError) loginError.style.display = "none";
+    vscode.postMessage({ command: "loginWithGoogle" });
+  });
+
+  // 부팅 시 인증 상태 확인 요청
+  if (vscode) {
+    vscode.postMessage({ command: "checkAuthState" });
+  }
+
+  // 전역 함수: 로그인/채팅 화면 전환
+  window._showChat = function () {
+    loginScreen.style.display = "none";
+    chatApp.style.display = "";
+  };
+  window._showLogin = function (errorMsg) {
+    loginScreen.style.display = "flex";
+    chatApp.style.display = "none";
+    googleBtn.disabled = false;
+    googleBtn.style.opacity = "1";
+    if (errorMsg && loginError) {
+      loginError.textContent = errorMsg;
+      loginError.style.display = "block";
+    }
+  };
+})();
+
 // ===== 처리 단계 및 스크롤 관련 함수들 (모듈 래퍼) =====
 // 실제 구현은 ./chat/processing-steps.js 모듈에 있음
 
 function setProcessingStep(stepName) {
   setProcessingStepModule(stepName);
+  // done 단계에서 thinking content 정리
+  if (stepName === "done") {
+    clearThinkingContentModule();
+  }
 }
 
 function updateProcessingStatus(stepName, status) {
@@ -134,8 +200,8 @@ function showErrorCorrection(originalCommand, correctedCommand, retryCount) {
 // ===== 스트리밍 메시지 처리 함수들 (모듈 래퍼) =====
 // 실제 구현은 ./chat/streaming.js 모듈에 있음
 
-function startStreamingMessage(sender) {
-  startStreamingMessageModule(sender);
+function startStreamingMessage(sender, meta) {
+  startStreamingMessageModule(sender, meta);
 }
 
 function appendStreamingChunk(chunk) {
@@ -144,6 +210,95 @@ function appendStreamingChunk(chunk) {
 
 function endStreamingMessage() {
   endStreamingMessageModule();
+}
+
+/**
+ * 마지막 CODEPILOT 메시지에 토큰 뱃지를 추가합니다.
+ */
+function appendTokenBadgeToLastMessage(tokenInfo) {
+  const chatMessages = document.getElementById("chat-messages");
+  if (!chatMessages) return;
+
+  // 마지막 codepilot 메시지 컨테이너 찾기
+  const containers = chatMessages.querySelectorAll(
+    ".codepilot-message-container",
+  );
+  if (containers.length === 0) return;
+  const lastContainer = containers[containers.length - 1];
+
+  // 이미 토큰 뱃지가 있으면 업데이트
+  let badge = lastContainer.querySelector(".message-token-badge");
+  if (!badge) {
+    badge = document.createElement("div");
+    badge.className = "message-token-badge";
+    lastContainer.appendChild(badge);
+  }
+
+  const tokens = tokenInfo.tokens || 0;
+  const model = tokenInfo.model || "";
+  const formattedTokens =
+    tokens >= 1000 ? (tokens / 1000).toFixed(1) + "K" : tokens.toString();
+
+  badge.textContent = `${formattedTokens} tokens`;
+  if (model) {
+    badge.title = `Model: ${model} | Tokens: ${tokens.toLocaleString()}`;
+  } else {
+    badge.title = `Tokens: ${tokens.toLocaleString()}`;
+  }
+}
+
+/**
+ * 참조 추적 패널을 마지막 메시지에 추가합니다.
+ */
+function appendReferencePanelToLastMessage(referenceInfo) {
+  const chatMessages = document.getElementById("chat-messages");
+  if (
+    !chatMessages ||
+    !referenceInfo ||
+    !referenceInfo.items ||
+    referenceInfo.items.length === 0
+  )
+    return;
+
+  // 기존 참조 패널이 있으면 업데이트, 없으면 chat-messages 레벨에 삽입 (turn-actions 앞)
+  let panel = chatMessages.querySelector(".reference-panel");
+  if (!panel) {
+    panel = document.createElement("div");
+    panel.className = "reference-panel";
+    // turn-actions가 있으면 그 앞에, 없으면 맨 뒤에 삽입
+    const turnActions = chatMessages.querySelector(".turn-actions");
+    if (turnActions) {
+      chatMessages.insertBefore(panel, turnActions);
+    } else {
+      chatMessages.appendChild(panel);
+    }
+  }
+
+  const typeLabels = {
+    rag: "RAG",
+    local_rule: "Rule",
+    local_skill: "Skill",
+    server_rule: "Rule",
+    server_skill: "Skill",
+  };
+
+  const listItems = referenceInfo.items
+    .map((item, idx) => {
+      const typeLabel = typeLabels[item.type] || item.type;
+      const chunkLabel = item.type === "rag" ? ` #${idx + 1}` : "";
+      const similarity =
+        item.similarity != null
+          ? ` (${(item.similarity * 100).toFixed(0)}%)`
+          : "";
+      return `<div class="ref-item"><span class="ref-type ${item.type}">${typeLabel}${chunkLabel}</span><span>${item.name}${similarity}</span></div>`;
+    })
+    .join("");
+
+  panel.innerHTML = `<div class="reference-panel-toggle" onclick="var icon=this.querySelector('.toggle-icon');if(icon)icon.classList.toggle('expanded');var next=this.nextElementSibling;if(next)next.classList.toggle('show')"><span class="toggle-icon">&#9654;</span> ${referenceInfo.items.length}개 참조</div><div class="reference-panel-list">${listItems}</div>`;
+}
+
+function removeLastMessage() {
+  removeLastMessageModule();
 }
 
 // ===== 스트리밍 메시지 처리 함수들 끝 =====
@@ -160,14 +315,13 @@ const chatInput = document.getElementById("chat-input");
 const chatMessages = document.getElementById("chat-messages"); // 스크롤 컨테이너
 const clearHistoryButton = document.getElementById("clear-history-button"); // Clear History 버튼 참조
 const cancelButton = document.getElementById("cancel-call-button"); // Cancel 버튼 참조
+const queueSendButton = document.getElementById("queue-send-button"); // 다시 보내기 버튼
 const imagePreviewContainer = document.getElementById(
   "image-preview-container",
 );
 const imagePreview = document.getElementById("image-preview");
 const removeImageButton = document.getElementById("remove-image-button");
-const modelSelectorButton = document.getElementById("model-selector");
 const modelDropdown = document.getElementById("model-dropdown");
-const modelLabel = document.getElementById("model-label");
 
 // 파일 선택 관련 요소들 (상단 영역은 더 이상 사용하지 않음)
 // const fileSelectionArea = document.getElementById("file-selection-area");
@@ -175,8 +329,6 @@ const modelLabel = document.getElementById("model-label");
 // const clearFilesButton = document.getElementById("clear-files-button");
 const filePickerButton = document.getElementById("file-picker-button");
 let currentMode = window.chatMode || "CODE";
-let currentOllamaModel = "";
-let availableOllamaModels = [];
 
 // 채팅 컨테이너 참조 추가
 const chatContainer = document.getElementById("chat-container");
@@ -186,7 +338,14 @@ let thinkingBubbleElement = null;
 let selectedImageBase64 = null; // Base64 인코딩된 이미지 데이터를 저장할 변수
 let selectedImageMimeType = null; // 이미지 MIME 타입 저장
 let selectedFiles = []; // 선택된 파일 목록
+
+// 히스토리 lazy loading 상태
+let _historyHasMore = false;
+let _historyLoading = false;
+let _prependBuffer = null; // prepend 중 임시 컨테이너
+let selectedEditorCode = null; // 에디터에서 선택된 코드 { text, fileName, lineStart, lineEnd }
 let loadingDepth = 0; // 중첩 로딩 상태(에러 우선 처리 대비)
+let isPendingSend = false; // doSendUserMessage 호출 후 showLoading 수신 전 Race Condition 방지
 let pendingQuestions = []; // 대기 중 사용자 질문 큐
 let mentionObserver = null; // MutationObserver for mention restoration
 let isRestoringMentions = false; // 멘션 복원 중 플래그 (무한 루프 방지)
@@ -681,24 +840,45 @@ function updatePendingQueueUI() {
   } else {
     pendingQueueArea.classList.remove("visible");
   }
-  // 렌더링
-  pendingQueueArea.innerHTML = "";
-  pendingQuestions.forEach((item) => {
+
+  // 카운트 업데이트
+  const countEl = document.getElementById("queue-header-count");
+  if (countEl) {
+    countEl.textContent =
+      pendingQuestions.length > 0 ? `(${pendingQuestions.length})` : "";
+  }
+
+  // 아이템 목록 렌더링
+  const itemsList = document.getElementById("queue-items-list");
+  if (!itemsList) return;
+  itemsList.innerHTML = "";
+  pendingQuestions.forEach((item, idx) => {
     const el = document.createElement("div");
     el.className = "pending-item";
+
+    const indexSpan = document.createElement("span");
+    indexSpan.className = "queue-index";
+    indexSpan.textContent = `${idx + 1}.`;
+
     const textSpan = document.createElement("span");
     textSpan.className = "text";
     textSpan.title = item.text || "";
     textSpan.textContent = (item.text || "").trim() || "(image/files only)";
+
     const cancelBtn = document.createElement("button");
     cancelBtn.className = "cancel-btn";
-    cancelBtn.textContent = "×";
-    cancelBtn.addEventListener("click", () =>
-      removePendingQuestionById(item.id),
-    );
+    // outline 스타일 휴지통 아이콘
+    cancelBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><polyline points="1.5,4 14.5,4"/><path d="M5,4V2h6v2"/><path d="M3.5,4l1,9h7l1-9"/><line x1="6.5" y1="7" x2="6.5" y2="10.5"/><line x1="9.5" y1="7" x2="9.5" y2="10.5"/></svg>`;
+    cancelBtn.title = "삭제";
+    cancelBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      removePendingQuestionById(item.id);
+    });
+
+    el.appendChild(indexSpan);
     el.appendChild(textSpan);
     el.appendChild(cancelBtn);
-    pendingQueueArea.appendChild(el);
+    itemsList.appendChild(el);
   });
 
   // UI 높이 변경 반영
@@ -706,7 +886,7 @@ function updatePendingQueueUI() {
 }
 
 function sendNextQueuedQuestionIfIdle() {
-  if (loadingDepth > 0) {
+  if (loadingDepth > 0 || isPendingSend) {
     return;
   }
   if (pendingQuestions.length === 0) {
@@ -723,18 +903,29 @@ function doSendUserMessage(payload) {
   const img = payload.imageData || null;
   const imgMime = payload.imageMimeType || null;
   const files = payload.selectedFiles || [];
+  const selectedCode = payload.selectedCode || null;
   const mode = payload.mode || currentMode || "CODE";
   const terminalCtx = payload.terminalContext || null;
   const diagnosticsCtx = payload.diagnosticsContext || null;
   const alreadyDisplayed = payload.alreadyDisplayed || false;
 
+  isPendingSend = true; // showLoading 수신 전 Race Condition 방지
   updateSendCancelButtons(true); // 전송 시작 시 중지 버튼으로 스왑
 
   // 큐에서 온 메시지가 아닌 경우에만 표시 (큐 메시지는 이미 표시됨)
   if (!alreadyDisplayed) {
-    // 입력창의 실제 내용을 그대로 표시 (입력 순서대로)
-    const displayText = getChatInputDisplayContent().trimEnd();
-    window.displayUserMessage(displayText, img);
+    // payload.displayText 우선, 없으면 입력창 내용 사용 (큐 메시지는 payload에 저장됨)
+    const displayText = (
+      payload.displayText || getChatInputDisplayContent()
+    ).trimEnd();
+    const codeInfo = payload.selectedCode
+      ? {
+          fileName: payload.selectedCodeFileName || "",
+          lineStart: payload.selectedCodeLineStart || 0,
+          lineEnd: payload.selectedCodeLineEnd || 0,
+        }
+      : null;
+    window.displayUserMessage(displayText, img, codeInfo);
   }
   window.showLoading();
   vscode.postMessage({
@@ -743,6 +934,7 @@ function doSendUserMessage(payload) {
     imageData: img,
     imageMimeType: imgMime,
     selectedFiles: files,
+    selectedCode: selectedCode,
     terminalContext: terminalCtx,
     diagnosticsContext: diagnosticsCtx,
     mode,
@@ -773,11 +965,23 @@ function createSlashMenu() {
 }
 
 function renderSlashMenu(filter = "") {
-  renderSlashMenuModule(filter, chatInput, setCursorToEnd, vscode, autoResizeTextarea);
+  renderSlashMenuModule(
+    filter,
+    chatInput,
+    setCursorToEnd,
+    vscode,
+    autoResizeTextarea,
+  );
 }
 
 function selectSlashCategory(categoryId) {
-  selectSlashCategoryModule(categoryId, chatInput, setCursorToEnd, vscode, autoResizeTextarea);
+  selectSlashCategoryModule(
+    categoryId,
+    chatInput,
+    setCursorToEnd,
+    vscode,
+    autoResizeTextarea,
+  );
 }
 
 function hideSlashMenu() {
@@ -1065,6 +1269,20 @@ function selectFileFromAtMenu(filePath, fileName) {
   chatInput.focus();
 }
 
+// 큐 헤더 토글 (접기/펼치기)
+const queueHeader = document.getElementById("queue-header");
+if (queueHeader && pendingQueueArea) {
+  queueHeader.addEventListener("click", () => {
+    pendingQueueArea.classList.toggle("collapsed");
+    setTimeout(() => updateChatContainerPadding(), 0);
+  });
+}
+
+// 다시 보내기 버튼 (처리 중 입력 있을 때 표시)
+if (queueSendButton) {
+  queueSendButton.addEventListener("click", handleSendMessage);
+}
+
 // 메시지 전송 로직 (기존 코드 유지 - 절대 수정 금지 영역)
 if (sendButton && chatInput) {
   sendButton.addEventListener("click", handleSendMessage);
@@ -1242,7 +1460,9 @@ if (sendButton && chatInput) {
         } else if (e.key === "Enter") {
           e.preventDefault();
           if (filteredCategories[slashState.selectedIndex]) {
-            selectSlashCategory(filteredCategories[slashState.selectedIndex].id);
+            selectSlashCategory(
+              filteredCategories[slashState.selectedIndex].id,
+            );
           }
           return;
         } else if (e.key === "Escape") {
@@ -1252,7 +1472,8 @@ if (sendButton && chatInput) {
         }
       } else {
         // 명령어 모드
-        const commands = slashCommandsByCategory[slashState.selectedCategory] || [];
+        const commands =
+          slashCommandsByCategory[slashState.selectedCategory] || [];
         // 입력값에서 카테고리 부분 제거하여 필터 생성 (예: "/git commit" -> "commit")
         const inputValue = getChatInputValue();
         const categoryPrefix = `/${slashState.selectedCategory} `;
@@ -1375,6 +1596,19 @@ if (sendButton && chatInput) {
   chatInput.addEventListener("input", function (e) {
     autoResizeTextarea();
 
+    // 입력 내용에 따라 버튼 전환
+    if (loadingDepth > 0 || isPendingSend) {
+      // 처리 중: Stop ↔ 다시 보내기
+      const hasContent =
+        getChatInputText().trim() !== "" ||
+        !!selectedImageBase64 ||
+        selectedFiles.length > 0;
+      updateSendCancelButtons(hasContent ? "queue" : true);
+    } else {
+      // 대기 중: Send ↔ Stop(비활성)
+      updateSendCancelButtons(false);
+    }
+
     // 브라우저가 멘션 스팬을 텍스트로 변환했을 수 있으므로 먼저 복원 시도
     // '@' 메뉴가 열려있을 때도 복원은 수행 (타이핑 중 변환된 멘션 복구)
     restoreMentionsFromText();
@@ -1391,8 +1625,12 @@ if (sendButton && chatInput) {
     const lastSlashIndex = value.lastIndexOf("/");
 
     // '@' 입력 감지 (가장 마지막 '@' 이후에 스페이스가 없을 때만)
+    // '@' 앞이 공백이거나 줄 시작일 때만 멘션으로 인식 (git@github.com 등 방지)
+    const isValidMention =
+      lastAtIndex === 0 || /\s/.test(value[lastAtIndex - 1]);
     if (
       lastAtIndex !== -1 &&
+      isValidMention &&
       (lastSlashIndex === -1 || lastAtIndex > lastSlashIndex)
     ) {
       const afterAt = value.substring(lastAtIndex + 1);
@@ -1416,7 +1654,10 @@ if (sendButton && chatInput) {
           // 카테고리에 따라 모드 설정
           const targetMode = category.id === "terminal" ? "terminal" : "files";
           const currentAtState = getAtMenuState();
-          if (currentAtState.mode !== targetMode || currentAtState.selectedCategory !== category.id) {
+          if (
+            currentAtState.mode !== targetMode ||
+            currentAtState.selectedCategory !== category.id
+          ) {
             setAtMenuMode(targetMode);
             setSelectedAtCategory(category.id);
             setAtMenuSelectedIndex(0);
@@ -1614,15 +1855,38 @@ function handleSendMessage() {
     selectedImageBase64 ||
     selectedFiles.length > 0 ||
     selectedTerminalContext ||
-    selectedDiagnosticsContext
+    selectedDiagnosticsContext ||
+    selectedEditorCode
   ) {
     // 텍스트, 이미지, 선택된 파일, 터미널 컨텍스트, 또는 Diagnostics 컨텍스트가 있을 때만 전송
+    // 큐 진입 시 표시할 텍스트를 미리 캡처 (입력창 클리어 전)
+    const displayText = getChatInputDisplayContent().trimEnd();
+    // 에디터 선택이 있으면 text(userQuery)에 라벨 접두어 추가 → 히스토리에 보존
+    let finalText = text;
+    if (selectedEditorCode) {
+      const li =
+        selectedEditorCode.lineStart === selectedEditorCode.lineEnd
+          ? `L${selectedEditorCode.lineStart}`
+          : `L${selectedEditorCode.lineStart}-${selectedEditorCode.lineEnd}`;
+      finalText = `${selectedEditorCode.fileName} ${li} ${text}`;
+    }
     const payload = {
       id: generateId(),
-      text: text,
+      text: finalText,
+      displayText: displayText, // 큐에서 꺼낼 때 채팅창 표시용
       imageData: selectedImageBase64,
       imageMimeType: selectedImageMimeType,
       selectedFiles: selectedFiles.map((file) => file.path),
+      selectedCode: selectedEditorCode ? selectedEditorCode.text : null,
+      selectedCodeFileName: selectedEditorCode
+        ? selectedEditorCode.fileName
+        : null,
+      selectedCodeLineStart: selectedEditorCode
+        ? selectedEditorCode.lineStart
+        : null,
+      selectedCodeLineEnd: selectedEditorCode
+        ? selectedEditorCode.lineEnd
+        : null,
       terminalContext: selectedTerminalContext
         ? selectedTerminalContext.contextString
         : null,
@@ -1632,14 +1896,10 @@ function handleSendMessage() {
       mode: currentMode,
     };
 
-    if (loadingDepth > 0) {
-      // AI 응답 대기 중: 채팅창에 먼저 출력하고, 큐에 적재(전송은 응답 후)
-      // 채팅 패널에 표시할 내용 (파일 멘션 포함)
-      const displayText = getChatInputDisplayContent().trimEnd();
-      window.displayUserMessage(displayText, selectedImageBase64);
-      // 이미 화면에 표시되었으므로 플래그 설정
-      payload.alreadyDisplayed = true;
+    if (loadingDepth > 0 || isPendingSend) {
+      // AI 응답 대기 중: 채팅창에 표시하지 않고 큐에만 적재 (응답 완료 후 순서대로 전송)
       enqueuePendingQuestion(payload);
+      updateSendCancelButtons(true); // 입력 비워졌으니 Stop 버튼으로
     } else {
       // 즉시 전송 (doSendUserMessage 내부에서 파일 멘션 포함해서 표시)
       doSendUserMessage(payload);
@@ -1654,6 +1914,10 @@ function handleSendMessage() {
     selectedTerminalContext = null;
     // Diagnostics 컨텍스트 초기화
     selectedDiagnosticsContext = null;
+    // 에디터 선택 코드 chip 초기화
+    selectedEditorCode = null;
+    const chipEl = document.getElementById("editor-selection-chip");
+    if (chipEl) chipEl.classList.remove("visible");
     autoResizeTextarea();
     chatInput.focus();
     // 스크롤은 showLoading 시 처리됨
@@ -1712,343 +1976,12 @@ function autoResizeTextarea() {
   updateChatContainerPadding();
 }
 
-function requestOllamaModels() {
-  if (vscode) {
-    vscode.postMessage({ command: "getOllamaModels" });
-  }
-}
-
-function setModelLabel(name, modelType) {
-  if (modelLabel) {
-    modelLabel.textContent = name || "Model";
-  }
-  // 모델 타입에 따라 버튼의 data-model-type 속성 설정 (색상 포인트용)
-  if (modelSelectorButton) {
-    if (modelType === "gemini") {
-      modelSelectorButton.setAttribute("data-model-type", "gemini");
-    } else if (modelType === "banya") {
-      modelSelectorButton.setAttribute("data-model-type", "banya");
-    } else {
-      modelSelectorButton.setAttribute("data-model-type", "ollama");
-    }
-  }
-}
-
-function populateModelDropdown(models, current) {
-  // Gemini 모델 정의
-  const geminiModels = [
-    { name: "gemini-3-pro-preview", displayName: "Gemini 3.0 Pro" },
-    { name: "gemini-3-flash-preview", displayName: "Gemini 3.0 Flash" },
-  ];
-
-  // Banya 모델 정의
-  const banyaModels = [
-    { name: "Banya Solar:100b", displayName: "Banya Solar 100B" },
-    { name: "Banya Qwen-Coder:32b", displayName: "Banya Qwen-Coder 32B" },
-  ];
-
-  // models: [{name, displayName}] 또는 ["name", ...]
-  availableOllamaModels = (models || [])
-    .map((m) => {
-      if (typeof m === "string") {
-        return { name: m, displayName: m };
-      }
-      return {
-        name: m?.name || "",
-        displayName: m?.displayName || m?.name || "",
-      };
-    })
-    .filter((m) => m.name);
-
-  currentOllamaModel = current || "";
-
-  if (!modelDropdown) {
-    return;
-  }
-  modelDropdown.innerHTML = "";
-
-  // Gemini 모델 먼저 추가
-  geminiModels.forEach((m) => {
-    const item = document.createElement("div");
-    item.className = "dropdown-option";
-    if (m.name === currentOllamaModel) {
-      item.classList.add("selected");
-    }
-    item.dataset.model = m.name;
-    item.textContent = m.displayName;
-    item.style.padding = "4px 8px";
-    item.style.cursor = "pointer";
-    item.style.fontSize = "10px";
-    item.style.borderRadius = "4px";
-    item.addEventListener("click", () => {
-      currentOllamaModel = m.name;
-      setModelLabel(m.displayName, "gemini");
-      if (modelDropdown) {
-        modelDropdown.classList.add("hidden");
-        modelDropdown.style.display = "none";
-      }
-      vscode.postMessage({ command: "setGeminiModel", model: m.name });
-    });
-    modelDropdown.appendChild(item);
-  });
-
-  // Gemini와 Banya 사이 구분선
-  if (banyaModels.length > 0) {
-    const divider = document.createElement("div");
-    divider.style.height = "1px";
-    divider.style.backgroundColor = "var(--vscode-panel-border)";
-    divider.style.margin = "4px 0";
-    modelDropdown.appendChild(divider);
-  }
-
-  // Banya 모델 추가
-  banyaModels.forEach((m) => {
-    const item = document.createElement("div");
-    item.className = "dropdown-option";
-    if (m.name === currentOllamaModel) {
-      item.classList.add("selected");
-    }
-    item.dataset.model = m.name;
-    item.textContent = m.displayName;
-    item.style.padding = "4px 8px";
-    item.style.cursor = "pointer";
-    item.style.fontSize = "10px";
-    item.style.borderRadius = "4px";
-    item.addEventListener("click", () => {
-      currentOllamaModel = m.name;
-      setModelLabel(m.displayName, "banya");
-      if (modelDropdown) {
-        modelDropdown.classList.add("hidden");
-        modelDropdown.style.display = "none";
-      }
-      vscode.postMessage({ command: "setBanyaModel", model: m.name });
-    });
-    modelDropdown.appendChild(item);
-  });
-
-  // 구분선 (Ollama 모델이 있을 경우에만)
-  if (availableOllamaModels.length > 0) {
-    const divider = document.createElement("div");
-    divider.style.height = "1px";
-    divider.style.backgroundColor = "var(--vscode-panel-border)";
-    divider.style.margin = "4px 0";
-    modelDropdown.appendChild(divider);
-  }
-
-  // Ollama 모델 추가
-  availableOllamaModels.forEach((m) => {
-    const display = m.displayName || m.name;
-    const item = document.createElement("div");
-    item.className = "dropdown-option";
-    if (m.name === currentOllamaModel) {
-      item.classList.add("selected");
-    }
-    item.dataset.model = m.name;
-    item.textContent = display;
-    item.style.padding = "4px 8px";
-    item.style.cursor = "pointer";
-    item.style.fontSize = "10px";
-    item.style.borderRadius = "4px";
-    item.addEventListener("click", () => {
-      currentOllamaModel = m.name;
-      setModelLabel(display, "ollama");
-      if (modelDropdown) {
-        modelDropdown.classList.add("hidden");
-        modelDropdown.style.display = "none";
-      }
-      vscode.postMessage({ command: "setOllamaModel", model: m.name });
-    });
-    modelDropdown.appendChild(item);
-  });
-
-  // 현재 선택된 모델 라벨 업데이트
-  const allModels = [...geminiModels, ...banyaModels, ...availableOllamaModels];
-  const currentModel = allModels.find((m) => m.name === currentOllamaModel);
-  const currentDisplay =
-    currentModel?.displayName || currentOllamaModel || "Model";
-
-  let modelType = "ollama";
-  if (geminiModels.some((m) => m.name === currentOllamaModel)) {
-    modelType = "gemini";
-  } else if (banyaModels.some((m) => m.name === currentOllamaModel)) {
-    modelType = "banya";
-  }
-
-  setModelLabel(currentDisplay, modelType);
-
-  if (!allModels.length) {
-    const empty = document.createElement("div");
-    empty.className = "dropdown-option";
-    empty.textContent = "모델을 불러올 수 없습니다";
-    empty.style.padding = "6px 10px";
-    modelDropdown.appendChild(empty);
-  }
-}
-
-function bindModelDropdownEvents() {
-  if (!modelSelectorButton || !modelDropdown) {
-    return;
-  }
-
-  const closeDropdown = () => {
-    modelDropdown.classList.add("hidden");
-    modelDropdown.style.display = "none";
-  };
-
-  modelSelectorButton.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const willShow = modelDropdown.classList.contains("hidden");
-    if (willShow) {
-      // 모델 선택 버튼의 위치에 맞춰 드롭다운 위치 조정
-      const buttonRect = modelSelectorButton.getBoundingClientRect();
-      const parentRect =
-        modelSelectorButton.parentElement.getBoundingClientRect();
-
-      // 버튼의 왼쪽 위치를 기준으로 드롭다운 위치 설정
-      const leftOffset = buttonRect.left - parentRect.left;
-      modelDropdown.style.left = leftOffset + "px";
-      modelDropdown.style.right = "auto";
-      modelDropdown.style.width = buttonRect.width + "px";
-
-      modelDropdown.classList.remove("hidden");
-      modelDropdown.style.display = "block";
-    } else {
-      closeDropdown();
-    }
-  });
-
-  document.addEventListener("click", (e) => {
-    if (!modelDropdown.contains(e.target) && e.target !== modelSelectorButton) {
-      closeDropdown();
-    }
-  });
-}
-
 // 모드 변경 이벤트 수신
 window.addEventListener("chat-mode-changed", () => {
   currentMode = window.chatMode || "CODE";
   // 모드 변경 시 보내기 버튼 스타일 업데이트
   updateSendButtonStyle();
 });
-
-// 하단 고정 영역의 높이를 계산하고 채팅 컨테이너의 패딩을 조정하는 함수
-function updateChatContainerPadding() {
-  if (!chatContainer) {
-    return;
-  }
-
-  // 하단 고정 영역의 요소들
-  const bottomFixedArea = document.querySelector(".bottom-fixed-area");
-  const fileSelectionArea = document.getElementById("file-selection-area");
-  const chatInputArea = document.getElementById("chat-input-area");
-  const pendingArea = document.getElementById("pending-queue-area");
-
-  if (!bottomFixedArea || !chatInputArea) {
-    return;
-  }
-
-  // 파일 선택 영역의 높이 (숨겨져 있으면 0)
-  const fileSelectionHeight =
-    fileSelectionArea && !fileSelectionArea.classList.contains("hidden")
-      ? fileSelectionArea.offsetHeight
-      : 0;
-
-  // 대기 큐 영역의 높이 (보이지 않으면 0)
-  let pendingHeight = 0;
-  if (pendingArea) {
-    const isVisible = pendingArea.classList.contains("visible");
-    pendingHeight = isVisible ? pendingArea.offsetHeight : 0;
-  }
-
-  // 입력 영역의 높이
-  const chatInputHeight = chatInputArea.offsetHeight;
-
-  // 전체 하단 고정 영역 높이 계산 (여유 공간 포함)
-  const totalBottomHeight =
-    pendingHeight + fileSelectionHeight + chatInputHeight + 20; // 20px 여유 공간
-
-  // 채팅 컨테이너의 하단 패딩을 동적으로 설정
-  chatContainer.style.paddingBottom = `${totalBottomHeight}px`;
-
-  // console.log(`Bottom area height: ${totalBottomHeight}px (pending: ${pendingHeight}px, file: ${fileSelectionHeight}px, input: ${chatInputHeight}px)`);
-}
-
-// 현재 테마 저장 (전역)
-let currentTheme = "dark";
-
-// 테마 적용 함수
-function applyTheme(theme) {
-  console.log("[Chat] applyTheme called with:", theme);
-  let effectiveTheme = theme;
-
-  if (theme === "auto") {
-    // VS Code 테마 감지 - body의 data-vscode-theme-kind 속성 확인
-    const vscodeThemeKind = document.body.getAttribute(
-      "data-vscode-theme-kind",
-    );
-    console.log("[Chat] VSCode theme kind:", vscodeThemeKind);
-    if (vscodeThemeKind && vscodeThemeKind.includes("light")) {
-      effectiveTheme = "light";
-    } else {
-      effectiveTheme = "dark";
-    }
-  }
-
-  // 현재 테마 저장
-  currentTheme = effectiveTheme;
-
-  // html 요소에 data-theme 속성 설정
-  document.documentElement.setAttribute("data-theme", effectiveTheme);
-  // body에도 설정 (일부 스타일이 body를 기준으로 할 수 있음)
-  document.body.setAttribute("data-theme", effectiveTheme);
-
-  // ASK 모드 보내기 버튼 색상 업데이트
-  updateSendButtonStyle();
-
-  console.log(
-    "[Chat] Theme applied:",
-    effectiveTheme,
-    "html data-theme:",
-    document.documentElement.getAttribute("data-theme"),
-  );
-}
-
-// ASK 모드 보내기 버튼 스타일 업데이트
-function updateSendButtonStyle() {
-  const sendBtn = document.getElementById("send-button");
-  const modeSelector = document.getElementById("mode-selector");
-  if (!sendBtn) {
-    return;
-  }
-
-  const isAskMode = currentMode === "ASK";
-  const iconImg = sendBtn.querySelector(".icon-img");
-
-  if (isAskMode) {
-    // ASK 모드: 테마에 따라 색상 변경
-    sendBtn.classList.add("ask-mode");
-    if (currentTheme === "light") {
-      // 라이트 테마: 블루 계열
-      sendBtn.style.backgroundColor = "#2563EB";
-      sendBtn.style.borderRadius = "50%";
-    } else {
-      // 다크 테마: 그린 계열
-      sendBtn.style.backgroundColor = "#10B981";
-      sendBtn.style.borderRadius = "50%";
-    }
-    if (iconImg) {
-      iconImg.style.filter = "brightness(0) invert(1)";
-    }
-  } else {
-    // CODE 모드: 기본 스타일 복원
-    sendBtn.classList.remove("ask-mode");
-    sendBtn.style.backgroundColor = "transparent";
-    sendBtn.style.borderRadius = "6px";
-    if (iconImg) {
-      iconImg.style.filter = ""; // CSS가 처리하도록 인라인 스타일 제거
-    }
-  }
-}
 
 document.addEventListener("DOMContentLoaded", () => {
   // 모듈 초기화
@@ -2084,18 +2017,47 @@ document.addEventListener("DOMContentLoaded", () => {
     updateChatContainerPadding();
   }, 100); // DOM이 완전히 로드된 후 실행
 
-  // 스크롤 이벤트 리스너 등록 (버블 고정용)
+  // 스크롤 이벤트 리스너 등록 (버블 고정용 + 히스토리 lazy loading)
   if (chatContainer) {
     chatContainer.addEventListener("scroll", handleScroll);
+    chatContainer.addEventListener("scroll", function () {
+      // 스크롤이 맨 위 근처에 도달하면 이전 히스토리 로드
+      if (chatContainer.scrollTop < 50 && _historyHasMore && !_historyLoading) {
+        _historyLoading = true;
+        console.log("[chat.js] Scroll top reached, requesting more history");
+        vscode.postMessage({ command: "loadMoreHistory" });
+      }
+    });
   }
 
   // 모델 목록 요청 및 드롭다운 초기화
   bindModelDropdownEvents();
   requestOllamaModels();
 
+  // 언어 선택 초기화 (이벤트 바인딩 + 초기 언어 요청)
+  initLanguageSelect();
+
   // 테마 설정 요청
   if (vscode) {
     vscode.postMessage({ command: "getChatTheme" });
+  }
+
+  // 에디터 선택 chip dismiss 버튼
+  const editorSelectionChip = document.getElementById("editor-selection-chip");
+  const editorSelectionDismiss = document.getElementById(
+    "editor-selection-chip-dismiss",
+  );
+  if (editorSelectionDismiss) {
+    editorSelectionDismiss.addEventListener("click", () => {
+      selectedEditorCode = null;
+      if (editorSelectionChip) editorSelectionChip.classList.remove("visible");
+      updateChatContainerPadding();
+    });
+  }
+
+  // 웹뷰 초기화 완료 알림 (pending changes/turn actions 복원용)
+  if (vscode) {
+    vscode.postMessage({ command: "webviewLoaded" });
   }
 });
 
@@ -2103,6 +2065,29 @@ window.addEventListener("message", (event) => {
   const message = event.data;
 
   switch (message.command) {
+    // ═══════════ 인증 상태 메시지 ═══════════
+    case "authState": {
+      if (message.loggedIn) {
+        if (typeof window._showChat === "function") window._showChat();
+      } else {
+        if (message.reason === "token_expired") {
+          try {
+            alert(
+              "세션이 만료되어 로그아웃되었습니다.\n\n다시 로그인해 주세요.",
+            );
+          } catch (_) {}
+        }
+        if (typeof window._showLogin === "function") window._showLogin();
+      }
+      break;
+    }
+    case "loginError": {
+      // Google 로그인 에러 → 로그인 화면에 에러 표시
+      if (typeof window._showLogin === "function") {
+        window._showLogin(message.message || "로그인 실패");
+      }
+      break;
+    }
     case "priorityErrorPrompt":
       // 확장 측에서 파일 작업/터미널 에러 우선 처리 요청 → 확장으로 전달하여 즉시 LLM 호출
       if (typeof message.text === "string" && message.text.trim().length > 0) {
@@ -2112,8 +2097,38 @@ window.addEventListener("message", (event) => {
         });
       }
       break;
+    case "editorSelectionChanged": {
+      selectedEditorCode = {
+        text: message.text,
+        fileName: message.fileName,
+        lineStart: message.lineStart,
+        lineEnd: message.lineEnd,
+      };
+      const chip = document.getElementById("editor-selection-chip");
+      const chipLabel = document.getElementById("editor-selection-chip-label");
+      if (chip && chipLabel) {
+        const lineInfo =
+          message.lineStart === message.lineEnd
+            ? `L${message.lineStart}`
+            : `L${message.lineStart}-${message.lineEnd}`;
+        chipLabel.textContent = `${message.fileName} ${lineInfo}`;
+        chip.classList.add("visible");
+        updateChatContainerPadding();
+      }
+      break;
+    }
+    case "editorSelectionCleared": {
+      selectedEditorCode = null;
+      const chip = document.getElementById("editor-selection-chip");
+      if (chip) {
+        chip.classList.remove("visible");
+        updateChatContainerPadding();
+      }
+      break;
+    }
     case "showLoading":
       console.log("Received showLoading command.");
+      isPendingSend = false; // 정상적으로 showLoading 받음
       loadingDepth++;
       window.showLoading();
       resetProcessingStatuses();
@@ -2124,6 +2139,7 @@ window.addEventListener("message", (event) => {
       if (loadingDepth > 0) {
         loadingDepth--;
       }
+      isPendingSend = false; // showLoading 미수신 엣지 케이스 방어
       window.hideLoading();
       // 약간의 지연 후, 에러 우선 처리(showLoading 재등장) 기회를 준 뒤 큐 전송
       setTimeout(() => {
@@ -2137,6 +2153,23 @@ window.addEventListener("message", (event) => {
         setProcessingStep(message.step);
       }
       break;
+    case "askQuestion":
+      renderAskQuestionUI(message.title, message.questions, message.requestId);
+      break;
+    case "showPlanApproval":
+      renderPlanApprovalUI(message.planText);
+      break;
+    case "autoPlanExecute": {
+      const planExecText = message.text || "위 계획대로 진행해줘";
+      // Start loading without showing user message (plan approval is the trigger)
+      window.showLoading();
+      vscode.postMessage({
+        command: "sendMessage",
+        text: planExecText,
+        mode: "CODE",
+      });
+      break;
+    }
     case "updateProcessingStatus":
       if (message.step && message.status) {
         updateProcessingStatus(message.step, message.status);
@@ -2155,6 +2188,11 @@ window.addEventListener("message", (event) => {
             hideAutoCorrectingIndicator();
           }
         }
+      }
+      break;
+    case "updateThinkingContent":
+      if (message.text) {
+        updateThinkingContentModule(message.text);
       }
       break;
     case "showGitInfo":
@@ -2183,56 +2221,49 @@ window.addEventListener("message", (event) => {
       }
       break;
     case "ollamaModels":
-      populateModelDropdown(message.models || [], message.current || "");
+      populateModelDropdown(
+        message.models || [],
+        message.current || "",
+        message.adminModels || [],
+        message.supportedModels || [],
+      );
       break;
     case "ollamaModelChanged":
       console.log("[chat] ollamaModelChanged received:", message.model);
       if (message.model) {
-        const _geminiModels = [
-          { name: "gemini-3-pro-preview", displayName: "Gemini 3.0 Pro" },
-          { name: "gemini-3-flash-preview", displayName: "Gemini 3.0 Flash" },
-        ];
-        const _banyaModels = [
-          { name: "Banya Solar:100b", displayName: "Banya Solar 100B" },
-          { name: "Banya Qwen-Coder:32b", displayName: "Banya Qwen-Coder 32B" },
-        ];
-        const _allModels = [
-          ..._geminiModels,
-          ..._banyaModels,
-          ...availableOllamaModels,
-        ];
-        const currentModel = _allModels.find((m) => m.name === message.model);
-        const display = currentModel?.displayName || message.model;
-        currentOllamaModel = message.model;
+        setCurrentOllamaModel(message.model);
 
+        // 드롭다운에서 일치하는 아이템을 찾아 displayName과 modelType 결정
+        let display = message.model;
         let modelType = "ollama";
-        if (_geminiModels.some((m) => m.name === message.model)) {
-          modelType = "gemini";
-        } else if (_banyaModels.some((m) => m.name === message.model)) {
-          modelType = "banya";
-        }
-
-        console.log("[chat] Setting model label:", display, modelType);
-        setModelLabel(display, modelType);
-
-        // 드롭다운의 selected 클래스 업데이트
+        let matchFound = false;
         if (modelDropdown) {
           const allItems = modelDropdown.querySelectorAll(".dropdown-option");
-          console.log(
-            "[chat] Updating dropdown items, total:",
-            allItems.length,
-          );
           allItems.forEach((item) => {
             if (item.dataset.model === message.model) {
-              console.log(
-                "[chat] Marking item as selected:",
-                item.dataset.model,
-              );
+              display = item.textContent || message.model;
               item.classList.add("selected");
+              matchFound = true;
             } else {
               item.classList.remove("selected");
             }
           });
+        }
+        if (message.model.startsWith("supported:")) {
+          modelType = "supported";
+        } else if (message.model.startsWith("admin:")) {
+          modelType = "admin";
+        }
+
+        // 드롭다운에 매칭 아이템이 없으면 전체 모델 리스트 재요청 (드롭다운 미초기화 상태)
+        if (!matchFound) {
+          console.log(
+            "[chat] No matching dropdown item, requesting full model list refresh",
+          );
+          requestOllamaModels();
+        } else {
+          console.log("[chat] Setting model label:", display, modelType);
+          setModelLabel(display, modelType);
         }
       }
       if (message.error) {
@@ -2252,6 +2283,155 @@ window.addEventListener("message", (event) => {
       if (chatMessagesDiv) {
         chatMessagesDiv.innerHTML = "";
       }
+      break;
+
+    case "showInterruptedSession": {
+      const query = message.query || "";
+      const truncatedQuery =
+        query.length > 80 ? query.substring(0, 80) + "..." : query;
+
+      const interruptModal = document.createElement("div");
+      interruptModal.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        display: flex; justify-content: center; align-items: center;
+        z-index: 10000;
+      `;
+
+      const interruptContent = document.createElement("div");
+      interruptContent.style.cssText = `
+        background-color: var(--vscode-editor-background);
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 8px; padding: 20px;
+        max-width: 400px; width: 90%;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      `;
+
+      interruptContent.innerHTML = `
+        <div style="margin-bottom: 16px;">
+          <h3 style="margin: 0 0 12px 0; color: var(--vscode-foreground); font-size: 16px;">이전 작업이 중단되었습니다</h3>
+          <p style="margin: 0 0 8px 0; color: var(--vscode-descriptionForeground); font-size: 13px; line-height: 1.5;">
+            "${truncatedQuery}"
+          </p>
+          <p style="margin: 0; color: var(--vscode-foreground); line-height: 1.4;">
+            이어서 진행하시겠습니까?
+          </p>
+        </div>
+        <div style="display: flex; gap: 12px; justify-content: flex-end;">
+          <button id="dismiss-interrupted" style="
+            padding: 8px 16px;
+            border: 1px solid var(--vscode-panel-border);
+            background-color: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            border-radius: 4px; cursor: pointer; font-size: 14px;
+          ">무시</button>
+          <button id="resume-interrupted" style="
+            padding: 8px 16px; border: none;
+            background-color: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            border-radius: 4px; cursor: pointer; font-size: 14px;
+          ">이어서 진행</button>
+        </div>
+      `;
+
+      interruptModal.appendChild(interruptContent);
+      document.body.appendChild(interruptModal);
+
+      document
+        .getElementById("dismiss-interrupted")
+        .addEventListener("click", () => {
+          document.body.removeChild(interruptModal);
+        });
+
+      document
+        .getElementById("resume-interrupted")
+        .addEventListener("click", () => {
+          document.body.removeChild(interruptModal);
+          vscode.postMessage({
+            command: "sendMessage",
+            text: query,
+            mode: "CODE",
+            promptType: "code_generation",
+          });
+        });
+      break;
+    }
+
+    case "scrollToBottom":
+      if (chatMessages) {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+      break;
+
+    // ═══════════ 히스토리 lazy loading ═══════════
+    case "historyMeta":
+      _historyHasMore = message.hasMore;
+      _historyLoading = false;
+      console.log(
+        `[chat.js] historyMeta: hasMore=${message.hasMore}, loaded=${message.loadedCount}/${message.totalCount}`,
+      );
+      break;
+
+    case "prependHistoryStart":
+      // prepend 시작 — 스크롤 위치 보존을 위해 현재 높이 기록
+      if (chatMessages) {
+        chatMessages._prevScrollHeight = chatMessages.scrollHeight;
+        chatMessages._prevScrollTop = chatMessages.scrollTop;
+      }
+      _prependBuffer = document.createDocumentFragment();
+      break;
+
+    case "prependUserMessage": {
+      if (!_prependBuffer || !chatMessages) break;
+      const userDiv = document.createElement("div");
+      userDiv.className = "user-message-container";
+      const bubble = document.createElement("div");
+      bubble.className = "user-message";
+      bubble.textContent = message.text;
+      userDiv.appendChild(bubble);
+      _prependBuffer.appendChild(userDiv);
+      break;
+    }
+
+    case "prependMessage": {
+      if (!_prependBuffer || !chatMessages) break;
+      const msgDiv = document.createElement("div");
+      if (message.sender === "CODEPILOT") {
+        msgDiv.className = "codepilot-message-container";
+        // renderCodePilotContent로 라이브 메시지와 동일하게 렌더링
+        const rendered = renderCodePilotContent(message.text);
+        if (rendered) {
+          msgDiv.appendChild(rendered);
+        } else {
+          const msgBubble = document.createElement("div");
+          msgBubble.className = "message-bubble";
+          msgBubble.textContent = message.text;
+          msgDiv.appendChild(msgBubble);
+        }
+      } else {
+        msgDiv.className = "system-message";
+        msgDiv.textContent = message.text;
+      }
+      _prependBuffer.appendChild(msgDiv);
+      break;
+    }
+
+    case "prependHistoryEnd":
+      // prepend 완료 — DOM에 삽입 후 스크롤 위치 보존
+      if (_prependBuffer && chatMessages) {
+        chatMessages.insertBefore(_prependBuffer, chatMessages.firstChild);
+        // 스크롤 위치 보존: 새로 추가된 높이만큼 스크롤 이동
+        const newScrollHeight = chatMessages.scrollHeight;
+        const addedHeight =
+          newScrollHeight - (chatMessages._prevScrollHeight || 0);
+        chatMessages.scrollTop =
+          (chatMessages._prevScrollTop || 0) + addedHeight;
+        console.log(
+          `[chat.js] Prepended history, added height: ${addedHeight}px`,
+        );
+      }
+      _prependBuffer = null;
+      _historyLoading = false;
       break;
 
     case "receiveMessage":
@@ -2306,7 +2486,11 @@ window.addEventListener("message", (event) => {
         fileList = message.files;
         // '@' 메뉴가 열려있고 파일 모드면 다시 렌더링
         const atStateFileList = getAtMenuState();
-        if (atStateFileList.visible && atStateFileList.mode === "files" && chatInput) {
+        if (
+          atStateFileList.visible &&
+          atStateFileList.mode === "files" &&
+          chatInput
+        ) {
           const currentValue = getChatInputValue();
           const atIndex = currentValue.lastIndexOf("@");
           if (atIndex !== -1) {
@@ -2372,17 +2556,17 @@ window.addEventListener("message", (event) => {
       break;
     case "currentLanguage":
       if (message.language) {
-        currentLanguage = message.language;
-        if (languageSelect) {
-          languageSelect.value = currentLanguage;
+        setCurrentLanguage(message.language);
+        const langSel = document.getElementById("language-select");
+        if (langSel) {
+          langSel.value = message.language;
         }
-        loadLanguage(currentLanguage);
+        loadLanguage(message.language);
       }
       break;
     case "languageDataReceived":
       if (message.language && message.data) {
-        languageData = message.data;
-        currentLanguage = message.language;
+        setLanguageData(message.data, message.language);
         sessionStorage.setItem("codepilotLang", message.language);
 
         applyLanguage();
@@ -2410,7 +2594,7 @@ window.addEventListener("message", (event) => {
         "[Streaming] Starting streaming message from:",
         message.sender,
       );
-      startStreamingMessage(message.sender);
+      startStreamingMessage(message.sender, message.meta);
       break;
 
     case "streamMessageChunk":
@@ -2423,21 +2607,120 @@ window.addEventListener("message", (event) => {
       console.log("[Streaming] Ending streaming message");
       endStreamingMessage();
       break;
+
+    case "updateMessageTokenInfo":
+      if (message.tokenInfo) {
+        appendTokenBadgeToLastMessage(message.tokenInfo);
+      }
+      break;
+
+    case "updateReferenceInfo":
+      if (message.referenceInfo) {
+        appendReferencePanelToLastMessage(message.referenceInfo);
+      }
+      break;
+
+    case "showTurnActions":
+      // 파일 diff 완료 후, review 스트리밍 전에 턴 액션 삽입
+      if (message.turns) {
+        window._latestTurnStats = message.turns;
+      }
+      if (typeof window._flushPendingTurnActions === "function") {
+        window._flushPendingTurnActions();
+      }
+      break;
+
+    case "removeLastMessage":
+      console.log("[Streaming] Removing last message (natural language retry)");
+      removeLastMessage();
+      break;
+
+    case "showSuggestions":
+      renderSuggestions(message.suggestions);
+      break;
   }
 });
+
+// --- Prompt Suggestion 렌더링 ---
+function renderSuggestions(suggestions) {
+  // Remove existing suggestions
+  const existing = document.querySelector(".suggestion-container");
+  if (existing) existing.remove();
+
+  if (!suggestions || suggestions.length === 0) return;
+
+  const container = document.createElement("div");
+  container.className = "suggestion-container";
+
+  const label = document.createElement("div");
+  label.className = "suggestion-label";
+  label.textContent = "다음 작업 제안";
+  container.appendChild(label);
+
+  const optionsDiv = document.createElement("div");
+  optionsDiv.className = "suggestion-options";
+
+  suggestions.forEach((s) => {
+    const btn = document.createElement("button");
+    btn.className = "suggestion-btn";
+    btn.textContent = s.text;
+    btn.title = s.prompt;
+    btn.addEventListener("click", () => {
+      container.remove();
+      if (chatInput) {
+        chatInput.textContent = s.prompt;
+        handleSendMessage();
+      }
+    });
+    optionsDiv.appendChild(btn);
+  });
+
+  container.appendChild(optionsDiv);
+
+  // Insert at end of chat messages
+  const chatMessages = document.getElementById("chat-messages");
+  if (chatMessages) {
+    chatMessages.appendChild(container);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+}
 
 // --- UI 업데이트 및 마크다운 렌더링 관련 함수 정의 ---
 // 메시지 표시 함수들 - 모듈 래퍼
 
 // 사용자 메시지 표시
-function displayUserMessage(text, imageData = null) {
-  return displayUserMessageModule(text, imageData, chatMessages, scrollToUserMessage);
+function displayUserMessage(text, imageData = null, selectedCodeInfo = null) {
+  const container = displayUserMessageModule(
+    text,
+    imageData,
+    chatMessages,
+    scrollToUserMessage,
+  );
+  // 에디터 선택 코드가 있으면 메시지 버블 아래에 badge 추가
+  if (container && selectedCodeInfo) {
+    const badge = document.createElement("span");
+    badge.className = "editor-selection-badge";
+    const lineInfo =
+      selectedCodeInfo.lineStart === selectedCodeInfo.lineEnd
+        ? `L${selectedCodeInfo.lineStart}`
+        : `L${selectedCodeInfo.lineStart}-${selectedCodeInfo.lineEnd}`;
+    badge.textContent = `⌥ ${selectedCodeInfo.fileName} ${lineInfo}`;
+    const msgEl = container.querySelector(".user-plain-message");
+    if (msgEl) msgEl.prepend(badge);
+  }
+  return container;
 }
 
 // 시스템 메시지 표시
 function displaySystemMessage(text) {
   const isLightTheme = document.body.getAttribute("data-theme") === "light";
-  return displaySystemMessageModule(text, chatMessages, isLightTheme, sanitizeHtml, sanitizeOptions);
+  return displaySystemMessageModule(
+    text,
+    chatMessages,
+    isLightTheme,
+    sanitizeHtml,
+    sanitizeOptions,
+  );
 }
 
 // 사용자 메시지로 스크롤
@@ -2470,6 +2753,10 @@ function showLoading() {
 }
 
 // thinking 버블로 스크롤하는 함수 (여러 번 시도)
+// scrollIntoView({ block: "end" })는 버블을 뷰포트 맨 아래에 놓지만,
+// 하단 입력 영역(.bottom-fixed-area)에 가려져 handleScroll이 is-forced-top을 적용함.
+// 대신 chatContainer.scrollTo()로 최대 스크롤하면 padding-bottom: 220px 덕분에
+// 버블이 입력 영역 위에 위치함.
 function scrollToThinkingBubble(thinkingElement) {
   let attempts = 0;
   const maxAttempts = 5;
@@ -2477,12 +2764,13 @@ function scrollToThinkingBubble(thinkingElement) {
   const attemptScroll = () => {
     attempts++;
     if (thinkingElement && thinkingElement.offsetHeight > 0) {
-      // 요소가 실제로 렌더링되었는지 확인
-      thinkingElement.scrollIntoView({
-        behavior: "smooth",
-        block: "end", // 애니메이션을 화면 하단에 위치시킴
-        inline: "nearest",
-      });
+      // chatContainer를 최대 하단으로 스크롤 (padding-bottom이 입력 영역 높이를 보상)
+      if (chatContainer) {
+        chatContainer.scrollTo({
+          top: chatContainer.scrollHeight,
+          behavior: "smooth",
+        });
+      }
       return true; // 성공
     } else if (attempts < maxAttempts) {
       // 아직 요소가 렌더링되지 않았으면 다시 시도
@@ -2490,8 +2778,8 @@ function scrollToThinkingBubble(thinkingElement) {
       return false; // 아직 시도 중
     } else {
       // 최대 시도 횟수 초과 시 fallback
-      if (chatMessages) {
-        chatMessages.scrollTop = chatMessages.scrollHeight;
+      if (chatContainer) {
+        chatContainer.scrollTop = chatContainer.scrollHeight;
       }
       return false; // 실패
     }
@@ -2535,21 +2823,70 @@ function updateSendCancelButtons(isSending) {
   if (!sendButton || !cancelButton) {
     return;
   }
-  if (isSending) {
+  if (isSending === "queue") {
+    // 처리 중 + 입력 있음: 다시 보내기 버튼
+    sendButton.classList.add("hidden");
+    sendButton.style.display = "none";
+    cancelButton.classList.add("hidden");
+    cancelButton.style.display = "none";
+    cancelButton.disabled = true;
+    if (queueSendButton) {
+      queueSendButton.classList.remove("hidden");
+      queueSendButton.style.display = "inline-flex";
+      queueSendButton.style.order = "99";
+      // 모드별 배경색 동기화
+      const mode = window.chatMode || "CODE";
+      const queueIcon = queueSendButton.querySelector(".icon-img");
+      if (mode === "ASK") {
+        queueSendButton.style.backgroundColor = "#10B981";
+        queueSendButton.style.borderRadius = "50%";
+        if (queueIcon) queueIcon.style.filter = "brightness(0) invert(1)";
+      } else if (mode === "PLAN") {
+        queueSendButton.style.backgroundColor = "#2563EB";
+        queueSendButton.style.borderRadius = "50%";
+        if (queueIcon) queueIcon.style.filter = "brightness(0) invert(1)";
+      } else if (mode === "AGENT") {
+        queueSendButton.style.backgroundColor = "#000000";
+        queueSendButton.style.borderRadius = "50%";
+        if (queueIcon) queueIcon.style.filter = "brightness(0) invert(1)";
+      } else {
+        queueSendButton.style.backgroundColor = "transparent";
+        queueSendButton.style.borderRadius = "6px";
+        if (queueIcon) queueIcon.style.filter = "";
+      }
+    }
+  } else if (isSending) {
+    // 처리 중 + 입력 없음: Stop 버튼
     sendButton.classList.add("hidden");
     sendButton.style.display = "none";
     cancelButton.classList.remove("hidden");
     cancelButton.style.display = "inline-flex";
     cancelButton.style.order = "99"; // 오른쪽 끝으로 배치
     cancelButton.disabled = false;
+    if (queueSendButton) {
+      queueSendButton.classList.add("hidden");
+      queueSendButton.style.display = "none";
+    }
   } else {
+    // 대기 중: 입력 내용 있으면 Send, 없으면 Stop(비활성)
+    const hasContent =
+      typeof chatInput !== "undefined" && chatInput
+        ? getChatInputText().trim() !== "" ||
+          !!selectedImageBase64 ||
+          selectedFiles.length > 0
+        : false;
+    if (queueSendButton) {
+      queueSendButton.classList.add("hidden");
+      queueSendButton.style.display = "none";
+    }
     cancelButton.classList.add("hidden");
     cancelButton.style.display = "none";
+    cancelButton.disabled = true;
+    cancelButton.style.order = "0";
     sendButton.classList.remove("hidden");
     sendButton.style.display = "inline-flex";
     sendButton.style.order = "99";
-    cancelButton.style.order = "0";
-    cancelButton.disabled = true;
+    sendButton.disabled = !hasContent;
   }
 }
 
@@ -2586,7 +2923,7 @@ function handleClearHistory() {
 
   warningContent.innerHTML = `
         <div style="margin-bottom: 16px;">
-            <h3 style="margin: 0 0 12px 0; color: var(--vscode-foreground); font-size: 16px;">⚠️ 대화 기록 삭제</h3>
+            <h3 style="margin: 0 0 12px 0; color: var(--vscode-foreground); font-size: 16px;">대화 기록 삭제</h3>
             <p style="margin: 0; color: var(--vscode-foreground); line-height: 1.4;">
                 저장된 모든 대화 기록이 사라집니다.<br>
                 이 작업은 되돌릴 수 없습니다.
@@ -2637,6 +2974,8 @@ function handleClearHistory() {
       // 모듈에도 알림
       setProcessingThinkingBubble(null);
       setStreamingThinkingBubble(null);
+      // 턴 액션(undo/keep) 상태 초기화
+      window._latestTurnStats = [];
       console.log("Chat history cleared.");
     }
 
@@ -2665,32 +3004,21 @@ function handleClearHistory() {
 
 // removeToolTags, sanitizeLastResort -> ./chat/utils.js로 이동
 
-// CODEPILOT 메시지를 코드 블록 제외하고 Markdown 포맷 적용하여 표시
-function displayCodePilotMessage(markdownText) {
-  console.log(
-    "displayCodePilotMessage called with text length:",
-    markdownText.length,
-  );
-  if (!chatMessages) {
-    console.error("chatMessages element not found!");
-    return;
-  }
-  console.log("chatMessages element found, creating message container...");
-
-  // ✅ 1차: 최후 방어선 적용 (tool 태그 완전 차단)
+/**
+ * 마크다운 텍스트를 코드 블록 파싱 + 파일 카드 렌더링하여 DOM 요소로 반환
+ * displayCodePilotMessage와 prependMessage 양쪽에서 재사용
+ * @param {string} markdownText - 마크다운 텍스트
+ * @returns {HTMLElement|null} - 렌더링된 message-bubble 요소, 또는 빈 텍스트면 null
+ */
+function renderCodePilotContent(markdownText) {
+  // 1차: 최후 방어선 적용 (tool 태그 완전 차단)
   let sanitizedText = sanitizeLastResort(markdownText);
   if (!sanitizedText || sanitizedText.trim().length === 0) {
-    console.log(
-      "[displayCodePilotMessage] Empty text after sanitization, skipping",
-    );
-    return;
+    return null;
   }
 
   // 2차: 기존 removeToolTags 적용
   const displayText = removeToolTags(sanitizedText);
-
-  const messageContainer = document.createElement("div");
-  messageContainer.classList.add("codepilot-message-container");
 
   const bubbleElement = document.createElement("div");
   bubbleElement.classList.add("message-bubble");
@@ -3090,11 +3418,36 @@ function displayCodePilotMessage(markdownText) {
     bubbleElement.appendChild(tempHtmlElements.firstChild);
   }
 
-  messageContainer.appendChild(bubbleElement);
-
   addCopyButtonsToCodeBlocks(bubbleElement);
 
-  chatMessages.appendChild(messageContainer);
+  return bubbleElement;
+}
+
+// CODEPILOT 메시지를 코드 블록 제외하고 Markdown 포맷 적용하여 표시
+function displayCodePilotMessage(markdownText) {
+  console.log(
+    "displayCodePilotMessage called with text length:",
+    markdownText.length,
+  );
+  if (!chatMessages) {
+    console.error("chatMessages element not found!");
+    return;
+  }
+  console.log("chatMessages element found, creating message container...");
+
+  const bubbleElement = renderCodePilotContent(markdownText);
+  if (!bubbleElement) {
+    console.log(
+      "[displayCodePilotMessage] Empty text after sanitization, skipping",
+    );
+    return;
+  }
+
+  const messageContainer = document.createElement("div");
+  messageContainer.classList.add("codepilot-message-container");
+  messageContainer.appendChild(bubbleElement);
+
+  appendBeforeThinkingBubble(chatMessages, messageContainer);
 
   // AI 응답이 추가된 후 스크롤을 해당 응답으로 이동
   requestAnimationFrame(() => {
@@ -3217,85 +3570,6 @@ function removeSelectedFile(filePath) {
     autoResizeTextarea();
   }
 }
-
-// 언어별 텍스트 로딩 및 적용
-const languageSelect = document.getElementById("language-select");
-let currentLanguage = "ko"; // 기본값
-let languageData = {};
-
-async function loadLanguage(lang) {
-  try {
-    // console.log('Requesting language data from extension:', lang);
-    // 확장 프로그램에 언어 데이터 요청
-    vscode.postMessage({ command: "getLanguageData", language: lang });
-  } catch (e) {
-    console.error("Failed to load language:", lang, e);
-  }
-}
-
-function applyLanguage() {
-  // 타이틀
-  const chatTitle = document.getElementById("chat-title");
-  if (chatTitle && languageData["chatTitle"]) {
-    chatTitle.textContent = languageData["chatTitle"];
-  }
-
-  // 언어 라벨
-  const languageLabel = document.getElementById("language-label");
-  if (languageLabel && languageData["languageLabel"]) {
-    languageLabel.textContent = languageData["languageLabel"];
-  }
-
-  // Send 버튼
-  const sendButton = document.getElementById("send-button");
-  if (sendButton && languageData["sendButton"]) {
-    sendButton.textContent = languageData["sendButton"];
-  }
-
-  // Clear 버튼
-  const clearButton = document.getElementById("clean-history-button");
-  if (clearButton && languageData["clearButton"]) {
-    clearButton.textContent = languageData["clearButton"];
-  }
-
-  // Cancel 버튼
-  const cancelButton = document.getElementById("cancel-call-button");
-  if (cancelButton && languageData["cancelButton"]) {
-    cancelButton.textContent = languageData["cancelButton"];
-  }
-
-  // 입력창 placeholder
-  const chatInput = document.getElementById("chat-input");
-  if (chatInput && languageData["inputPlaceholder"]) {
-    chatInput.placeholder = languageData["inputPlaceholder"];
-  }
-
-  // 파일 선택 버튼
-  const filePickerButton = document.getElementById("file-picker-button");
-  if (filePickerButton && languageData["filePickerButton"]) {
-    filePickerButton.textContent = languageData["filePickerButton"];
-  }
-
-  console.log("=== applyLanguage completed ===");
-}
-
-if (languageSelect) {
-  languageSelect.addEventListener("change", (e) => {
-    const lang = e.target.value;
-    console.log("Language changed to:", lang);
-    currentLanguage = lang;
-    loadLanguage(lang);
-
-    // 언어 변경 시 즉시 저장 요청
-    vscode.postMessage({ command: "saveLanguage", language: lang });
-  });
-}
-
-// 페이지 로드 시 기본 언어 적용
-window.addEventListener("DOMContentLoaded", () => {
-  // VS Code 설정에서 언어를 가져오도록 요청
-  vscode.postMessage({ command: "getLanguage" });
-});
 
 // --- Link click interception for opening files from AI messages ---
 // 🔥 이벤트 위임 방식 - anchor 태그 클릭 처리
@@ -3718,3 +3992,207 @@ function updateContextInfo(contextInfo) {
 
 // 전역으로 노출
 window.updateContextInfo = updateContextInfo;
+
+// ===== Ask Question UI =====
+function renderAskQuestionUI(title, questions, requestId) {
+  // Remove existing popup if any
+  const existing = document.querySelector(".ask-question-overlay");
+  if (existing) existing.remove();
+
+  const selectedAnswers = {};
+  questions.forEach((q) => {
+    selectedAnswers[q.id] = [];
+  });
+
+  // Create overlay (fixed above input area)
+  const overlay = document.createElement("div");
+  overlay.className = "ask-question-overlay";
+
+  const popup = document.createElement("div");
+  popup.className = "ask-question-popup";
+
+  // Title
+  const titleEl = document.createElement("div");
+  titleEl.className = "ask-question-title";
+  titleEl.textContent = title;
+  popup.appendChild(titleEl);
+
+  // Questions
+  questions.forEach((q) => {
+    const item = document.createElement("div");
+    item.className = "ask-question-item";
+
+    const prompt = document.createElement("div");
+    prompt.className = "ask-question-prompt";
+    prompt.textContent = q.prompt;
+    item.appendChild(prompt);
+
+    const optionsDiv = document.createElement("div");
+    optionsDiv.className = "ask-question-options";
+
+    q.options.forEach((opt) => {
+      const btn = document.createElement("button");
+      btn.className = "ask-question-option";
+      btn.dataset.questionId = q.id;
+      btn.dataset.optionId = opt.id;
+      const labelSpan = document.createElement("strong");
+      labelSpan.textContent = opt.label;
+      btn.appendChild(labelSpan);
+      if (opt.description) {
+        const descSpan = document.createElement("span");
+        descSpan.textContent = " — " + opt.description;
+        descSpan.style.fontWeight = "normal";
+        descSpan.style.opacity = "0.7";
+        descSpan.style.fontSize = "11px";
+        btn.appendChild(descSpan);
+      }
+
+      btn.addEventListener("click", () => {
+        if (q.allowMultiple) {
+          btn.classList.toggle("selected");
+          if (btn.classList.contains("selected")) {
+            selectedAnswers[q.id].push(opt.id);
+          } else {
+            selectedAnswers[q.id] = selectedAnswers[q.id].filter(
+              (id) => id !== opt.id,
+            );
+          }
+        } else {
+          optionsDiv
+            .querySelectorAll(".ask-question-option")
+            .forEach((b) => b.classList.remove("selected"));
+          btn.classList.add("selected");
+          selectedAnswers[q.id] = [opt.id];
+        }
+      });
+
+      optionsDiv.appendChild(btn);
+    });
+
+    item.appendChild(optionsDiv);
+
+    // "Other" free text input
+    const otherDiv = document.createElement("div");
+    otherDiv.className = "ask-question-other";
+    const otherInput = document.createElement("input");
+    otherInput.placeholder = "기타";
+    otherInput.dataset.questionId = q.id;
+    otherDiv.appendChild(otherInput);
+    item.appendChild(otherDiv);
+
+    popup.appendChild(item);
+  });
+
+  // Submit button
+  const submitBtn = document.createElement("button");
+  submitBtn.className = "ask-question-submit";
+  submitBtn.textContent = "선택 완료";
+  submitBtn.addEventListener("click", () => {
+    const finalAnswers = {};
+    questions.forEach((q) => {
+      const otherInput = popup.querySelector(
+        `input[data-question-id="${q.id}"]`,
+      );
+      const otherText = otherInput ? otherInput.value.trim() : "";
+      if (otherText) {
+        finalAnswers[q.id] = [...selectedAnswers[q.id], otherText];
+      } else if (selectedAnswers[q.id].length > 0) {
+        finalAnswers[q.id] = selectedAnswers[q.id];
+      } else {
+        finalAnswers[q.id] = ["(no selection)"];
+      }
+    });
+
+    vscode.postMessage({
+      command: "askQuestionResponse",
+      requestId: requestId,
+      answers: finalAnswers,
+    });
+
+    // Remove popup with fade
+    overlay.style.opacity = "0";
+    overlay.style.transition = "opacity 0.2s";
+    setTimeout(() => overlay.remove(), 200);
+  });
+
+  popup.appendChild(submitBtn);
+  overlay.appendChild(popup);
+
+  // Insert before chat-input-area
+  const inputArea = document.getElementById("chat-input-area");
+  if (inputArea && inputArea.parentNode) {
+    inputArea.parentNode.insertBefore(overlay, inputArea);
+  } else {
+    document.body.appendChild(overlay);
+  }
+}
+
+// ===== Plan Approval UI =====
+function renderPlanApprovalUI(planText) {
+  const chatContainer = document.getElementById("chat-container");
+  if (!chatContainer) return;
+
+  const container = document.createElement("div");
+  container.className = "ask-question-container";
+  container.style.textAlign = "center";
+
+  const title = document.createElement("div");
+  title.className = "ask-question-title";
+  title.textContent = "위 계획을 승인하시겠습니까?";
+  container.appendChild(title);
+
+  const btnRow = document.createElement("div");
+  btnRow.style.display = "flex";
+  btnRow.style.gap = "10px";
+  btnRow.style.justifyContent = "center";
+  btnRow.style.marginTop = "10px";
+
+  const approveBtn = document.createElement("button");
+  approveBtn.className = "ask-question-submit";
+  approveBtn.textContent = "승인 — 실행 시작";
+  approveBtn.addEventListener("click", () => {
+    // Switch to CODE mode and send plan as context
+    const modeSelect = document.getElementById("mode-select");
+    if (modeSelect) modeSelect.value = "CODE";
+
+    // Send message to execute the plan
+    vscode.postMessage({
+      command: "sendMessage",
+      text: "위 계획대로 진행해줘",
+      mode: "CODE",
+    });
+
+    // Replace buttons with confirmation
+    container.innerHTML = "";
+    const done = document.createElement("div");
+    done.className = "ask-question-title";
+    done.textContent = "✓ 승인됨 — 실행을 시작합니다";
+    done.style.opacity = "0.7";
+    container.appendChild(done);
+  });
+
+  const rejectBtn = document.createElement("button");
+  rejectBtn.className = "ask-question-submit";
+  rejectBtn.style.background =
+    "var(--vscode-button-secondary-background, #555)";
+  rejectBtn.style.color = "var(--vscode-button-secondary-foreground, #fff)";
+  rejectBtn.textContent = "거절";
+  rejectBtn.addEventListener("click", () => {
+    container.innerHTML = "";
+    const done = document.createElement("div");
+    done.className = "ask-question-title";
+    done.textContent = "✗ 거절됨 — 계획을 수정하려면 새로 질의하세요";
+    done.style.opacity = "0.5";
+    container.appendChild(done);
+  });
+
+  btnRow.appendChild(approveBtn);
+  btnRow.appendChild(rejectBtn);
+  container.appendChild(btnRow);
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "message-bubble bot";
+  wrapper.appendChild(container);
+  chatContainer.appendChild(wrapper);
+  chatContainer.scrollTop = chatContainer.scrollHeight;
+}

@@ -26,9 +26,11 @@ import { DetailedStack } from './stackTypes';
 import { ICodeParserAdapter } from './codeParser/ICodeParserAdapter';
 import { TreeSitterAdapter } from './codeParser/TreeSitterAdapter';
 import * as vscode from 'vscode';
-import { GeminiApi, OllamaApi, AiModelType } from '../../../services';
+import { OllamaApi, AiModelType } from '../../../services';
 import { AgentConfig } from '../../config/AgentConfig';
 import { getAllExclusionPaths, fileExistsAsync, readdirAsync } from '../../utils';
+import { UsageMetricsManager } from '../state/UsageMetricsManager';
+import { estimateTokens } from '../../../utils';
 
 export class ProjectManager {
     private static instance: ProjectManager;
@@ -124,7 +126,6 @@ export class ProjectManager {
     public async detectProjectTypeFromQuery(
         userQuery: string,
         projectRoot?: string,
-        geminiApi?: GeminiApi,
         ollamaApi?: OllamaApi,
         currentModelType?: AiModelType,
         abortSignal?: AbortSignal
@@ -241,7 +242,7 @@ export class ProjectManager {
 사용자 요청: "${userQuery}"`;
 
             // LLM이 없으면 로컬 감지 결과 반환
-            if (!geminiApi && !ollamaApi) {
+            if (!ollamaApi) {
                 if (localProjectType !== 'unknown') {
                     return {
                         projectType: localProjectType,
@@ -258,9 +259,8 @@ export class ProjectManager {
 
             let response: string;
 
-            if (currentModelType === AiModelType.GEMINI && geminiApi) {
-                response = await geminiApi.sendMessage(projectTypePrompt, undefined, { signal: abortSignal });
-            } else if (currentModelType === AiModelType.OLLAMA && ollamaApi) {
+            const _llmStart = Date.now();
+            if (ollamaApi) {
                 response = await ollamaApi.sendMessage(projectTypePrompt, { signal: abortSignal });
             } else {
                 // LLM을 사용할 수 없으면 로컬 감지 결과 반환
@@ -278,10 +278,15 @@ export class ProjectManager {
                 };
             }
 
+            try {
+                UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, estimateTokens(response), true);
+            } catch { /* metrics should never break main flow */ }
+
             console.log(`[ProjectManager] LLM 프로젝트 타입 감지 응답: ${response}`);
 
-            // JSON 응답 파싱 (LLM 응답만 사용)
-            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            // JSON 응답 파싱 (think 블록 제거 후)
+            const stripped = response.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+            const jsonMatch = stripped.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
                 try {
                     const result = JSON.parse(jsonMatch[0]);
@@ -588,10 +593,11 @@ export class ProjectManager {
                 }
                 break;
             case ProjectType.SPRING_BOOT:
-                commands.install = './mvnw install';
-                commands.build = './mvnw package';
-                commands.test = './mvnw test';
-                commands.start = './mvnw spring-boot:run';
+                const mvnwCmd = process.platform === 'win32' ? 'mvnw.cmd' : './mvnw';
+                commands.install = `${mvnwCmd} install`;
+                commands.build = `${mvnwCmd} package`;
+                commands.test = `${mvnwCmd} test`;
+                commands.start = `${mvnwCmd} spring-boot:run`;
                 break;
             case ProjectType.PYTHON:
             case ProjectType.DJANGO:
@@ -706,6 +712,12 @@ export class ProjectManager {
             [ProjectType.RUBY]: 'Ruby',
             [ProjectType.SWIFT]: 'Swift',
             [ProjectType.C_CPP]: 'C/C++',
+            [ProjectType.NEXTJS]: 'TypeScript/JavaScript',
+            [ProjectType.NUXTJS]: 'TypeScript/JavaScript',
+            [ProjectType.SVELTE]: 'TypeScript/JavaScript',
+            [ProjectType.KOTLIN]: 'Kotlin',
+            [ProjectType.ELIXIR]: 'Elixir',
+            [ProjectType.SCALA]: 'Scala',
             [ProjectType.UNKNOWN]: 'Unknown'
         };
 
@@ -783,7 +795,12 @@ export class ProjectManager {
         try {
             console.log('[ProjectManager] 프로젝트 분석 시작');
             // LLMApiClient의 sendMessage 메서드 사용
-            return await llmApiClient.sendMessage(analysisPrompt);
+            const _llmStart = Date.now();
+            const response = await llmApiClient.sendMessage(analysisPrompt);
+            try {
+                UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, estimateTokens(response), true);
+            } catch { /* metrics should never break main flow */ }
+            return response;
         } catch (error) {
             console.error('[ProjectManager] 프로젝트 분석 중 오류:', error);
             throw error;
@@ -1146,9 +1163,9 @@ export class ProjectManager {
             const items: string[] = [];
 
             const rel = (p: string) => {
-                const norm = p.replace(/\\/g, '/');
-                const rootNorm = projectRoot.replace(/\\/g, '/');
-                return norm.startsWith(rootNorm) ? norm.substring(rootNorm.length + (rootNorm.endsWith('/') ? 0 : 1)) : norm;
+                const result = path.relative(projectRoot, p);
+                // glob/표시용으로 forward slash 통일
+                return result.replace(/\\/g, '/');
             };
 
             // 제외할 디렉토리 목록 (FileExclusionConstants + 커스텀 패턴)

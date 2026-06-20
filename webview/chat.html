@@ -100,6 +100,10 @@
       /* ========== 다크 테마 (그린 계열) ========== */
       body[data-theme="dark"],
       html[data-theme="dark"] body {
+        /* 버튼 색상 - settings와 동일 */
+        --vscode-button-background: #0e639c !important;
+        --vscode-button-foreground: #ffffff !important;
+        --vscode-button-hoverBackground: #1177bb !important;
         /* 커스텀 테마 변수 (그린 계열) */
         --theme-accent-color: #10b981 !important;
         --theme-accent-hover: #059669 !important;
@@ -135,15 +139,18 @@
       }
 
       /* Undo 버튼 - 라이트 테마 */
-      body[data-theme="light"] .undo-button {
+      body[data-theme="light"] .undo-button,
+      body[data-theme="light"] .turn-undo-btn {
         background-color: #f3f4f6 !important;
         color: #374151 !important;
         border: none !important;
       }
-      body[data-theme="light"] .undo-button:hover {
+      body[data-theme="light"] .undo-button:hover,
+      body[data-theme="light"] .turn-undo-btn:hover {
         background-color: #e5e7eb !important;
       }
-      body[data-theme="light"] .undo-button:active {
+      body[data-theme="light"] .undo-button:active,
+      body[data-theme="light"] .turn-undo-btn:active {
         background-color: #d1d5db !important;
       }
 
@@ -368,6 +375,16 @@
       body[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
         background: #6b7280 !important;
       }
+      body[data-theme="light"] #model-dropdown::-webkit-scrollbar-track {
+        background: var(--vscode-editor-background) !important;
+      }
+      body[data-theme="light"] #model-dropdown::-webkit-scrollbar-thumb {
+        background: #d1d5db !important;
+        border-radius: 4px !important;
+      }
+      body[data-theme="light"] #model-dropdown::-webkit-scrollbar-thumb:hover {
+        background: #9ca3af !important;
+      }
 
       /* 아이콘 색상 반전 - 라이트 테마 */
       body[data-theme="light"] .icon-img {
@@ -377,8 +394,10 @@
       body[data-theme="light"] .icon-img:hover {
         opacity: 1 !important;
       }
-      /* ASK 모드 send 버튼 아이콘은 흰색 (배경색이 있을 때만) */
-      body[data-theme="light"] #send-button.ask-mode .icon-img {
+      /* ASK/PLAN/AGENT 모드 send 버튼 아이콘은 흰색 (배경색이 있을 때만) */
+      body[data-theme="light"] #send-button.ask-mode .icon-img,
+      body[data-theme="light"] #send-button.plan-mode .icon-img,
+      body[data-theme="light"] #send-button.agent-mode .icon-img {
         filter: brightness(0) invert(1) !important;
         opacity: 1 !important;
       }
@@ -513,16 +532,7 @@
         background: #00ff00 !important; /* 형광 초록 */
       }
 
-      /* Keep 버튼 - 다크 테마 (그린 계열) */
-      body[data-theme="dark"] .keep-button {
-        background-color: #10b981 !important;
-      }
-      body[data-theme="dark"] .keep-button:hover {
-        background-color: #059669 !important;
-      }
-      body[data-theme="dark"] .keep-button:active {
-        background-color: #047857 !important;
-      }
+      /* Keep 버튼 - 다크 테마: 기본 #73c991 유지 (Keep All과 동일) */
 
       /* ========== 라이트 테마 추가 아이콘 스타일 ========== */
       body[data-theme="light"] .dropdown-icon-img {
@@ -630,6 +640,125 @@
         filter: var(--vscode-icon-foreground-filter);
       }
 
+      /* Ask Question Popup — inline above input controls */
+      .ask-question-overlay {
+        border-top: 1px solid var(--vscode-panel-border);
+        background: var(--vscode-editor-background);
+        padding: 10px 12px;
+        animation: fadeInUp 0.2s ease;
+      }
+      .ask-question-popup {
+        max-height: 300px;
+        overflow-y: auto;
+      }
+      @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .ask-question-title {
+        font-size: 12px;
+        font-weight: 600;
+        margin-bottom: 8px;
+        color: var(--vscode-foreground);
+      }
+      .ask-question-item {
+        margin-bottom: 8px;
+      }
+      .ask-question-prompt {
+        font-size: 12px;
+        font-weight: 500;
+        margin-bottom: 4px;
+        color: var(--vscode-foreground);
+      }
+      .ask-question-options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .ask-question-option {
+        padding: 4px 10px;
+        border-radius: 4px;
+        border: 1px solid var(--vscode-input-border, #555);
+        background: var(--vscode-input-background);
+        color: var(--vscode-input-foreground);
+        cursor: pointer;
+        font-size: 11px;
+        text-align: left;
+        transition: all 0.15s;
+      }
+      .ask-question-option:hover {
+        border-color: var(--vscode-focusBorder);
+        background: var(--vscode-list-hoverBackground);
+      }
+      .ask-question-option.selected {
+        border-color: var(--vscode-button-background);
+        background: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+      }
+      .ask-question-other {
+        display: flex;
+        gap: 6px;
+        margin-top: 6px;
+      }
+      .ask-question-other input {
+        flex: 1;
+        padding: 5px 10px;
+        border-radius: 4px;
+        border: 1px solid var(--vscode-input-border, #555);
+        background: var(--vscode-input-background);
+        color: var(--vscode-input-foreground);
+        font-size: 12px;
+        outline: none;
+      }
+      .ask-question-submit {
+        padding: 8px 20px;
+        border-radius: 6px;
+        border: none;
+        background: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 500;
+        margin-top: 12px;
+        width: 100%;
+      }
+      .ask-question-submit:hover {
+        background: var(--vscode-button-hoverBackground);
+      }
+
+      /* Prompt Suggestion */
+      .suggestion-container {
+        padding: 8px 0;
+        animation: fadeInUp 0.2s ease;
+      }
+      .suggestion-label {
+        font-size: 11px;
+        font-weight: 500;
+        margin-bottom: 6px;
+        color: var(--vscode-descriptionForeground);
+      }
+      .suggestion-options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .suggestion-btn {
+        padding: 4px 10px;
+        border-radius: 4px;
+        border: 1px solid var(--vscode-input-border, #555);
+        background: var(--vscode-input-background);
+        color: var(--vscode-input-foreground);
+        cursor: pointer;
+        font-size: 11px;
+        text-align: left;
+        transition: all 0.15s;
+        white-space: nowrap;
+      }
+      .suggestion-btn:hover {
+        border-color: var(--vscode-focusBorder);
+        background: var(--vscode-list-hoverBackground);
+      }
+
       /* Approval Buttons */
       #approval-buttons-container {
         display: none;
@@ -725,52 +854,113 @@
       /* Pending question queue area */
       #pending-queue-area {
         display: none;
-        flex-direction: row;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 10px;
+        flex-direction: column;
         background-color: var(--vscode-input-background);
         border-bottom: 1px solid var(--vscode-panel-border);
-        overflow-x: auto;
       }
 
       #pending-queue-area.visible {
         display: flex;
       }
 
-      .pending-item {
+      .queue-header {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 8px;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .queue-toggle-btn {
+        background: none;
+        border: none;
+        padding: 0;
         display: inline-flex;
         align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        color: var(--vscode-foreground);
+        opacity: 0.6;
+        flex-shrink: 0;
+        transition: transform 0.15s;
+      }
+
+      #pending-queue-area.collapsed .queue-toggle-btn {
+        transform: rotate(-90deg);
+      }
+
+      .queue-header-label {
+        font-size: 11px;
+        color: var(--vscode-descriptionForeground);
+        font-weight: 500;
+      }
+
+      .queue-header-count {
+        font-size: 11px;
+        color: var(--vscode-descriptionForeground);
+        opacity: 0.7;
+      }
+
+      .queue-items-list {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 0 8px 6px;
+        max-height: 140px;
+        overflow-y: auto;
+      }
+
+      #pending-queue-area.collapsed .queue-items-list {
+        display: none;
+      }
+
+      .pending-item {
+        display: flex;
+        align-items: center;
         gap: 6px;
-        padding: 4px 8px;
+        padding: 3px 8px;
         border: 1px solid var(--vscode-panel-border);
-        border-radius: 12px;
+        border-radius: 6px;
         background: transparent;
         color: var(--vscode-foreground);
         font-size: 12px;
-        white-space: nowrap;
-        max-width: 260px;
+        min-width: 0;
+      }
+
+      .pending-item .queue-index {
+        font-size: 11px;
+        color: var(--vscode-descriptionForeground);
+        opacity: 0.6;
+        flex-shrink: 0;
+        min-width: 14px;
       }
 
       .pending-item .text {
+        flex: 1;
         overflow: hidden;
         text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .pending-item .cancel-btn {
         background: none;
-        border: 1px solid var(--vscode-panel-border);
-        border-radius: 50%;
-        width: 16px;
-        height: 16px;
-        line-height: 14px;
-        text-align: center;
+        border: none;
+        border-radius: 4px;
+        width: 18px;
+        height: 18px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         cursor: pointer;
         color: var(--vscode-foreground);
+        opacity: 0.4;
         padding: 0;
+        flex-shrink: 0;
       }
 
       .pending-item .cancel-btn:hover {
+        opacity: 1;
         background: var(--vscode-button-secondary-hoverBackground);
       }
 
@@ -900,16 +1090,16 @@
         display: none;
       }
 
+      #model-selector {
+        min-width: 120px;
+      }
+
       /* 모델 선택 버튼 색상 포인트 - 제거됨 */
       #model-selector::before {
         display: none;
       }
 
-      #model-selector[data-model-type="gemini"]::before {
-        display: none;
-      }
-
-      #model-selector[data-model-type="banya"]::before {
+      #model-selector[data-model-type="supported"]::before {
         display: none;
       }
 
@@ -1122,6 +1312,138 @@
         flex-shrink: 0;
       }
 
+      /* 참조 추적 패널 */
+      .reference-panel {
+        font-size: 11px;
+        color: var(--vscode-descriptionForeground, #888);
+        margin-top: 6px;
+      }
+      .reference-panel-toggle {
+        cursor: pointer;
+        user-select: none;
+        opacity: 0.7;
+        transition: opacity 0.2s;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .reference-panel-toggle:hover {
+        opacity: 1;
+      }
+      .reference-panel-toggle .toggle-icon {
+        font-size: 8px;
+        transition: transform 0.2s;
+      }
+      .reference-panel-toggle .toggle-icon.expanded {
+        transform: rotate(90deg);
+      }
+      .reference-panel-list {
+        display: none;
+        margin-top: 4px;
+        padding-left: 8px;
+        line-height: 1.6;
+      }
+      .reference-panel-list.show {
+        display: block;
+      }
+      .reference-panel-list .ref-item {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .reference-panel-list .ref-type {
+        font-size: 9px;
+        padding: 0 4px;
+        border-radius: 3px;
+        font-weight: 500;
+      }
+      .ref-type.rag { background: rgba(59,130,246,0.15); color: #3b82f6; }
+      .ref-type.local_rule, .ref-type.local_skill { background: rgba(34,197,94,0.15); color: #22c55e; }
+      .ref-type.server_rule, .ref-type.server_skill { background: rgba(249,115,22,0.15); color: #f97316; }
+
+      /* 메시지별 토큰 뱃지 */
+      .message-token-badge {
+        font-size: 10px;
+        color: var(--vscode-descriptionForeground, #888);
+        opacity: 0.7;
+        padding: 2px 6px;
+        margin-top: 2px;
+        align-self: flex-end;
+        user-select: none;
+        cursor: default;
+        transition: opacity 0.2s;
+      }
+      .message-token-badge:hover {
+        opacity: 1;
+      }
+
+      /* Turn-level Accept/Reject */
+      .turn-actions {
+        padding: 4px 0;
+        width: 100%;
+      }
+      .turn-actions-row {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 4px;
+        width: 100%;
+      }
+      .turn-files-label {
+        font-size: 10px;
+        color: var(--vscode-descriptionForeground, #888);
+        margin-right: auto;
+      }
+      .turn-keep-btn, .turn-undo-btn {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 4px 12px;
+        font-size: 11px;
+        line-height: 1;
+        font-weight: 500;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+        transition: background-color 0.2s ease-in-out;
+      }
+      .turn-keep-btn {
+        background-color: #73c991;
+        color: white;
+      }
+      .turn-keep-btn:hover {
+        background-color: #5fb07d;
+        color: white;
+      }
+      .turn-keep-btn:active {
+        background-color: #4a9968;
+        color: white;
+      }
+      .turn-undo-btn {
+        background-color: #1e1e1e;
+        color: white;
+      }
+      .turn-undo-btn:hover {
+        background-color: #333333;
+        color: white;
+      }
+      .turn-undo-btn:active {
+        background-color: #000000;
+        color: white;
+      }
+      .turn-file-list {
+        margin-top: 2px;
+      }
+      .turn-file-item {
+        font-size: 10px;
+        color: var(--vscode-descriptionForeground, #888);
+        padding: 1px 0;
+        cursor: pointer;
+      }
+      .turn-file-item:hover {
+        color: var(--vscode-foreground, #ccc);
+      }
+
       .message-bubble {
         background-color: transparent;
         border: none;
@@ -1141,8 +1463,8 @@
         background-color: var(--vscode-editor-background);
         color: #00ff00;
         padding: 8px 12px;
-        margin: -10px -10px 15px -10px;
-        /* 상단 빈틈과 좌우 패딩을 상쇄하기 위한 음수 마진 */
+        margin: 0 -10px 15px -10px;
+        /* 좌우 패딩 상쇄 (margin-top은 0 — sticky 시 step 텍스트가 뷰포트 밖으로 밀리는 것 방지) */
         align-self: stretch;
         display: block;
         width: calc(100% + 20px);
@@ -1152,14 +1474,55 @@
         /*border-bottom: 1px solid var(--vscode-panel-border);
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);*/
 
-        /* Sticky position: 패널 흐름에 있다가 상단에 닿으면 고정 */
-        position: sticky;
-        top: 0;
+        /* z-index for is-forced-top (position: fixed) */
         z-index: 100;
 
         box-sizing: border-box;
         white-space: pre-wrap;
         word-break: break-all;
+      }
+
+      .thinking-content {
+        margin-top: 6px;
+        color: #888;
+        font-size: 11px;
+        font-style: italic;
+        font-family: "Courier New", Courier, monospace;
+        line-height: 1.4;
+        opacity: 0.8;
+        word-break: break-word;
+        cursor: pointer;
+        /* 기본: 2줄 높이, 최신 내용(하단)이 보이도록 overflow hidden */
+        position: relative;
+        height: calc(1.4em * 2);
+        overflow: hidden;
+      }
+
+      /* 내부 텍스트: 하단 고정 → 접힌 상태에서 최신 내용이 항상 보임 */
+      .thinking-content .thinking-text-inner {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        white-space: pre-wrap;
+      }
+
+      /* 펼친 상태: 전체 표시 */
+      .thinking-content.expanded {
+        height: auto;
+        overflow: visible;
+      }
+      .thinking-content.expanded .thinking-text-inner {
+        position: static;
+      }
+
+      /* is-forced-top 상태에서는 1줄로 더 축소 */
+      .thinking-bubble.is-forced-top .thinking-content {
+        height: 1.4em;
+      }
+
+      body[data-theme="light"] .thinking-content {
+        color: #6b7280 !important;
       }
 
       /* 하단에서 가려질 때 강제로 최상단에 고정 */
@@ -1415,6 +1778,29 @@
         color: var(--vscode-button-secondary-foreground);
       }
 
+      .stop-bash-button {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-top: 5px;
+        margin-bottom: 10px;
+        margin-right: 5px;
+        padding: 4px 12px;
+        font-size: 11px;
+        line-height: 1;
+        background-color: #f14c4c;
+        color: white;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: background-color 0.2s ease-in-out;
+      }
+
+      .stop-bash-button:hover {
+        background-color: #d32f2f;
+      }
+
       .bash-button-container {
         display: flex;
         justify-content: flex-end;
@@ -1629,6 +2015,66 @@
       #remove-image-button:hover {
         background-color: var(--vscode-button-hoverBackground);
         color: var(--vscode-button-foreground);
+      }
+
+      /* 사용자 메시지 버블 내 에디터 선택 badge */
+      .editor-selection-badge {
+        display: inline-block;
+        margin: 0 4px 0 0;
+        padding: 2px 6px;
+        background-color: rgba(100, 150, 255, 0.12);
+        border: 1px solid rgba(100, 150, 255, 0.3);
+        color: var(--vscode-foreground);
+        border-radius: 4px;
+        font-size: inherit;
+        opacity: 0.85;
+        white-space: nowrap;
+        vertical-align: middle;
+      }
+
+      /* Editor selection chip */
+      #editor-selection-chip {
+        display: none;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px;
+        margin-bottom: 6px;
+        background-color: rgba(100, 150, 255, 0.12);
+        border: 1px solid rgba(100, 150, 255, 0.3);
+        border-radius: 6px;
+        font-size: 11px;
+        color: var(--vscode-foreground);
+        opacity: 0.85;
+        cursor: default;
+        overflow: hidden;
+      }
+      #editor-selection-chip.visible {
+        display: flex;
+      }
+      #editor-selection-chip .chip-icon {
+        flex-shrink: 0;
+        opacity: 0.7;
+      }
+      #editor-selection-chip .chip-label {
+        flex: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+      }
+      #editor-selection-chip .chip-dismiss {
+        flex-shrink: 0;
+        background: none;
+        border: none;
+        color: var(--vscode-foreground);
+        opacity: 0.5;
+        cursor: pointer;
+        padding: 0 2px;
+        font-size: 13px;
+        line-height: 1;
+      }
+      #editor-selection-chip .chip-dismiss:hover {
+        opacity: 1;
       }
 
       /* User message image style */
@@ -2239,6 +2685,14 @@
         box-shadow: 0 0 5px var(--vscode-button-background);
       }
 
+      .status-circle.failed {
+        background: var(--vscode-testing-iconFailed, #dc2626);
+      }
+
+      .status-circle.warning {
+        background: var(--vscode-editorWarning-foreground, #cca700);
+      }
+
       /* Task Queue Popup Styles */
       .task-queue-popup {
         position: fixed;
@@ -2392,6 +2846,18 @@
       .task-item.working {
         background: rgba(0, 122, 204, 0.1);
         border-left: 2px solid var(--vscode-button-background);
+      }
+
+      .task-item.failed {
+        opacity: 0.8;
+        background: rgba(220, 38, 38, 0.08);
+        border-left: 2px solid var(--vscode-testing-iconFailed, #dc2626);
+      }
+
+      .task-item.warning {
+        opacity: 0.85;
+        background: rgba(204, 167, 0, 0.08);
+        border-left: 2px solid var(--vscode-editorWarning-foreground, #cca700);
       }
 
       .task-status-icon {
@@ -2581,6 +3047,11 @@
   </head>
 
   <body>
+    <!-- ═══════════ 로그인 화면 (미인증 시 표시) ═══════════ -->
+    {{loginScreenHtml}}
+
+    <!-- ═══════════ 채팅 앱 (인증 후 표시) ═══════════ -->
+    <div id="chat-app" style="display:none;">
     <!-- Processing steps will be rendered by React component -->
 
     <div class="main-container">
@@ -2605,7 +3076,18 @@
 
     <div class="bottom-fixed-area">
       <!-- Pending Question Queue Area -->
-      <div id="pending-queue-area" class="hidden"></div>
+      <div id="pending-queue-area" class="hidden">
+        <div class="queue-header" id="queue-header">
+          <button class="queue-toggle-btn" id="queue-toggle-btn" title="큐 접기/펼치기">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M1.5 5.5l6.5 6 6.5-6-1-1.1L8 9.9 2.5 4.4z"/>
+            </svg>
+          </button>
+          <span class="queue-header-label">대기 중</span>
+          <span class="queue-header-count" id="queue-header-count"></span>
+        </div>
+        <div class="queue-items-list" id="queue-items-list"></div>
+      </div>
       <!-- File Selection Area - 입력창과 채팅 출력창 사이로 이동 -->
       <!-- 파일 선택 영역 제거됨 - 입력창에 @filename 블록으로 표시 -->
 
@@ -2635,9 +3117,9 @@
             class="dropdown-button"
             id="pending-changes-btn"
             style="display: none"
-            title="Pending Changes"
+            title="보류 중인 변경사항"
           >
-            <span id="pending-changes-label">0 Files</span>
+            <span id="pending-changes-label">0개 파일</span>
             <span style="font-size: 10px">›</span>
           </button>
           <!-- Pending Changes Dropdown -->
@@ -2673,7 +3155,7 @@
                 align-items: center;
               "
             >
-              <span id="pending-dropdown-title">Pending Changes</span>
+              <span id="pending-dropdown-title">보류 중인 변경사항</span>
             </div>
             <div
               id="pending-dropdown-content"
@@ -2749,6 +3231,18 @@
             </div>
             <div
               class="dropdown-option"
+              data-mode="AGENT"
+              style="
+                padding: 4px 8px;
+                cursor: pointer;
+                font-size: 10px;
+                border-radius: 4px;
+              "
+            >
+              AGENT
+            </div>
+            <div
+              class="dropdown-option"
               data-mode="ASK"
               style="
                 padding: 4px 8px;
@@ -2758,6 +3252,18 @@
               "
             >
               ASK
+            </div>
+            <div
+              class="dropdown-option"
+              data-mode="PLAN"
+              style="
+                padding: 4px 8px;
+                cursor: pointer;
+                font-size: 10px;
+                border-radius: 4px;
+              "
+            >
+              PLAN
             </div>
           </div>
           <div
@@ -2782,6 +3288,13 @@
 
         <!-- 입력 래퍼 -->
         <div class="input-row">
+          <!-- 에디터 선택 코드 chip (선택 시 표시, dismiss 가능) -->
+          <div id="editor-selection-chip">
+            <span class="chip-icon">⌥</span>
+            <span class="chip-label" id="editor-selection-chip-label"></span>
+            <button class="chip-dismiss" id="editor-selection-chip-dismiss" title="선택 해제">×</button>
+          </div>
+
           <!-- 이미지 썸네일 (필요 시 표시) -->
           <div
             id="image-preview-container"
@@ -2853,6 +3366,9 @@
             >
               <img src="{{stopIconUri}}" class="icon-img" alt="stop" />
             </button>
+            <button id="queue-send-button" class="input-icon-button" title="다시 보내기" style="display:none;">
+              <img src="{{sendIconUri}}" class="icon-img" alt="queue send" />
+            </button>
             <button id="send-button" class="input-icon-button" title="전송">
               <img src="{{sendIconUri}}" class="icon-img" alt="send" />
             </button>
@@ -2896,14 +3412,104 @@
       </select>
     </div>
     <h1 id="chat-title" style="display: none">CHAT</h1>
+    </div><!-- /chat-app -->
 
     <script>
-      // console.log("✅ chat.html loaded");
+      // 턴 액션 글로벌 유틸리티
+      window._latestTurnStats = [];
+
+      window._updateTurnActionContent = function(el, turnData) {
+        const tid = turnData.conversationTurnId;
+        const cascade = turnData.cascadeUndoTurnCount || 1;
+        const undoLabel = cascade > 1 ? `Undo Turn (+${cascade - 1})` : "Undo Turn";
+        const undoTitle = cascade > 1
+          ? `이 턴 포함 ${cascade}개 턴의 변경사항 되돌리기`
+          : "이 턴의 모든 변경사항 되돌리기";
+        const createdCount = (turnData.files || []).filter(f => f.isNewFile).length;
+        const modifiedCount = (turnData.files || []).filter(f => !f.isNewFile).length;
+        const fileParts = [
+          createdCount > 0 ? `${createdCount}개 파일 생성됨` : '',
+          modifiedCount > 0 ? `${modifiedCount}개 파일 수정됨` : '',
+        ].filter(Boolean).join(', ');
+        const fileLabel = fileParts || `${turnData.totalFiles}개 파일 변경됨`;
+        const fileItems = (turnData.files || []).map(f => {
+          const name = f.fileName || f.filePath.split("/").pop() || f.filePath;
+          const label = f.isNewFile ? "\u2705 [Created]" : "\u{1F4DD} [Updated]";
+          return `<div class="turn-file-item" data-filepath="${f.filePath}" title="${f.filePath}">${label} ${name}</div>`;
+        }).join("");
+
+        el.innerHTML = `
+          <div class="turn-actions-row">
+            <span class="turn-files-label">${fileLabel}</span>
+            <button class="turn-undo-btn" title="${undoTitle}">${undoLabel}</button>
+            <button class="turn-keep-btn" title="이 턴의 모든 변경사항 승인">Keep Turn</button>
+          </div>
+          <div class="turn-file-list">${fileItems}</div>
+        `;
+        el.querySelector(".turn-keep-btn").addEventListener("click", () => {
+          if (window.vscode) window.vscode.postMessage({ command: "acceptChangesByTurn", conversationTurnId: tid });
+        });
+        el.querySelector(".turn-undo-btn").addEventListener("click", () => {
+          if (!window.vscode) return;
+          if (cascade <= 1) {
+            window.vscode.postMessage({ command: "rejectChangesByTurn", conversationTurnId: tid });
+            return;
+          }
+          // cascade > 1: 커스텀 확인 모달
+          const modal = document.createElement("div");
+          modal.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background-color:rgba(0,0,0,0.5);display:flex;justify-content:center;align-items:center;z-index:10000;";
+          const box = document.createElement("div");
+          box.style.cssText = "background-color:var(--vscode-editor-background);border:1px solid var(--vscode-panel-border);border-radius:8px;padding:20px;max-width:400px;width:90%;box-shadow:0 4px 12px rgba(0,0,0,0.3);";
+          box.innerHTML = `
+            <div style="margin-bottom:16px;">
+              <h3 style="margin:0 0 12px 0;color:var(--vscode-foreground);font-size:16px;">턴 되돌리기</h3>
+              <p style="margin:0;color:var(--vscode-foreground);line-height:1.4;">
+                이후 ${cascade - 1}개 턴도 함께 되돌려집니다.<br>이 작업은 되돌릴 수 없습니다.
+              </p>
+            </div>
+            <div style="display:flex;gap:12px;justify-content:flex-end;">
+              <button class="cascade-cancel" style="padding:8px 16px;border:1px solid var(--vscode-panel-border);background-color:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground);border-radius:4px;cursor:pointer;font-size:14px;">취소</button>
+              <button class="cascade-confirm" style="padding:8px 16px;border:none;background-color:#dc3545;color:white;border-radius:4px;cursor:pointer;font-size:14px;">확인</button>
+            </div>`;
+          modal.appendChild(box);
+          document.body.appendChild(modal);
+          box.querySelector(".cascade-cancel").addEventListener("click", () => document.body.removeChild(modal));
+          box.querySelector(".cascade-confirm").addEventListener("click", () => {
+            document.body.removeChild(modal);
+            window.vscode.postMessage({ command: "rejectChangesByTurn", conversationTurnId: tid });
+          });
+          modal.addEventListener("click", (e) => { if (e.target === modal) document.body.removeChild(modal); });
+        });
+        el.querySelectorAll(".turn-file-item").forEach(item => {
+          item.addEventListener("click", () => {
+            const fp = item.getAttribute("data-filepath");
+            if (fp && window.vscode) window.vscode.postMessage({ command: "openFile", filePath: fp });
+          });
+        });
+      };
+
+      window._flushPendingTurnActions = function() {
+        const chatMsgs = document.getElementById("chat-messages");
+        if (!chatMsgs) return;
+        // 대화 메시지가 없으면 턴 액션 표시하지 않음 (새 세션에서 이전 Diff 방지)
+        if (!chatMsgs.querySelector(".message-bubble")) return;
+        for (const turnData of (window._latestTurnStats || [])) {
+          const tid = turnData.conversationTurnId;
+          if (document.querySelector(`.turn-actions[data-turn-id="${tid}"]`)) continue;
+          const el = document.createElement("div");
+          el.classList.add("turn-actions");
+          el.setAttribute("data-turn-id", tid);
+          el.style.display = "block";
+          window._updateTurnActionContent(el, turnData);
+          chatMsgs.appendChild(el);
+        }
+        if (chatMsgs) chatMsgs.scrollTop = chatMsgs.scrollHeight;
+      };
     </script>
     <script src="{{scriptUri}}"></script>
     <script src="{{codeCopyScriptUri}}"></script>
 
-    <!-- Mode dropdown (CODE / ASK) -->
+    <!-- Mode dropdown (CODE / ASK / PLAN) -->
     <script>
       (function () {
         const modeBtn = document.getElementById("mode-selector");
@@ -2915,7 +3521,7 @@
         window.chatMode = window.chatMode || "CODE";
 
         const applyMode = (mode) => {
-          const normalized = mode === "ASK" ? "ASK" : "CODE";
+          const normalized = mode === "ASK" ? "ASK" : mode === "PLAN" ? "PLAN" : mode === "AGENT" ? "AGENT" : "CODE";
           window.chatMode = normalized;
           modeLabel.textContent = normalized;
           // 모드에 따라 버튼의 data-mode 속성 설정 (색상 포인트용)
@@ -3044,11 +3650,11 @@
 
         const renderDropdownContent = () => {
           dropdownContent.innerHTML = "";
-          dropdownTitle.textContent = `Pending Changes (${pendingFiles.length} files)`;
+          dropdownTitle.textContent = `보류 중인 변경사항 (${pendingFiles.length}개 파일)`;
 
           if (pendingFiles.length === 0) {
             dropdownContent.innerHTML =
-              '<div style="padding: 12px; text-align: center; color: var(--vscode-descriptionForeground); font-size: 12px;">No pending changes</div>';
+              '<div style="padding: 12px; text-align: center; color: var(--vscode-descriptionForeground); font-size: 12px;">보류 중인 변경사항이 없습니다</div>';
             return;
           }
 
@@ -3120,13 +3726,31 @@
 
             if (pendingFiles.length > 0) {
               pendingBtn.style.display = "inline-flex";
-              pendingLabel.textContent = `${pendingFiles.length} File${pendingFiles.length > 1 ? "s" : ""}`;
+              pendingLabel.textContent = `${pendingFiles.length}개 파일`;
             } else {
               pendingBtn.style.display = "none";
               closeDropdown();
             }
 
             renderDropdownContent();
+          }
+
+          // 턴 레벨 pending changes 업데이트
+          if (data.command === "updatePendingChangesByTurn") {
+            window._latestTurnStats = data.turns || [];
+            const activeTurnIds = new Set((data.turns || []).map(t => t.conversationTurnId));
+
+            // 기존 턴 액션 숨기기/표시 + 라벨 업데이트 (DOM 생성은 showTurnActions에서만)
+            document.querySelectorAll(".turn-actions[data-turn-id]").forEach(div => {
+              const turnId = div.getAttribute("data-turn-id");
+              if (!activeTurnIds.has(turnId)) {
+                div.remove(); // 완료된 턴은 DOM에서 제거
+              } else {
+                div.style.display = "block";
+                const turnData = (data.turns || []).find(t => t.conversationTurnId === turnId);
+                if (turnData) window._updateTurnActionContent(div, turnData);
+              }
+            });
           }
         });
 
@@ -3761,7 +4385,7 @@
                 React.createElement(
                   "span",
                   { key: "title" },
-                  `Todos (${tasks.filter((t) => t.status === "done").length}/${tasks.length})`,
+                  `Todos (${tasks.filter((t) => t.status === "done" || t.status === "warning").length}/${tasks.length})`,
                 ),
                 React.createElement(
                   "div",
@@ -3824,9 +4448,11 @@
                 const isDone = task.status === "done";
                 const isWorking = task.status === "in_progress";
                 const isFailed = task.status === "failed";
+                const isWarning = task.status === "warning";
 
                 let statusClass = "pending";
                 if (isDone) statusClass = "done";
+                else if (isWarning) statusClass = "warning";
                 else if (isWorking) statusClass = "working";
                 else if (isFailed) statusClass = "failed";
 
@@ -3834,7 +4460,7 @@
                   "div",
                   {
                     key: task.id || index,
-                    className: `task-item ${isDone ? "done" : ""} ${isWorking ? "working" : ""}`,
+                    className: `task-item ${isDone ? "done" : ""} ${isWorking ? "working" : ""} ${isFailed ? "failed" : ""} ${isWarning ? "warning" : ""}`,
                   },
                   [
                     React.createElement(

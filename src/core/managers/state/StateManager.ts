@@ -11,7 +11,7 @@ import {
     ExtensionStats,
     RecentAction
 } from './types';
-import { CryptoUtils } from '../../../utils';
+import { DEFAULT_OLLAMA_URL } from '../../config/ApiDefaults';
 
 export class StateManager {
     private static instance: StateManager;
@@ -50,7 +50,6 @@ export class StateManager {
     public setState<T>(key: keyof GlobalState, value: T): void {
         this.state[key] = value as any;
         this.saveState();
-        console.log(`[StateManager] State updated: ${String(key)}`);
     }
 
     /**
@@ -65,7 +64,6 @@ export class StateManager {
      */
     public async setWorkspaceState<T>(key: string, value: T): Promise<void> {
         await this.context.workspaceState.update(key, value);
-        console.log(`[StateManager] Workspace state updated: ${key}`);
     }
 
     /**
@@ -196,7 +194,6 @@ export class StateManager {
             const stored = this.context.globalState.get<GlobalState>('codepilot.globalState');
             if (stored) {
                 this.state = stored;
-                console.log('[StateManager] State loaded');
             }
         } catch (error) {
             console.error('[StateManager] Failed to load state:', error);
@@ -237,7 +234,6 @@ export class StateManager {
      */
     public async saveSecret(key: string, value: string): Promise<void> {
         await this.context.secrets.store(key, value);
-        console.log(`[StateManager] Secret saved: ${key}`);
     }
 
     /**
@@ -252,14 +248,11 @@ export class StateManager {
      */
     public async deleteSecret(key: string): Promise<void> {
         await this.context.secrets.delete(key);
-        console.log(`[StateManager] Secret deleted: ${key}`);
     }
 
     // API 키 및 모델 관련 키
     private readonly API_KEY_SECRET_KEY = 'codepilot.geminiApiKey';
     private readonly CURRENT_AI_MODEL_SECRET_KEY = 'codepilot.currentAiModel';
-    private readonly BANYA_LICENSE_SERIAL_SECRET_KEY = 'codepilot.banyaLicenseSerial';
-    private readonly BANYA_API_KEY_SECRET_KEY = 'codepilot.banyaApiKey';
     private readonly OLLAMA_SERVER_TYPE_SECRET_KEY = 'codepilot.ollamaServerType';
     private readonly OLLAMA_API_URL_SECRET_KEY = 'codepilot.ollamaApiUrl';
     private readonly OLLAMA_ENDPOINT_SECRET_KEY = 'codepilot.ollamaEndpoint';
@@ -269,7 +262,6 @@ export class StateManager {
     private readonly REMOTE_OLLAMA_API_URL_SECRET_KEY = 'codepilot.remoteOllamaApiUrl';
     private readonly REMOTE_OLLAMA_ENDPOINT_SECRET_KEY = 'codepilot.remoteOllamaEndpoint';
     private readonly REMOTE_OLLAMA_MODEL_SECRET_KEY = 'codepilot.remoteOllamaModel';
-    private readonly IS_LICENSE_VERIFIED_KEY = 'codepilot.isLicenseVerified';
     private readonly LANGUAGE_KEY = 'codepilot.language';
     private readonly AUTO_UPDATE_ENABLED_KEY = 'codepilot.autoUpdateEnabled';
     private readonly ERROR_RETRY_COUNT_KEY = 'codepilot.errorRetryCount';
@@ -285,6 +277,23 @@ export class StateManager {
     private readonly INTENT_MODEL_TYPE_KEY = 'codepilot.intentModelType';
     private readonly INTENT_MODEL_NAME_KEY = 'codepilot.intentModelName';
     private readonly INTENT_API_KEY_KEY = 'codepilot.intentApiKey';
+    private readonly ERROR_FALLBACK_MODEL_TYPE_KEY = 'codepilot.errorFallbackModelType';
+    private readonly ERROR_FALLBACK_MODEL_NAME_KEY = 'codepilot.errorFallbackModelName';
+    private readonly ERROR_FALLBACK_API_KEY_KEY = 'codepilot.errorFallbackApiKey';
+    private readonly COMPLETION_MODEL_TYPE_KEY = 'codepilot.completionModelType';
+    private readonly COMPLETION_MODEL_NAME_KEY = 'codepilot.completionModelName';
+    private readonly COMPLETION_API_KEY_KEY = 'codepilot.completionApiKey';
+    private readonly SUBAGENT_MODEL_TYPE_KEY = 'codepilot.subagentModelType';
+    private readonly SUBAGENT_MODEL_NAME_KEY = 'codepilot.subagentModelName';
+    private readonly SUBAGENT_API_KEY_KEY = 'codepilot.subagentApiKey';
+
+    // 라우팅 모델별 AdminModelConfig 저장 키 (group:/admin 선택 시)
+    private readonly COMPACTOR_ADMIN_CONFIG_KEY = 'codepilot.compactorAdminConfig';
+    private readonly COMMAND_ADMIN_CONFIG_KEY = 'codepilot.commandAdminConfig';
+    private readonly INTENT_ADMIN_CONFIG_KEY = 'codepilot.intentAdminConfig';
+    private readonly ERROR_FALLBACK_ADMIN_CONFIG_KEY = 'codepilot.errorFallbackAdminConfig';
+    private readonly COMPLETION_ADMIN_CONFIG_KEY = 'codepilot.completionAdminConfig';
+    private readonly SUBAGENT_ADMIN_CONFIG_KEY = 'codepilot.subagentAdminConfig';
 
     /**
      * API Key를 저장합니다
@@ -326,41 +335,6 @@ export class StateManager {
      */
     public async deleteCurrentAiModel(): Promise<void> {
         await this.deleteSecret(this.CURRENT_AI_MODEL_SECRET_KEY);
-    }
-
-    /**
-     * Banya 라이센스 시리얼을 암호화하여 저장합니다
-     */
-    public async saveBanyaLicenseSerial(licenseSerial: string): Promise<void> {
-        const encryptedSerial = CryptoUtils.encrypt(licenseSerial);
-        await this.saveSecret(this.BANYA_LICENSE_SERIAL_SECRET_KEY, encryptedSerial);
-        console.log('[StateManager] Banya license serial encrypted and saved.');
-    }
-
-    /**
-     * Banya 라이센스 시리얼을 복호화하여 가져옵니다
-     */
-    public async getBanyaLicenseSerial(): Promise<string | undefined> {
-        const encryptedSerial = await this.getSecret(this.BANYA_LICENSE_SERIAL_SECRET_KEY);
-        if (encryptedSerial) {
-            try {
-                if (CryptoUtils.isEncrypted(encryptedSerial)) {
-                    return CryptoUtils.decrypt(encryptedSerial);
-                }
-                return encryptedSerial;
-            } catch (error) {
-                console.error('[StateManager] Decrypt error:', error);
-                return undefined;
-            }
-        }
-        return undefined;
-    }
-
-    /**
-     * Banya 라이센스 시리얼을 삭제합니다
-     */
-    public async deleteBanyaLicenseSerial(): Promise<void> {
-        await this.deleteSecret(this.BANYA_LICENSE_SERIAL_SECRET_KEY);
     }
 
     // Ollama 관련 메서드들
@@ -413,7 +387,7 @@ export class StateManager {
     }
 
     public async getLocalOllamaApiUrl(): Promise<string> {
-        return (await this.getSecret(this.LOCAL_OLLAMA_API_URL_SECRET_KEY)) || 'http://localhost:11434';
+        return (await this.getSecret(this.LOCAL_OLLAMA_API_URL_SECRET_KEY)) || DEFAULT_OLLAMA_URL;
     }
 
     public async saveLocalOllamaEndpoint(endpoint: string): Promise<void> {
@@ -449,48 +423,19 @@ export class StateManager {
     }
 
     public async getAiModel(): Promise<string> {
-        return (await this.getSecret('codepilot.aiModel')) || 'gemini';
+        return (await this.getSecret('codepilot.aiModel')) || 'ollama';
     }
 
     public async saveAiModel(model: string): Promise<void> {
         await this.saveSecret('codepilot.aiModel', model);
     }
 
-    public async getGeminiModel(): Promise<string> {
-        return (await this.getSecret('codepilot.geminiModel')) || 'gemini-3-flash-preview';
+    public async getAdminModelConfig(): Promise<string | undefined> {
+        return await this.getSecret('codepilot.adminModelConfig');
     }
 
-    public async saveGeminiModel(model: string): Promise<void> {
-        await this.saveSecret('codepilot.geminiModel', model);
-    }
-
-    public async getBanyaApiKey(): Promise<string | undefined> {
-        return await this.getSecret(this.BANYA_API_KEY_SECRET_KEY);
-    }
-
-    public async saveBanyaApiKey(apiKey: string): Promise<void> {
-        await this.saveSecret(this.BANYA_API_KEY_SECRET_KEY, apiKey);
-    }
-
-    public async deleteBanyaApiKey(): Promise<void> {
-        await this.deleteSecret(this.BANYA_API_KEY_SECRET_KEY);
-    }
-
-    public async getBanyaModel(): Promise<string> {
-        return (await this.getSecret('codepilot.banyaModel')) || 'Banya-Solar:100b';
-    }
-
-    public async saveBanyaModel(model: string): Promise<void> {
-        await this.saveSecret('codepilot.banyaModel', model);
-    }
-
-    // License verified flag
-    public async saveIsLicenseVerified(value: boolean): Promise<void> {
-        await this.context.workspaceState.update(this.IS_LICENSE_VERIFIED_KEY, value);
-    }
-
-    public async getIsLicenseVerified(): Promise<boolean> {
-        return this.context.workspaceState.get<boolean>(this.IS_LICENSE_VERIFIED_KEY) ?? false;
+    public async saveAdminModelConfig(configJson: string): Promise<void> {
+        await this.saveSecret('codepilot.adminModelConfig', configJson);
     }
 
     // Language
@@ -541,7 +486,6 @@ export class StateManager {
      */
     public async saveAgentPolicyStableVersion(mdContent: string): Promise<void> {
         await this.context.workspaceState.update(this.AGENT_POLICY_STABLE_VERSION_KEY, mdContent);
-        console.log('[StateManager] AgentPolicy Stable Version saved.');
     }
 
     /**
@@ -563,7 +507,6 @@ export class StateManager {
      */
     public async saveAgentPolicyCodingStyle(mdContent: string): Promise<void> {
         await this.context.workspaceState.update(this.AGENT_POLICY_CODING_STYLE_KEY, mdContent);
-        console.log('[StateManager] AgentPolicy Coding Style saved.');
     }
 
     /**
@@ -585,7 +528,6 @@ export class StateManager {
      */
     public async saveAgentPolicyProjectArchitecture(mdContent: string): Promise<void> {
         await this.context.workspaceState.update(this.AGENT_POLICY_PROJECT_ARCHITECTURE_KEY, mdContent);
-        console.log('[StateManager] AgentPolicy Project Architecture saved.');
     }
 
     /**
@@ -607,7 +549,6 @@ export class StateManager {
      */
     public async saveAgentPolicyDependencyPolicy(mdContent: string): Promise<void> {
         await this.context.workspaceState.update(this.AGENT_POLICY_DEPENDENCY_POLICY_KEY, mdContent);
-        console.log('[StateManager] AgentPolicy Dependency Policy saved.');
     }
 
     /**
@@ -629,7 +570,6 @@ export class StateManager {
      */
     public async saveAgentPolicyDbPolicy(mdContent: string): Promise<void> {
         await this.context.workspaceState.update(this.AGENT_POLICY_DB_POLICY_KEY, mdContent);
-        console.log('[StateManager] AgentPolicy DB Policy saved.');
     }
 
     /**
@@ -649,11 +589,10 @@ export class StateManager {
     // ===== 모델 라우팅 관련 메서드들 =====
 
     /**
-     * Compactor 모델 타입을 저장합니다 (gemini, ollama, banya 등)
+     * Compactor 모델 타입을 저장합니다 (ollama, admin 등)
      */
     public async saveCompactorModelType(modelType: string): Promise<void> {
         await this.saveSecret(this.COMPACTOR_MODEL_TYPE_KEY, modelType);
-        console.log('[StateManager] Compactor model type saved:', modelType);
     }
 
     /**
@@ -671,11 +610,10 @@ export class StateManager {
     }
 
     /**
-     * Compactor 모델 이름을 저장합니다 (gemini-2.0-flash, llama3 등)
+     * Compactor 모델 이름을 저장합니다 (llama3 등)
      */
     public async saveCompactorModelName(modelName: string): Promise<void> {
         await this.saveSecret(this.COMPACTOR_MODEL_NAME_KEY, modelName);
-        console.log('[StateManager] Compactor model name saved:', modelName);
     }
 
     /**
@@ -693,11 +631,10 @@ export class StateManager {
     }
 
     /**
-     * Command 모델 타입을 저장합니다 (gemini, ollama, banya 등)
+     * Command 모델 타입을 저장합니다 (ollama, admin 등)
      */
     public async saveCommandModelType(modelType: string): Promise<void> {
         await this.saveSecret(this.COMMAND_MODEL_TYPE_KEY, modelType);
-        console.log('[StateManager] Command model type saved:', modelType);
     }
 
     /**
@@ -715,11 +652,10 @@ export class StateManager {
     }
 
     /**
-     * Command 모델 이름을 저장합니다 (gemini-2.0-flash, llama3 등)
+     * Command 모델 이름을 저장합니다 (llama3 등)
      */
     public async saveCommandModelName(modelName: string): Promise<void> {
         await this.saveSecret(this.COMMAND_MODEL_NAME_KEY, modelName);
-        console.log('[StateManager] Command model name saved:', modelName);
     }
 
     /**
@@ -786,9 +722,9 @@ export class StateManager {
     public async clearCompactorModelConfig(): Promise<void> {
         await Promise.all([
             this.deleteCompactorModelType(),
-            this.deleteCompactorModelName()
+            this.deleteCompactorModelName(),
+            this.deleteCompactorAdminConfig(),
         ]);
-        console.log('[StateManager] Compactor model config cleared (will use main model)');
     }
 
     /**
@@ -797,9 +733,9 @@ export class StateManager {
     public async clearCommandModelConfig(): Promise<void> {
         await Promise.all([
             this.deleteCommandModelType(),
-            this.deleteCommandModelName()
+            this.deleteCommandModelName(),
+            this.deleteCommandAdminConfig(),
         ]);
-        console.log('[StateManager] Command model config cleared (will use main model)');
     }
 
     // ===== Compactor/Command API 키 관련 메서드들 =====
@@ -809,7 +745,6 @@ export class StateManager {
      */
     public async saveCompactorApiKey(apiKey: string): Promise<void> {
         await this.saveSecret(this.COMPACTOR_API_KEY_KEY, apiKey);
-        console.log('[StateManager] Compactor API key saved');
     }
 
     /**
@@ -824,7 +759,6 @@ export class StateManager {
      */
     public async deleteCompactorApiKey(): Promise<void> {
         await this.deleteSecret(this.COMPACTOR_API_KEY_KEY);
-        console.log('[StateManager] Compactor API key deleted');
     }
 
     /**
@@ -832,7 +766,6 @@ export class StateManager {
      */
     public async saveCommandApiKey(apiKey: string): Promise<void> {
         await this.saveSecret(this.COMMAND_API_KEY_KEY, apiKey);
-        console.log('[StateManager] Command API key saved');
     }
 
     /**
@@ -847,7 +780,6 @@ export class StateManager {
      */
     public async deleteCommandApiKey(): Promise<void> {
         await this.deleteSecret(this.COMMAND_API_KEY_KEY);
-        console.log('[StateManager] Command API key deleted');
     }
 
     /**
@@ -869,11 +801,10 @@ export class StateManager {
     // ===== Intent 모델 관련 메서드들 =====
 
     /**
-     * Intent 모델 타입을 저장합니다 (gemini, ollama, banya 등)
+     * Intent 모델 타입을 저장합니다 (ollama, admin 등)
      */
     public async saveIntentModelType(modelType: string): Promise<void> {
         await this.saveSecret(this.INTENT_MODEL_TYPE_KEY, modelType);
-        console.log('[StateManager] Intent model type saved:', modelType);
     }
 
     /**
@@ -895,7 +826,6 @@ export class StateManager {
      */
     public async saveIntentModelName(modelName: string): Promise<void> {
         await this.saveSecret(this.INTENT_MODEL_NAME_KEY, modelName);
-        console.log('[StateManager] Intent model name saved:', modelName);
     }
 
     /**
@@ -917,7 +847,6 @@ export class StateManager {
      */
     public async saveIntentApiKey(apiKey: string): Promise<void> {
         await this.saveSecret(this.INTENT_API_KEY_KEY, apiKey);
-        console.log('[StateManager] Intent API key saved');
     }
 
     /**
@@ -932,7 +861,6 @@ export class StateManager {
      */
     public async deleteIntentApiKey(): Promise<void> {
         await this.deleteSecret(this.INTENT_API_KEY_KEY);
-        console.log('[StateManager] Intent API key deleted');
     }
 
     /**
@@ -971,9 +899,246 @@ export class StateManager {
         await Promise.all([
             this.deleteIntentModelType(),
             this.deleteIntentModelName(),
-            this.deleteIntentApiKey()
+            this.deleteIntentApiKey(),
+            this.deleteIntentAdminConfig(),
         ]);
-        console.log('[StateManager] Intent model config cleared (will use main model)');
+    }
+
+    // ===== 에러 폴백 모델 관련 메서드들 =====
+
+    public async saveErrorFallbackModelType(modelType: string): Promise<void> {
+        await this.saveSecret(this.ERROR_FALLBACK_MODEL_TYPE_KEY, modelType);
+    }
+
+    public async getErrorFallbackModelType(): Promise<string | undefined> {
+        return await this.getSecret(this.ERROR_FALLBACK_MODEL_TYPE_KEY);
+    }
+
+    private async deleteErrorFallbackModelType(): Promise<void> {
+        await this.deleteSecret(this.ERROR_FALLBACK_MODEL_TYPE_KEY);
+    }
+
+    public async saveErrorFallbackModelName(modelName: string): Promise<void> {
+        await this.saveSecret(this.ERROR_FALLBACK_MODEL_NAME_KEY, modelName);
+    }
+
+    public async getErrorFallbackModelName(): Promise<string | undefined> {
+        return await this.getSecret(this.ERROR_FALLBACK_MODEL_NAME_KEY);
+    }
+
+    private async deleteErrorFallbackModelName(): Promise<void> {
+        await this.deleteSecret(this.ERROR_FALLBACK_MODEL_NAME_KEY);
+    }
+
+    public async saveErrorFallbackApiKey(apiKey: string): Promise<void> {
+        await this.saveSecret(this.ERROR_FALLBACK_API_KEY_KEY, apiKey);
+    }
+
+    public async getErrorFallbackApiKey(): Promise<string | undefined> {
+        return await this.getSecret(this.ERROR_FALLBACK_API_KEY_KEY);
+    }
+
+    public async hasErrorFallbackApiKey(): Promise<boolean> {
+        const key = await this.getErrorFallbackApiKey();
+        return !!key;
+    }
+
+    private async deleteErrorFallbackApiKey(): Promise<void> {
+        await this.deleteSecret(this.ERROR_FALLBACK_API_KEY_KEY);
+    }
+
+    public async saveErrorFallbackModelConfig(type: string, name: string): Promise<void> {
+        await Promise.all([
+            this.saveErrorFallbackModelType(type),
+            this.saveErrorFallbackModelName(name)
+        ]);
+    }
+
+    public async clearErrorFallbackModelConfig(): Promise<void> {
+        await Promise.all([
+            this.deleteErrorFallbackModelType(),
+            this.deleteErrorFallbackModelName(),
+            this.deleteErrorFallbackApiKey(),
+            this.deleteErrorFallbackAdminConfig(),
+        ]);
+    }
+
+    // ===== 라우팅 모델 AdminModelConfig 저장 메서드들 (group:/admin 선택 시 사용) =====
+
+    public async saveCompactorAdminConfig(configJson: string): Promise<void> {
+        await this.saveSecret(this.COMPACTOR_ADMIN_CONFIG_KEY, configJson);
+    }
+
+    public async getCompactorAdminConfig(): Promise<string | undefined> {
+        return await this.getSecret(this.COMPACTOR_ADMIN_CONFIG_KEY);
+    }
+
+    public async deleteCompactorAdminConfig(): Promise<void> {
+        await this.deleteSecret(this.COMPACTOR_ADMIN_CONFIG_KEY);
+    }
+
+    public async saveCommandAdminConfig(configJson: string): Promise<void> {
+        await this.saveSecret(this.COMMAND_ADMIN_CONFIG_KEY, configJson);
+    }
+
+    public async getCommandAdminConfig(): Promise<string | undefined> {
+        return await this.getSecret(this.COMMAND_ADMIN_CONFIG_KEY);
+    }
+
+    public async deleteCommandAdminConfig(): Promise<void> {
+        await this.deleteSecret(this.COMMAND_ADMIN_CONFIG_KEY);
+    }
+
+    public async saveIntentAdminConfig(configJson: string): Promise<void> {
+        await this.saveSecret(this.INTENT_ADMIN_CONFIG_KEY, configJson);
+    }
+
+    public async getIntentAdminConfig(): Promise<string | undefined> {
+        return await this.getSecret(this.INTENT_ADMIN_CONFIG_KEY);
+    }
+
+    public async deleteIntentAdminConfig(): Promise<void> {
+        await this.deleteSecret(this.INTENT_ADMIN_CONFIG_KEY);
+    }
+
+    public async saveErrorFallbackAdminConfig(configJson: string): Promise<void> {
+        await this.saveSecret(this.ERROR_FALLBACK_ADMIN_CONFIG_KEY, configJson);
+    }
+
+    public async getErrorFallbackAdminConfig(): Promise<string | undefined> {
+        return await this.getSecret(this.ERROR_FALLBACK_ADMIN_CONFIG_KEY);
+    }
+
+    public async deleteErrorFallbackAdminConfig(): Promise<void> {
+        await this.deleteSecret(this.ERROR_FALLBACK_ADMIN_CONFIG_KEY);
+    }
+
+    public async saveCompletionAdminConfig(configJson: string): Promise<void> {
+        await this.saveSecret(this.COMPLETION_ADMIN_CONFIG_KEY, configJson);
+    }
+
+    public async getCompletionAdminConfig(): Promise<string | undefined> {
+        return await this.getSecret(this.COMPLETION_ADMIN_CONFIG_KEY);
+    }
+
+    public async deleteCompletionAdminConfig(): Promise<void> {
+        await this.deleteSecret(this.COMPLETION_ADMIN_CONFIG_KEY);
+    }
+
+    // ===== 소스코드 자동완성 모델 관련 메서드들 =====
+
+    public async saveCompletionModelType(modelType: string): Promise<void> {
+        await this.saveSecret(this.COMPLETION_MODEL_TYPE_KEY, modelType);
+    }
+
+    public async getCompletionModelType(): Promise<string | undefined> {
+        return await this.getSecret(this.COMPLETION_MODEL_TYPE_KEY);
+    }
+
+    private async deleteCompletionModelType(): Promise<void> {
+        await this.deleteSecret(this.COMPLETION_MODEL_TYPE_KEY);
+    }
+
+    public async saveCompletionModelName(modelName: string): Promise<void> {
+        await this.saveSecret(this.COMPLETION_MODEL_NAME_KEY, modelName);
+    }
+
+    public async getCompletionModelName(): Promise<string | undefined> {
+        return await this.getSecret(this.COMPLETION_MODEL_NAME_KEY);
+    }
+
+    private async deleteCompletionModelName(): Promise<void> {
+        await this.deleteSecret(this.COMPLETION_MODEL_NAME_KEY);
+    }
+
+    public async saveCompletionApiKey(apiKey: string): Promise<void> {
+        await this.saveSecret(this.COMPLETION_API_KEY_KEY, apiKey);
+    }
+
+    public async getCompletionApiKey(): Promise<string | undefined> {
+        return await this.getSecret(this.COMPLETION_API_KEY_KEY);
+    }
+
+    public async hasCompletionApiKey(): Promise<boolean> {
+        const key = await this.getCompletionApiKey();
+        return !!key;
+    }
+
+    private async deleteCompletionApiKey(): Promise<void> {
+        await this.deleteSecret(this.COMPLETION_API_KEY_KEY);
+    }
+
+    public async clearCompletionModelConfig(): Promise<void> {
+        await Promise.all([
+            this.deleteCompletionModelType(),
+            this.deleteCompletionModelName(),
+            this.deleteCompletionApiKey(),
+            this.deleteCompletionAdminConfig(),
+        ]);
+    }
+
+    // ===== 서브에이전트 모델 라우팅 =====
+
+    public async saveSubagentModelType(modelType: string): Promise<void> {
+        await this.saveSecret(this.SUBAGENT_MODEL_TYPE_KEY, modelType);
+    }
+
+    public async getSubagentModelType(): Promise<string | undefined> {
+        return await this.getSecret(this.SUBAGENT_MODEL_TYPE_KEY);
+    }
+
+    private async deleteSubagentModelType(): Promise<void> {
+        await this.deleteSecret(this.SUBAGENT_MODEL_TYPE_KEY);
+    }
+
+    public async saveSubagentModelName(modelName: string): Promise<void> {
+        await this.saveSecret(this.SUBAGENT_MODEL_NAME_KEY, modelName);
+    }
+
+    public async getSubagentModelName(): Promise<string | undefined> {
+        return await this.getSecret(this.SUBAGENT_MODEL_NAME_KEY);
+    }
+
+    private async deleteSubagentModelName(): Promise<void> {
+        await this.deleteSecret(this.SUBAGENT_MODEL_NAME_KEY);
+    }
+
+    public async saveSubagentApiKey(apiKey: string): Promise<void> {
+        await this.saveSecret(this.SUBAGENT_API_KEY_KEY, apiKey);
+    }
+
+    public async getSubagentApiKey(): Promise<string | undefined> {
+        return await this.getSecret(this.SUBAGENT_API_KEY_KEY);
+    }
+
+    public async hasSubagentApiKey(): Promise<boolean> {
+        const key = await this.getSubagentApiKey();
+        return !!key;
+    }
+
+    private async deleteSubagentApiKey(): Promise<void> {
+        await this.deleteSecret(this.SUBAGENT_API_KEY_KEY);
+    }
+
+    public async saveSubagentAdminConfig(configJson: string): Promise<void> {
+        await this.saveSecret(this.SUBAGENT_ADMIN_CONFIG_KEY, configJson);
+    }
+
+    public async getSubagentAdminConfig(): Promise<string | undefined> {
+        return await this.getSecret(this.SUBAGENT_ADMIN_CONFIG_KEY);
+    }
+
+    public async deleteSubagentAdminConfig(): Promise<void> {
+        await this.deleteSecret(this.SUBAGENT_ADMIN_CONFIG_KEY);
+    }
+
+    public async clearSubagentModelConfig(): Promise<void> {
+        await Promise.all([
+            this.deleteSubagentModelType(),
+            this.deleteSubagentModelName(),
+            this.deleteSubagentApiKey(),
+            this.deleteSubagentAdminConfig(),
+        ]);
     }
 
     // ===== MCP 서버 관련 메서드들 =====
@@ -985,7 +1150,6 @@ export class StateManager {
      */
     public async saveMcpServers(servers: any[]): Promise<void> {
         await this.context.workspaceState.update(this.MCP_SERVERS_KEY, servers);
-        console.log('[StateManager] MCP servers saved:', servers.length);
     }
 
     /**
@@ -1037,7 +1201,6 @@ export class StateManager {
      */
     public async saveMcpApprovedTools(approvedTools: any[]): Promise<void> {
         await this.context.workspaceState.update(this.MCP_APPROVED_TOOLS_KEY, approvedTools);
-        console.log('[StateManager] MCP approved tools saved:', approvedTools.length);
     }
 
     /**
@@ -1067,7 +1230,6 @@ export class StateManager {
                 approvedAt: Date.now()
             });
             await this.saveMcpApprovedTools(approvedTools);
-            console.log('[StateManager] MCP tool approved:', serverId, toolName);
         }
     }
 

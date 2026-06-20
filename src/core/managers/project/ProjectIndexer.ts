@@ -386,7 +386,7 @@ export class ProjectIndexer {
         }
 
         // 경로 자체에 라이브러리 디렉토리가 포함되어 있는지 확인
-        const normalizedPath = relativePath.toLowerCase().replace(/\\/g, '/');
+        const normalizedPath = relativePath.toLowerCase().split(path.sep).join('/');
         for (const excludedPath of allExclusions) {
             if (normalizedPath.includes(`/${excludedPath}/`) ||
                 normalizedPath.startsWith(`${excludedPath}/`) ||

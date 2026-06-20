@@ -1,6 +1,6 @@
 /**
  * General Ask Prompt
- * 일반 질의응답 프롬프트
+ * General question-and-answer prompt
  */
 
 export interface GeneralAskPromptOptions {
@@ -10,9 +10,12 @@ export interface GeneralAskPromptOptions {
   realTimeInfo?: string;
   gitContext?: string;
   languageInstruction?: string;
-  selectedFilesContent?: string; // 사용자가 선택한 파일들의 내용
-  terminalContextContent?: string; // 사용자가 선택한 터미널 히스토리
-  diagnosticsContextContent?: string; // 사용자가 선택한 Diagnostics
+  selectedFilesContent?: string; // Content of user-selected files
+  terminalContextContent?: string; // User-selected terminal history
+  diagnosticsContextContent?: string; // User-selected Diagnostics
+  frameworkRulesPrompt?: string; // Framework rules
+  hotLoadPrompt?: string; // Hot Load prompt
+  ragContext?: string; // Server RAG search results
 }
 
 export function getGeneralAskPrompt(options: GeneralAskPromptOptions): string {
@@ -26,26 +29,29 @@ export function getGeneralAskPrompt(options: GeneralAskPromptOptions): string {
     selectedFilesContent = "",
     terminalContextContent = "",
     diagnosticsContextContent = "",
+    frameworkRulesPrompt = "",
+    hotLoadPrompt = "",
+    ragContext = "",
   } = options;
 
-  // 사용자가 선택한 파일 섹션 - 강한 지시
+  // User-selected files section - strong directive
   const selectedFilesSection = selectedFilesContent
     ? `
-## ⚠️ 중요: 사용자가 첨부한 파일 
-아래 파일들은 사용자가 **명시적으로 분석을 요청한 파일**입니다.
-**반드시 아래 파일 내용을 기반으로 답변하세요. 다른 주제에 대해 답변하지 마세요.**
+## IMPORTANT: User-Attached Files
+The files below are files that the user has **explicitly requested analysis for**.
+**You must answer based on the file contents below. Do not answer about other topics.**
 
 ${selectedFilesContent}
 `
     : "";
 
-  // 터미널 컨텍스트 섹션 - 강한 지시
+  // Terminal context section - strong directive
   const terminalContextSection = terminalContextContent
     ? `
-## ⚠️ 중요: 사용자가 첨부한 터미널 출력
-아래는 사용자가 **@terminal로 명시적으로 첨부한 실제 터미널 화면 내용**입니다.
-**반드시 아래 터미널 출력의 실제 데이터(숫자, 프로세스명, 상태 등)를 분석하여 답변하세요.**
-**일반적인 명령어 설명이 아닌, 첨부된 출력의 실제 값을 기반으로 답변해야 합니다.**
+## IMPORTANT: User-Attached Terminal Output
+Below is the **actual terminal screen content explicitly attached by the user via @terminal**.
+**You must analyze and answer based on the actual data (numbers, process names, statuses, etc.) from the terminal output below.**
+**Your answer must be based on the actual values in the attached output, not general command explanations.**
 
 \`\`\`
 ${terminalContextContent}
@@ -53,35 +59,71 @@ ${terminalContextContent}
 `
     : "";
 
-  // Diagnostics 섹션 - 강한 지시
+  // Diagnostics section - strong directive
   const diagnosticsContextSection = diagnosticsContextContent
     ? `
-## ⚠️ 중요: 사용자가 첨부한 Diagnostics 
-아래는 현재 워크스페이스에서 **사용자가 명시적으로 분석을 요청한 에러/경고**입니다.
-**반드시 아래 Diagnostics 내용을 기반으로 답변하세요.**
+## IMPORTANT: User-Attached Diagnostics
+Below are **errors/warnings that the user has explicitly requested analysis for** from the current workspace.
+**You must answer based on the Diagnostics content below.**
 
 ${diagnosticsContextContent}
 `
     : "";
 
-  // 첨부 컨텍스트 존재 여부
+  // RAG document section
+  const ragSection = ragContext
+    ? `
+## Reference Documents (RAG) -- Use as Priority
+Below is content retrieved from internal organization documents related to the user's question.
+**Important**: Use the RAG document content below as the top priority for your answer. Cite the document source, and supplement with general knowledge for content not found in the documents.
+
+${ragContext}
+`
+    : "";
+
+  // Whether attached context exists
   const hasAttachedContext =
     selectedFilesContent || terminalContextContent || diagnosticsContextContent;
 
-  // 첨부 컨텍스트가 있을 때 최상단에 강조
+  // Emphasis at the top when attached context exists
   const attachedContextWarning = hasAttachedContext
     ? `
-# ⚠️ 최우선 지시사항
-사용자가 아래에 파일/터미널/Diagnostics를 첨부했습니다.
-**반드시 첨부된 내용만을 분석하여 답변하세요.**
-일반적인 지식이나 다른 주제에 대해 답변하지 마세요.
+# Top Priority Directive
+The user has attached files/terminal output/Diagnostics below.
+**You must analyze and answer based only on the attached content.**
+Do not answer about general knowledge or other topics.
 
 `
     : "";
 
-  return `당신은 전문적인 소프트웨어 개발자이자 기술 전문가입니다.
-${attachedContextWarning}${selectedFilesSection}${terminalContextSection}${diagnosticsContextSection}
-주요 지침:
+  // Integrated Skills loading: local (.agent/rules) + server (dev_rules)
+  // Required server rules take priority over local; recommended rules defer to local
+  let skillsSection = '';
+  try {
+    const { PromptComposer } = require('../PromptComposer');
+    const { text: agentRulesRaw, ruleKeys: localRuleKeys } = PromptComposer.loadAgentRulesWithKeys();
+    const { text: serverRules, overrideKeys } = PromptComposer.loadServerPromptTemplates(localRuleKeys);
+
+    // Remove local rules overridden by required server rules
+    let agentRules = agentRulesRaw;
+    if (overrideKeys.size > 0 && agentRulesRaw) {
+      for (const key of overrideKeys) {
+        const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const sectionRegex = new RegExp(`\\*\\*[^*]*${escapedKey}[^*]*\\(mandatory rule\\):\\*\\*[\\s\\S]*?(?=\\n---\\n|$)`, 'gi');
+        agentRules = agentRules.replace(sectionRegex, '').trim();
+      }
+      agentRules = agentRules.replace(/(\n---\n)+/g, '\n---\n').replace(/^\n---\n|\n---\n$/g, '').trim();
+    }
+
+    const parts = [agentRules, serverRules].filter(Boolean);
+    if (parts.length > 0) {
+      skillsSection = `\n\n## Project Development Rules (Mandatory)\nThe Skills below are mandatory rules registered for the project. You must apply these rules when answering.\n\n${parts.join('\n\n')}`;
+    }
+  } catch { /* Ignore if Skills loading fails */ }
+
+  return `You are a professional software developer and technical expert.
+${hotLoadPrompt}${attachedContextWarning}${selectedFilesSection}${terminalContextSection}${diagnosticsContextSection}${ragSection}${skillsSection}
+Key guidelines:
 ${gitContext}
 ${languageInstruction}`;
 }

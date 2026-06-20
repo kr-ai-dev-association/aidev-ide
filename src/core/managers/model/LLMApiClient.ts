@@ -1,10 +1,13 @@
 /**
  * LLM API Client
  * LLM API 호출을 담당하는 클라이언트
- * GeminiApi, OllamaApi, BanyaApi를 래핑하여 통합 인터페이스 제공
+ * OllamaApi, AdminModelApi를 래핑하여 통합 인터페이스 제공
+ * v10.0: 백엔드 관리자 강제 모델 설정 적용
+ * v10.1: 관리자 AI 모델 선택 및 호출 지원
  */
 
-import { GeminiApi, OllamaApi, BanyaApi, AiModelType } from '../../../services';
+import { OllamaApi, AdminModelApi, AiModelType } from '../../../services';
+import type { AdminModelConfig } from '../../../services/llm/AdminModelApi';
 
 export interface LLMMessagePart {
     text?: string;
@@ -19,28 +22,49 @@ export interface LLMRequestOptions {
 }
 
 export class LLMApiClient {
-    private geminiApi: GeminiApi;
     private ollamaApi: OllamaApi;
-    private banyaApi: BanyaApi;
+    private adminModelApi: AdminModelApi;
     private currentModelType: AiModelType;
     private currentCallController: AbortController | null = null;
+    private adminForcedModel: AiModelType | null = null;
 
     constructor(
-        geminiApi: GeminiApi,
         ollamaApi: OllamaApi,
-        banyaApi: BanyaApi,
         initialModelType: AiModelType = AiModelType.OLLAMA
     ) {
-        this.geminiApi = geminiApi;
         this.ollamaApi = ollamaApi;
-        this.banyaApi = banyaApi;
+        this.adminModelApi = new AdminModelApi();
         this.currentModelType = initialModelType;
     }
 
     /**
+     * 관리자 강제 모델 설정 적용
+     * SettingsManager에서 서버 동기화 후 호출
+     */
+    public applyAdminModelSettings(forcedModel: AiModelType | null): void {
+        this.adminForcedModel = forcedModel;
+        if (forcedModel) {
+            this.currentModelType = forcedModel;
+            console.log(`[LLMApiClient] Admin forced model applied: ${forcedModel}`);
+        }
+    }
+
+    /**
+     * 관리자 모델 설정 적용
+     */
+    public setAdminModelConfig(config: AdminModelConfig): void {
+        this.adminModelApi.setConfig(config);
+    }
+
+    /**
      * 현재 모델 타입을 설정합니다
+     * 관리자 강제 모델이 설정된 경우 변경 불가
      */
     public setCurrentModel(modelType: AiModelType): void {
+        if (this.adminForcedModel) {
+            console.warn(`[LLMApiClient] Model change blocked: admin forced model is ${this.adminForcedModel}`);
+            return;
+        }
         this.currentModelType = modelType;
     }
 
@@ -49,6 +73,13 @@ export class LLMApiClient {
      */
     public getCurrentModel(): AiModelType {
         return this.currentModelType;
+    }
+
+    /**
+     * 관리자에 의해 모델이 잠겨있는지 확인
+     */
+    public isModelLocked(): boolean {
+        return this.adminForcedModel !== null;
     }
 
     /**
@@ -72,14 +103,9 @@ export class LLMApiClient {
         const abortSignal = options?.signal || this.currentCallController?.signal;
 
         try {
-            if (this.currentModelType === AiModelType.GEMINI) {
-                return await this.geminiApi.sendMessage(message, undefined, { signal: abortSignal });
-            } else if (this.currentModelType === AiModelType.BANYA) {
-                // Banya API 호출
-                await this.banyaApi.loadSettingsFromStorage();
-                return await this.banyaApi.sendMessage(message, { signal: abortSignal });
+            if (this.currentModelType === AiModelType.ADMIN) {
+                return await this.adminModelApi.sendMessage(message, { signal: abortSignal });
             } else {
-                // 모델 설정 동기화 및 로드 (Ollama)
                 await this.ollamaApi.loadSettingsFromStorage();
                 return await this.ollamaApi.sendMessage(message, { signal: abortSignal });
             }
@@ -101,44 +127,20 @@ export class LLMApiClient {
         const abortSignal = options?.signal || this.currentCallController?.signal;
 
         try {
-            if (this.currentModelType === AiModelType.GEMINI) {
-                const response = await this.geminiApi.sendMessageWithSystemPrompt(
+            if (this.currentModelType === AiModelType.ADMIN) {
+                const parts = userParts.map(part => ({ text: part.text || '' }));
+                return await this.adminModelApi.sendMessageWithSystemPrompt(
                     systemPrompt,
-                    userParts as any,
+                    parts,
                     { signal: abortSignal }
                 );
-
-                // Offline fallback trigger
-                if (typeof response === 'string' && response.startsWith('OFFLINE:')) {
-                    try {
-                        await this.ollamaApi.loadSettingsFromStorage();
-                    } catch { }
-                    return await this.ollamaApi.sendMessageWithSystemPrompt(
-                        systemPrompt,
-                        userParts,
-                        { signal: abortSignal }
-                    );
-                }
-
-                return response;
-            } else if (this.currentModelType === AiModelType.BANYA) {
-                // Banya API 호출
-                await this.banyaApi.loadSettingsFromStorage();
-                return await this.banyaApi.sendMessageWithSystemPrompt(
-                    systemPrompt,
-                    userParts as any,
-                    { signal: abortSignal }
-                );
-            } else if (this.currentModelType === AiModelType.OLLAMA) {
-                // 모델 설정 로드 (Ollama)
+            } else {
                 await this.ollamaApi.loadSettingsFromStorage();
                 return await this.ollamaApi.sendMessageWithSystemPrompt(
                     systemPrompt,
                     userParts,
                     { signal: abortSignal }
                 );
-            } else {
-                throw new Error(`Unsupported model type: ${this.currentModelType}`);
             }
         } catch (error) {
             console.error('[LLMApiClient] sendMessageWithSystemPrompt failed:', error);
@@ -150,15 +152,11 @@ export class LLMApiClient {
      * 현재 모델 이름을 가져옵니다
      */
     public async getCurrentModelName(): Promise<string> {
-        if (this.currentModelType === AiModelType.GEMINI) {
-            return this.geminiApi.getModelName();
-        } else if (this.currentModelType === AiModelType.BANYA) {
-            await this.banyaApi.loadSettingsFromStorage();
-            return this.banyaApi.getModel() || 'unknown';
+        if (this.currentModelType === AiModelType.ADMIN) {
+            return this.adminModelApi.getModel() || 'admin-model';
         } else {
             await this.ollamaApi.loadSettingsFromStorage();
             return this.ollamaApi.getModel() || 'unknown';
         }
     }
 }
-

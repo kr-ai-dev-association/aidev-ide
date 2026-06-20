@@ -62,6 +62,45 @@ export class StackDetector {
                 case ProjectType.VUE:
                     await this.detectVueStack(projectRoot, result);
                     break;
+                case ProjectType.GO:
+                    await this.detectGoStack(projectRoot, result);
+                    break;
+                case ProjectType.RUST:
+                    await this.detectRustStack(projectRoot, result);
+                    break;
+                case ProjectType.CSHARP:
+                    await this.detectCsharpStack(projectRoot, result);
+                    break;
+                case ProjectType.NEXTJS:
+                    await this.detectReactStack(projectRoot, result); // Next.js는 React 스택 + 추가 감지
+                    break;
+                case ProjectType.NUXTJS:
+                    await this.detectVueStack(projectRoot, result); // Nuxt.js는 Vue 스택 + 추가 감지
+                    break;
+                case ProjectType.SVELTE:
+                    await this.detectWebStack(projectRoot, result, 'svelte');
+                    break;
+                case ProjectType.ANGULAR:
+                    await this.detectWebStack(projectRoot, result, 'angular');
+                    break;
+                case ProjectType.PHP:
+                    await this.detectPhpStack(projectRoot, result);
+                    break;
+                case ProjectType.RUBY:
+                    await this.detectRubyStack(projectRoot, result);
+                    break;
+                case ProjectType.SWIFT:
+                    await this.detectSwiftStack(projectRoot, result);
+                    break;
+                case ProjectType.KOTLIN:
+                    await this.detectKotlinStack(projectRoot, result);
+                    break;
+                case ProjectType.ELIXIR:
+                    await this.detectElixirStack(projectRoot, result);
+                    break;
+                case ProjectType.SCALA:
+                    await this.detectScalaStack(projectRoot, result);
+                    break;
                 default:
                     // 기본 Node.js/TypeScript 스택 감지
                     await this.detectNodeStack(projectRoot, result);
@@ -756,6 +795,134 @@ export class StackDetector {
         }
     }
 
+    // ==================== Go Stack Detection ====================
+
+    private async detectGoStack(projectRoot: string, result: DetailedStack): Promise<void> {
+        const goModPath = path.join(projectRoot, 'go.mod');
+        if (!fs.existsSync(goModPath)) return;
+
+        const goMod = fs.readFileSync(goModPath, 'utf-8');
+
+        // Go version
+        const goVersionMatch = goMod.match(/^go\s+(\d+\.\d+(?:\.\d+)?)/m);
+        if (goVersionMatch) {
+            result.versions.language = goVersionMatch[1];
+            result.stacks.push({
+                name: `go ${goVersionMatch[1]}`,
+                confidence: 0.95,
+                evidence: [`go.mod: go ${goVersionMatch[1]}`],
+                version: goVersionMatch[1],
+            });
+        }
+
+        // Web frameworks
+        if (goMod.includes('github.com/gin-gonic/gin')) {
+            const ver = goMod.match(/github\.com\/gin-gonic\/gin\s+(v[\d.]+)/)?.[1];
+            result.stacks.push({ name: 'gin', confidence: 0.95, evidence: ['Gin web framework'], version: ver });
+            result.versions.framework = `gin ${ver || ''}`.trim();
+        }
+        if (goMod.includes('github.com/labstack/echo')) {
+            const ver = goMod.match(/github\.com\/labstack\/echo[\/\w]*\s+(v[\d.]+)/)?.[1];
+            result.stacks.push({ name: 'echo', confidence: 0.95, evidence: ['Echo web framework'], version: ver });
+        }
+        if (goMod.includes('github.com/gofiber/fiber')) {
+            const ver = goMod.match(/github\.com\/gofiber\/fiber[\/\w]*\s+(v[\d.]+)/)?.[1];
+            result.stacks.push({ name: 'fiber', confidence: 0.95, evidence: ['Fiber web framework'], version: ver });
+        }
+        if (goMod.includes('github.com/gorilla/mux')) {
+            result.stacks.push({ name: 'gorilla/mux', confidence: 0.9, evidence: ['Gorilla Mux router'] });
+        }
+
+        // ORM/DB
+        if (goMod.includes('gorm.io/gorm')) {
+            result.stacks.push({ name: 'gorm', confidence: 0.9, evidence: ['GORM ORM'] });
+        }
+        if (goMod.includes('github.com/jmoiron/sqlx')) {
+            result.stacks.push({ name: 'sqlx', confidence: 0.9, evidence: ['sqlx database library'] });
+        }
+        if (goMod.includes('entgo.io/ent')) {
+            result.stacks.push({ name: 'ent', confidence: 0.9, evidence: ['Ent ORM'] });
+        }
+
+        // Go workspace (monorepo)
+        const goWorkPath = path.join(projectRoot, 'go.work');
+        if (fs.existsSync(goWorkPath)) {
+            result.stacks.push({ name: 'go-workspace', confidence: 0.95, evidence: ['go.work: Go workspace (monorepo)'] });
+        }
+    }
+
+    // ==================== Rust Stack Detection ====================
+
+    private async detectRustStack(projectRoot: string, result: DetailedStack): Promise<void> {
+        const cargoPath = path.join(projectRoot, 'Cargo.toml');
+        if (!fs.existsSync(cargoPath)) return;
+
+        const cargoToml = fs.readFileSync(cargoPath, 'utf-8');
+
+        // Rust edition
+        const editionMatch = cargoToml.match(/edition\s*=\s*"(\d{4})"/);
+        if (editionMatch) {
+            result.versions.language = `rust edition ${editionMatch[1]}`;
+            result.stacks.push({
+                name: `rust-${editionMatch[1]}`,
+                confidence: 0.95,
+                evidence: [`Cargo.toml: edition = "${editionMatch[1]}"`],
+                version: editionMatch[1],
+            });
+        }
+
+        // Workspace (monorepo)
+        if (cargoToml.includes('[workspace]')) {
+            const membersMatch = cargoToml.match(/members\s*=\s*\[([\s\S]*?)\]/);
+            const memberCount = membersMatch ? (membersMatch[1].match(/"/g) || []).length / 2 : 0;
+            result.stacks.push({
+                name: 'cargo-workspace',
+                confidence: 0.95,
+                evidence: [`Cargo.toml: [workspace] with ${memberCount} members`],
+            });
+        }
+
+        // Web frameworks
+        if (cargoToml.includes('actix-web')) {
+            const ver = cargoToml.match(/actix-web\s*=\s*"([^"]+)"/)?.[1];
+            result.stacks.push({ name: 'actix-web', confidence: 0.95, evidence: ['Actix Web framework'], version: ver });
+            result.versions.framework = `actix-web ${ver || ''}`.trim();
+        }
+        if (cargoToml.includes('axum')) {
+            const ver = cargoToml.match(/axum\s*=\s*"([^"]+)"/)?.[1];
+            result.stacks.push({ name: 'axum', confidence: 0.95, evidence: ['Axum web framework'], version: ver });
+            result.versions.framework = `axum ${ver || ''}`.trim();
+        }
+        if (cargoToml.includes('rocket')) {
+            const ver = cargoToml.match(/rocket\s*=\s*"([^"]+)"/)?.[1];
+            result.stacks.push({ name: 'rocket', confidence: 0.95, evidence: ['Rocket web framework'], version: ver });
+        }
+        if (cargoToml.includes('warp')) {
+            result.stacks.push({ name: 'warp', confidence: 0.9, evidence: ['Warp web framework'] });
+        }
+
+        // ORM/DB
+        if (cargoToml.includes('diesel')) {
+            result.stacks.push({ name: 'diesel', confidence: 0.9, evidence: ['Diesel ORM'] });
+        }
+        if (cargoToml.includes('sqlx')) {
+            result.stacks.push({ name: 'sqlx', confidence: 0.9, evidence: ['SQLx async database'] });
+        }
+        if (cargoToml.includes('sea-orm')) {
+            result.stacks.push({ name: 'sea-orm', confidence: 0.9, evidence: ['SeaORM'] });
+        }
+
+        // Async runtime
+        if (cargoToml.includes('tokio')) {
+            result.stacks.push({ name: 'tokio', confidence: 0.9, evidence: ['Tokio async runtime'] });
+        }
+
+        // Serialization
+        if (cargoToml.includes('serde')) {
+            result.stacks.push({ name: 'serde', confidence: 0.85, evidence: ['Serde serialization'] });
+        }
+    }
+
     // ==================== Helper Methods ====================
 
     private containsAny(content: string, patterns: string[]): boolean {
@@ -788,5 +955,306 @@ export class StackDetector {
             }
         }
         return 0;
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // C# / .NET Stack Detection
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    private async detectCsharpStack(projectRoot: string, result: DetailedStack): Promise<void> {
+        // Find .csproj files
+        const csprojFiles: string[] = [];
+        try {
+            const findCsproj = (dir: string, depth: number = 0) => {
+                if (depth > 3) return;
+                const entries = fs.readdirSync(dir, { withFileTypes: true });
+                for (const entry of entries) {
+                    if (entry.name === 'bin' || entry.name === 'obj' || entry.name === 'node_modules') continue;
+                    if (entry.isFile() && entry.name.endsWith('.csproj')) {
+                        csprojFiles.push(path.join(dir, entry.name));
+                    } else if (entry.isDirectory() && depth < 3) {
+                        findCsproj(path.join(dir, entry.name), depth + 1);
+                    }
+                }
+            };
+            findCsproj(projectRoot);
+        } catch { /* skip */ }
+
+        if (csprojFiles.length === 0) return;
+
+        // Parse .csproj files for framework and package references
+        for (const csprojPath of csprojFiles.slice(0, 5)) {
+            try {
+                const content = fs.readFileSync(csprojPath, 'utf-8');
+                const fileName = path.basename(csprojPath);
+
+                // Target framework
+                const tfmMatch = content.match(/<TargetFramework>(.*?)<\/TargetFramework>/);
+                if (tfmMatch) {
+                    result.versions.framework = tfmMatch[1];
+                    result.stacks.push({
+                        name: `.NET ${tfmMatch[1]}`,
+                        confidence: 0.95,
+                        evidence: [`${fileName}: TargetFramework=${tfmMatch[1]}`],
+                        version: tfmMatch[1],
+                    });
+                }
+
+                // ASP.NET Core
+                if (content.includes('Microsoft.AspNetCore') || content.includes('<Project Sdk="Microsoft.NET.Sdk.Web">')) {
+                    result.stacks.push({
+                        name: 'ASP.NET Core',
+                        confidence: 0.9,
+                        evidence: [`${fileName}: ASP.NET Core Web SDK`],
+                    });
+                }
+
+                // Entity Framework Core
+                const efMatch = content.match(/Microsoft\.EntityFrameworkCore["']?\s*Version="([^"]+)"/);
+                if (efMatch || content.includes('Microsoft.EntityFrameworkCore')) {
+                    result.stacks.push({
+                        name: 'Entity Framework Core',
+                        confidence: 0.9,
+                        evidence: [`${fileName}: EF Core ${efMatch?.[1] || ''}`.trim()],
+                        version: efMatch?.[1],
+                    });
+                }
+
+                // Blazor
+                if (content.includes('Microsoft.AspNetCore.Components') || content.includes('Sdk.BlazorWebAssembly')) {
+                    result.stacks.push({ name: 'Blazor', confidence: 0.85, evidence: [`${fileName}: Blazor components`] });
+                }
+
+                // SignalR
+                if (content.includes('Microsoft.AspNetCore.SignalR')) {
+                    result.stacks.push({ name: 'SignalR', confidence: 0.85, evidence: [`${fileName}: SignalR`] });
+                }
+
+                // Test frameworks
+                if (content.includes('xunit') || content.includes('Xunit')) {
+                    result.stacks.push({ name: 'xUnit', confidence: 0.9, evidence: [`${fileName}: xUnit`] });
+                }
+                if (content.includes('NUnit')) {
+                    result.stacks.push({ name: 'NUnit', confidence: 0.9, evidence: [`${fileName}: NUnit`] });
+                }
+                if (content.includes('MSTest') || content.includes('Microsoft.VisualStudio.TestTools')) {
+                    result.stacks.push({ name: 'MSTest', confidence: 0.9, evidence: [`${fileName}: MSTest`] });
+                }
+
+                // Dapper
+                if (content.includes('Dapper')) {
+                    result.stacks.push({ name: 'Dapper', confidence: 0.85, evidence: [`${fileName}: Dapper`] });
+                }
+
+                // MediatR
+                if (content.includes('MediatR')) {
+                    result.stacks.push({ name: 'MediatR', confidence: 0.85, evidence: [`${fileName}: MediatR`] });
+                }
+
+                // AutoMapper
+                if (content.includes('AutoMapper')) {
+                    result.stacks.push({ name: 'AutoMapper', confidence: 0.85, evidence: [`${fileName}: AutoMapper`] });
+                }
+
+                // Serilog
+                if (content.includes('Serilog')) {
+                    result.stacks.push({ name: 'Serilog', confidence: 0.85, evidence: [`${fileName}: Serilog`] });
+                }
+
+                // Swagger/OpenAPI
+                if (content.includes('Swashbuckle') || content.includes('NSwag')) {
+                    result.stacks.push({ name: 'Swagger/OpenAPI', confidence: 0.85, evidence: [`${fileName}: Swagger`] });
+                }
+            } catch { /* skip unreadable csproj */ }
+        }
+
+        // Deduplicate stacks by name
+        const seen = new Set<string>();
+        result.stacks = result.stacks.filter(s => {
+            if (seen.has(s.name)) return false;
+            seen.add(s.name);
+            return true;
+        });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // Web Framework Stack Detection (Svelte, Angular 등)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    private async detectWebStack(projectRoot: string, result: DetailedStack, framework: string): Promise<void> {
+        const packageJsonPath = path.join(projectRoot, 'package.json');
+        if (!fs.existsSync(packageJsonPath)) return;
+
+        try {
+            const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+            const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
+
+            if (framework === 'svelte') {
+                const ver = allDeps.svelte?.replace(/[\^~]/g, '');
+                if (ver) { result.versions.framework = `Svelte ${ver}`; }
+                if (allDeps['@sveltejs/kit']) result.stacks.push({ name: 'SvelteKit', confidence: 0.95, evidence: ['@sveltejs/kit dependency'] });
+                if (allDeps['svelte-routing']) result.stacks.push({ name: 'svelte-routing', confidence: 0.85, evidence: ['svelte-routing dependency'] });
+            }
+
+            if (framework === 'angular') {
+                const ver = allDeps['@angular/core']?.replace(/[\^~]/g, '');
+                if (ver) { result.versions.framework = `Angular ${ver}`; }
+                if (allDeps['@angular/material']) result.stacks.push({ name: 'Angular Material', confidence: 0.9, evidence: ['@angular/material dependency'] });
+                if (allDeps['@ngrx/store']) result.stacks.push({ name: 'NgRx', confidence: 0.85, evidence: ['@ngrx/store dependency'] });
+                if (allDeps['@angular/fire']) result.stacks.push({ name: 'AngularFire', confidence: 0.85, evidence: ['@angular/fire dependency'] });
+                if (allDeps.rxjs) result.stacks.push({ name: 'RxJS', confidence: 0.8, evidence: ['rxjs dependency'] });
+            }
+
+            // 공통: 테스트/번들러 감지
+            if (allDeps.vitest) result.stacks.push({ name: 'Vitest', confidence: 0.85, evidence: ['vitest dependency'] });
+            if (allDeps.jest) result.stacks.push({ name: 'Jest', confidence: 0.85, evidence: ['jest dependency'] });
+            if (allDeps.playwright || allDeps['@playwright/test']) result.stacks.push({ name: 'Playwright', confidence: 0.85, evidence: ['playwright dependency'] });
+            if (allDeps.tailwindcss) result.stacks.push({ name: 'Tailwind CSS', confidence: 0.85, evidence: ['tailwindcss dependency'] });
+        } catch { /* skip */ }
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // PHP Stack Detection
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    private async detectPhpStack(projectRoot: string, result: DetailedStack): Promise<void> {
+        const composerPath = path.join(projectRoot, 'composer.json');
+        if (!fs.existsSync(composerPath)) return;
+
+        try {
+            const composer = JSON.parse(fs.readFileSync(composerPath, 'utf8'));
+            const allDeps = { ...composer.require, ...composer['require-dev'] };
+
+            // PHP version
+            if (allDeps.php) { result.versions.language = `PHP ${allDeps.php}`; }
+
+            // Frameworks
+            if (allDeps['laravel/framework']) {
+                const ver = allDeps['laravel/framework'].replace(/[\^~]/g, '');
+                result.stacks.push({ name: 'Laravel', confidence: 0.95, evidence: [`laravel/framework ${ver}`], version: ver });
+                result.versions.framework = `Laravel ${ver}`;
+            }
+            if (allDeps['symfony/framework-bundle'] || allDeps['symfony/symfony']) {
+                result.stacks.push({ name: 'Symfony', confidence: 0.95, evidence: ['symfony framework dependency'] });
+            }
+            if (allDeps['slim/slim']) result.stacks.push({ name: 'Slim', confidence: 0.9, evidence: ['slim/slim dependency'] });
+            if (allDeps['filament/filament']) result.stacks.push({ name: 'Filament', confidence: 0.85, evidence: ['filament dependency'] });
+            if (allDeps['livewire/livewire']) result.stacks.push({ name: 'Livewire', confidence: 0.85, evidence: ['livewire dependency'] });
+            if (allDeps['inertiajs/inertia-laravel']) result.stacks.push({ name: 'Inertia.js', confidence: 0.85, evidence: ['inertia dependency'] });
+
+            // ORM/DB
+            if (allDeps['doctrine/orm']) result.stacks.push({ name: 'Doctrine ORM', confidence: 0.85, evidence: ['doctrine/orm dependency'] });
+
+            // Test
+            if (allDeps['phpunit/phpunit'] || allDeps['pestphp/pest']) {
+                result.stacks.push({ name: allDeps['pestphp/pest'] ? 'Pest' : 'PHPUnit', confidence: 0.9, evidence: ['test framework dependency'] });
+            }
+        } catch { /* skip */ }
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // Ruby Stack Detection
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    private async detectRubyStack(projectRoot: string, result: DetailedStack): Promise<void> {
+        const gemfilePath = path.join(projectRoot, 'Gemfile');
+        if (!fs.existsSync(gemfilePath)) return;
+
+        try {
+            const content = fs.readFileSync(gemfilePath, 'utf8').toLowerCase();
+
+            if (content.includes("'rails'") || content.includes('"rails"')) {
+                result.stacks.push({ name: 'Ruby on Rails', confidence: 0.95, evidence: ['rails in Gemfile'] });
+                result.versions.framework = 'Rails';
+            }
+            if (content.includes("'sinatra'") || content.includes('"sinatra"')) {
+                result.stacks.push({ name: 'Sinatra', confidence: 0.9, evidence: ['sinatra in Gemfile'] });
+            }
+            if (content.includes("'hanami'")) result.stacks.push({ name: 'Hanami', confidence: 0.9, evidence: ['hanami in Gemfile'] });
+            if (content.includes("'rspec'")) result.stacks.push({ name: 'RSpec', confidence: 0.85, evidence: ['rspec in Gemfile'] });
+            if (content.includes("'minitest'")) result.stacks.push({ name: 'Minitest', confidence: 0.85, evidence: ['minitest in Gemfile'] });
+            if (content.includes("'sidekiq'")) result.stacks.push({ name: 'Sidekiq', confidence: 0.85, evidence: ['sidekiq in Gemfile'] });
+            if (content.includes("'devise'")) result.stacks.push({ name: 'Devise', confidence: 0.85, evidence: ['devise in Gemfile'] });
+            if (content.includes("'graphql'")) result.stacks.push({ name: 'GraphQL', confidence: 0.85, evidence: ['graphql in Gemfile'] });
+        } catch { /* skip */ }
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // Swift Stack Detection
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    private async detectSwiftStack(projectRoot: string, result: DetailedStack): Promise<void> {
+        const packagePath = path.join(projectRoot, 'Package.swift');
+        if (!fs.existsSync(packagePath)) return;
+
+        try {
+            const content = fs.readFileSync(packagePath, 'utf8');
+
+            if (content.includes('Vapor') || content.includes('vapor')) {
+                result.stacks.push({ name: 'Vapor', confidence: 0.9, evidence: ['Vapor in Package.swift'] });
+                result.versions.framework = 'Vapor';
+            }
+            if (content.includes('Kitura')) result.stacks.push({ name: 'Kitura', confidence: 0.9, evidence: ['Kitura in Package.swift'] });
+            if (content.includes('Perfect')) result.stacks.push({ name: 'Perfect', confidence: 0.85, evidence: ['Perfect in Package.swift'] });
+            if (content.includes('SwiftUI')) result.stacks.push({ name: 'SwiftUI', confidence: 0.9, evidence: ['SwiftUI reference'] });
+            if (content.includes('Combine')) result.stacks.push({ name: 'Combine', confidence: 0.85, evidence: ['Combine reference'] });
+        } catch { /* skip */ }
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // Kotlin Stack Detection
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    private async detectKotlinStack(projectRoot: string, result: DetailedStack): Promise<void> {
+        // build.gradle.kts or build.gradle
+        for (const buildFile of ['build.gradle.kts', 'build.gradle']) {
+            const buildPath = path.join(projectRoot, buildFile);
+            if (!fs.existsSync(buildPath)) continue;
+            try {
+                const content = fs.readFileSync(buildPath, 'utf8');
+                if (content.includes('ktor')) result.stacks.push({ name: 'Ktor', confidence: 0.9, evidence: ['ktor in build.gradle'] });
+                if (content.includes('spring-boot')) result.stacks.push({ name: 'Spring Boot', confidence: 0.9, evidence: ['spring-boot in build.gradle'] });
+                if (content.includes('exposed')) result.stacks.push({ name: 'Exposed', confidence: 0.85, evidence: ['exposed ORM in build.gradle'] });
+                if (content.includes('koin')) result.stacks.push({ name: 'Koin', confidence: 0.85, evidence: ['koin DI in build.gradle'] });
+                if (content.includes('dagger') || content.includes('hilt')) result.stacks.push({ name: 'Dagger/Hilt', confidence: 0.85, evidence: ['dagger/hilt in build.gradle'] });
+                if (content.includes('kotlinx.coroutines')) result.stacks.push({ name: 'Coroutines', confidence: 0.8, evidence: ['kotlinx.coroutines'] });
+                if (content.includes('kotlinx.serialization')) result.stacks.push({ name: 'Kotlin Serialization', confidence: 0.8, evidence: ['kotlinx.serialization'] });
+                break;
+            } catch { /* skip */ }
+        }
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // Elixir Stack Detection
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    private async detectElixirStack(projectRoot: string, result: DetailedStack): Promise<void> {
+        const mixPath = path.join(projectRoot, 'mix.exs');
+        if (!fs.existsSync(mixPath)) return;
+        try {
+            const content = fs.readFileSync(mixPath, 'utf8').toLowerCase();
+            if (content.includes(':phoenix')) {
+                result.stacks.push({ name: 'Phoenix', confidence: 0.95, evidence: ['phoenix in mix.exs'] });
+                result.versions.framework = 'Phoenix';
+            }
+            if (content.includes(':ecto')) result.stacks.push({ name: 'Ecto', confidence: 0.9, evidence: ['ecto in mix.exs'] });
+            if (content.includes(':absinthe')) result.stacks.push({ name: 'Absinthe (GraphQL)', confidence: 0.85, evidence: ['absinthe in mix.exs'] });
+            if (content.includes(':oban')) result.stacks.push({ name: 'Oban', confidence: 0.85, evidence: ['oban in mix.exs'] });
+            if (content.includes(':tesla')) result.stacks.push({ name: 'Tesla HTTP', confidence: 0.85, evidence: ['tesla in mix.exs'] });
+            if (content.includes(':live_view') || content.includes(':phoenix_live_view')) {
+                result.stacks.push({ name: 'Phoenix LiveView', confidence: 0.9, evidence: ['live_view in mix.exs'] });
+            }
+        } catch { /* skip */ }
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // Scala Stack Detection
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    private async detectScalaStack(projectRoot: string, result: DetailedStack): Promise<void> {
+        const sbtPath = path.join(projectRoot, 'build.sbt');
+        if (!fs.existsSync(sbtPath)) return;
+        try {
+            const content = fs.readFileSync(sbtPath, 'utf8').toLowerCase();
+            if (content.includes('akka')) result.stacks.push({ name: 'Akka', confidence: 0.9, evidence: ['akka in build.sbt'] });
+            if (content.includes('play')) result.stacks.push({ name: 'Play Framework', confidence: 0.9, evidence: ['play in build.sbt'] });
+            if (content.includes('http4s')) result.stacks.push({ name: 'http4s', confidence: 0.9, evidence: ['http4s in build.sbt'] });
+            if (content.includes('zio')) result.stacks.push({ name: 'ZIO', confidence: 0.85, evidence: ['zio in build.sbt'] });
+            if (content.includes('cats')) result.stacks.push({ name: 'Cats', confidence: 0.85, evidence: ['cats in build.sbt'] });
+            if (content.includes('slick')) result.stacks.push({ name: 'Slick', confidence: 0.85, evidence: ['slick ORM in build.sbt'] });
+            if (content.includes('spark')) result.stacks.push({ name: 'Apache Spark', confidence: 0.85, evidence: ['spark in build.sbt'] });
+        } catch { /* skip */ }
     }
 }

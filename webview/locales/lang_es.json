@@ -114,7 +114,7 @@
   "banyaLicenseDeleteError": "Error al eliminar licencia Banya:",
   "verifyButton": "Verificar",
   "aiModelSelectLabel": "Selección de Modelo IA",
-  "geminiOption": "Gemini 2.5 Pro Flash",
+  "geminiOption": "Google AI",
   "ollamaOption": "Ollama",
   "banyaOption": "Banya",
   "aiModelSaved": "Modelo IA guardado correctamente.",

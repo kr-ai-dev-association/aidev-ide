@@ -1,6 +1,6 @@
 /**
  * List Imports Tool Handler
- * 파일의 import/export 문을 추출하는 도구
+ * Tool for extracting import/export statements from files
  * - JavaScript/TypeScript import/export
  * - Python import/from...import
  * - Java/Kotlin import
@@ -40,7 +40,7 @@ export class ListImportsToolHandler implements IToolHandler {
             ? filePath
             : path.join(context.projectRoot, filePath);
 
-        // 프로젝트 루트 외부 파일 접근 차단
+        // Block access to files outside project root
         if (!absolutePath.startsWith(context.projectRoot) && absolutePath !== context.projectRoot) {
             console.warn(`[ListImportsToolHandler] External file access blocked: ${absolutePath}`);
             return {
@@ -51,7 +51,7 @@ export class ListImportsToolHandler implements IToolHandler {
         }
 
         try {
-            // 캐시 우선 사용
+            // Use cache first
             const cache = ProjectContextCache.getInstance();
             let fullContent = await cache.getFile(absolutePath);
             if (fullContent) {
@@ -67,7 +67,7 @@ export class ListImportsToolHandler implements IToolHandler {
             const imports: ImportInfo[] = [];
             const exports: ImportInfo[] = [];
 
-            // 언어별 패턴 정의
+            // Define patterns by language
             const patterns = this.getPatternsByExtension(ext);
 
             lines.forEach((line, idx) => {
@@ -96,7 +96,7 @@ export class ListImportsToolHandler implements IToolHandler {
                 }
             });
 
-            // 포맷된 출력 생성
+            // Generate formatted output
             let formattedOutput = '';
 
             if (imports.length > 0) {
@@ -224,7 +224,7 @@ export class ListImportsToolHandler implements IToolHandler {
                 ];
 
             default:
-                // 기본: JS/TS 패턴 사용
+                // Default: use JS/TS patterns
                 return [
                     { regex: /^import\s+.*\s+from\s+['"]([^'"]+)['"]/, type: 'import' },
                     { regex: /^export\s+/, type: 'export' },

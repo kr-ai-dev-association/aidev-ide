@@ -140,6 +140,16 @@ export interface MCPToolCallRequest {
 }
 
 /**
+ * 관리자(서버)에서 푸시된 MCP 서버 설정
+ */
+export interface AdminMCPServer extends MCPServerConfig {
+    /** 적용 방식: required=필수, recommended=권장 */
+    enforcement: 'required' | 'recommended';
+    /** 출처: admin=팀 기본, project=프로젝트 */
+    source?: 'admin' | 'project';
+}
+
+/**
  * MCP 기본 설정값
  */
 export const DEFAULT_MCP_SETTINGS: MCPSettings = {

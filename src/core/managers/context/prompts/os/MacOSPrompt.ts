@@ -1,24 +1,23 @@
 /**
- * macOS OS 프롬프트 컴포넌트
+ * macOS OS Prompt Component
  */
 
 export function getMacOSPrompt(): string {
-    return `**macOS 환경 특화 가이드라인:**
-- Bash/Zsh 쉘 명령어를 사용하세요.
-- 파일 경로는 슬래시(/)를 사용하세요.
-- 환경변수는 $VARIABLE_NAME 형식을 사용하세요.
-- 터미널 명령어는 \`\`\`bash 코드 블록을 사용하세요.
-- 포트 해제: lsof -ti:포트번호 | xargs kill -9
-- 프로세스 종료: pkill -f "프로세스명"
-- Homebrew 패키지 관리자 사용을 권장하세요.
-- 권한 문제 시 sudo 명령어 사용을 안내하세요.
-- **중요: 쉘 스크립트 생성 조건 및 규칙:**
-  - 쉘 스크립트는 **프로젝트 빌드, 실행, 테스트, 배포**와 직접 관련된 작업일 때만 생성하세요.
-  - 프로젝트 빌드/실행과 무관한 작업에는 절대 쉘 스크립트를 생성하지 마세요.
-  - 쉘 스크립트 내에 프로그래밍 언어 코드(Python, Node.js, Java 등)가 필요한 경우:
-    * 반드시 해당 언어명 callout을 사용하세요 (예: \`\`\`python, \`\`\`javascript)
-    * "새 파일: [파일경로]" 형식으로 파일 생성 가이드를 따르세요
-  - 복잡한 bash 스크립트(함수 정의, 여러 줄 변수, if/for/while 루프 포함)는 반드시 .sh 파일로 생성하고, 생성 후 \`chmod +x 스크립트.sh && ./스크립트.sh\` 형식으로 실행하세요.
-  - 단순한 한 줄 명령어만 코드 블록에 직접 작성하세요 (예: \`mvn clean package\`, \`npm install\` 등).`;
+    return `**macOS Environment-Specific Guidelines:**
+- Use Bash/Zsh shell commands.
+- Use forward slashes (/) for file paths.
+- Use $VARIABLE_NAME format for environment variables.
+- Use \`\`\`bash code blocks for terminal commands.
+- Port release: lsof -ti:PORT_NUMBER | xargs kill -9
+- Process termination: pkill -f "process_name"
+- Recommend using the Homebrew package manager.
+- Guide users to use the sudo command for permission issues.
+- **Important: Shell script creation conditions and rules:**
+  - Only create shell scripts for tasks directly related to **project build, run, test, or deployment**.
+  - Never create shell scripts for tasks unrelated to project build/run.
+  - If programming language code (Python, Node.js, Java, etc.) is needed within a shell script:
+    * Always use the appropriate language callout (e.g., \`\`\`python, \`\`\`javascript)
+    * Follow the file creation guide in "New file: [file_path]" format
+  - Complex bash scripts (containing function definitions, multi-line variables, if/for/while loops) must be created as .sh files, then executed using \`chmod +x script.sh && ./script.sh\` format.
+  - Only write simple one-line commands directly in code blocks (e.g., \`mvn clean package\`, \`npm install\`, etc.).`;
 }
-

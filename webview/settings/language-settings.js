@@ -185,12 +185,6 @@ export function applyLanguage() {
   applyText("ai-model-label", languageData["aiModelLabel"]);
   applyText("save-ai-model-button", languageData["saveAiModelButton"]);
 
-  // 시리얼 번호 관련
-  applyText("banya-license-label", languageData["banyaLicenseLabel"]);
-  applyText("save-banya-license-button", languageData["saveBanyaLicenseButton"]);
-  applyText("verify-banya-license-button", languageData["verifyBanyaLicenseButton"]);
-  applyText("delete-banya-license-button", languageData["deleteBanyaLicenseButton"]);
-
   // Ollama 설정 관련
   applyText("ollama-server-type-label", languageData["ollamaServerTypeLabel"]);
   applyText("local-ollama-api-url-label", languageData["localOllamaApiUrlLabel"]);

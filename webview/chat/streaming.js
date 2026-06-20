@@ -5,6 +5,7 @@
 
 import { escapeHtml, removeToolTags, sanitizeLastResort, removeThinkTags, extractCurrentThink, sanitizeOptions } from "./utils.js";
 import { enhanceCodeBlocks } from "./codeBlock.js";
+import { appendBeforeThinkingBubble } from "./message-display.js";
 
 // 스트리밍 메시지 처리 변수들
 let streamingMessageElement = null;
@@ -43,13 +44,14 @@ export function setThinkingBubbleElement(element) {
  * 새로운 스트리밍 응답을 위한 메시지 요소 생성
  * @param {string} sender - 발신자
  */
-export function startStreamingMessage(sender) {
+export function startStreamingMessage(sender, meta) {
   if (!chatMessages) {
     console.warn("[Streaming] chatMessages element not found");
     return;
   }
 
-  // thinking bubble 숨기기
+  // 스트리밍 시작 시 thinking bubble 숨김
+  // EXECUTION phase는 shouldStreamToUI=false라 이 함수가 호출되지 않으므로 안전
   if (thinkingBubbleElement) {
     thinkingBubbleElement.style.display = "none";
   }
@@ -63,6 +65,11 @@ export function startStreamingMessage(sender) {
   const messageContainer = document.createElement("div");
   messageContainer.classList.add("codepilot-message-container", "streaming");
 
+  // 턴 ID 스탬프 (턴 레벨 Accept/Reject용)
+  if (meta && meta.conversationTurnId) {
+    messageContainer.setAttribute("data-turn-id", meta.conversationTurnId);
+  }
+
   const bubbleElement = document.createElement("div");
   bubbleElement.classList.add("message-bubble");
   bubbleElement.innerHTML = `<div class="message-content"><span class="streaming-cursor"></span></div>`;
@@ -70,7 +77,7 @@ export function startStreamingMessage(sender) {
   messageContainer.appendChild(bubbleElement);
   streamingMessageElement = messageContainer;
 
-  chatMessages.appendChild(streamingMessageElement);
+  appendBeforeThinkingBubble(chatMessages, streamingMessageElement);
   streamingTextContent = "";
 
   // 스크롤을 하단으로
@@ -275,4 +282,16 @@ export function getStreamingState() {
  */
 export function getStreamingMessageElement() {
   return streamingMessageElement;
+}
+
+/**
+ * 마지막 메시지 제거
+ * 자연어 재시도 시 이미 스트리밍된 메시지를 UI에서 제거
+ */
+export function removeLastMessage() {
+  if (!chatMessages) return;
+  const lastMessage = chatMessages.querySelector('.codepilot-message-container:last-child');
+  if (lastMessage) {
+    lastMessage.remove();
+  }
 }

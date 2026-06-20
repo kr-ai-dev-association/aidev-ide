@@ -4,6 +4,7 @@
  */
 
 import { ChildProcess } from 'child_process';
+import * as iconv from 'iconv-lite';
 import { StreamData, StreamHandler } from './types';
 
 export class StreamManager {
@@ -35,8 +36,9 @@ export class StreamManager {
             });
         }
 
-        // 프로세스 종료 시 정리
-        childProcess.on('exit', () => {
+        // 프로세스 종료 시 정리 (close는 exit 이후, 모든 스트림 flush 후 발생)
+        // exit에서 cleanup하면 ExecutionManager가 buffer를 읽기 전에 삭제되는 레이스 컨디션 발생
+        childProcess.on('close', () => {
             this.cleanup(pid);
         });
     }
@@ -134,13 +136,34 @@ export class StreamManager {
 
     /**
      * 데이터를 디코딩합니다
+     * UTF-8로 디코딩 후 깨진 문자(U+FFFD)가 있으면 CP949(EUC-KR)로 재시도
      */
     private decodeData(data: Buffer): string {
         try {
             // UTF-8 디코딩 시도
-            return data.toString('utf8');
+            let result = data.toString('utf8');
+            // Windows UTF-8 BOM 제거
+            if (result.charCodeAt(0) === 0xFEFF) {
+                result = result.slice(1);
+            }
+            // UTF-8 디코딩 결과에 replacement character(�)가 있으면 CP949 시도
+            if (process.platform === 'win32' && result.includes('\uFFFD')) {
+                try {
+                    const cp949Result = iconv.decode(data, 'cp949');
+                    // CP949 디코딩 결과가 유효하면(replacement char 없음) 사용
+                    if (!cp949Result.includes('\uFFFD')) {
+                        return cp949Result;
+                    }
+                } catch { /* CP949 디코딩 실패 시 UTF-8 결과 사용 */ }
+            }
+            return result;
         } catch {
-            // 실패 시 Latin1로 디코딩
+            // UTF-8 실패 시 CP949 → Latin1 순서로 fallback
+            try {
+                if (process.platform === 'win32') {
+                    return iconv.decode(data, 'cp949');
+                }
+            } catch { /* ignore */ }
             return data.toString('latin1');
         }
     }
@@ -150,9 +173,7 @@ export class StreamManager {
      */
     private cleanup(pid: number): void {
         this.handlers.delete(pid);
-
-        // 버퍼는 유지 (히스토리 목적)
-        // this.buffers.delete(pid);
+        this.buffers.delete(pid);
     }
 
     /**

@@ -1,6 +1,6 @@
 /**
  * Validation Command Prompt
- * LLM을 사용하여 검증 명령어를 추론하는 프롬프트
+ * Prompt for inferring validation commands using LLM
  */
 
 export interface ValidationCommandPromptOptions {
@@ -14,20 +14,20 @@ export function getValidationCommandPrompt(options: ValidationCommandPromptOptio
     const { projectType, workspaceRoot, createdFiles, modifiedFiles } = options;
     const fileList = [...createdFiles, ...modifiedFiles].slice(0, 10).join(', ');
 
-    return `다음 프로젝트에 대한 검증 명령어를 추론하세요.
+    return `Infer the validation command for the following project.
 
-프로젝트 타입: ${projectType}
-프로젝트 루트: ${workspaceRoot}
-생성/수정된 파일: ${fileList || '없음'}
+Project type: ${projectType}
+Project root: ${workspaceRoot}
+Created/modified files: ${fileList || 'none'}
 
-규칙 기반으로 결정할 수 없는 검증 명령어를 추론해야 합니다.
-프로젝트 타입과 파일 정보를 바탕으로 적절한 검증 명령어(컴파일, 빌드, 린트 등)를 제안하세요.
+You need to infer validation commands that cannot be determined by rule-based methods.
+Based on the project type and file information, suggest appropriate validation commands (compile, build, lint, etc.).
 
-JSON 형식으로 응답하세요:
+Respond in JSON format:
 {
-  "command": "실행할 명령어 (예: npm run build, mvn compile, python -m pytest 등)",
-  "description": "검증 설명 (예: Node.js 빌드 검사, Python 테스트 실행 등)"
+  "command": "Command to execute (e.g., npm run build, mvn compile, python -m pytest, etc.)",
+  "description": "Validation description (e.g., Node.js build check, Python test execution, etc.)"
 }
 
-중요: 명령어는 실제로 실행 가능해야 하며, 프로젝트 타입에 맞는 검증 도구를 사용해야 합니다.`;
+Important: The command must be actually executable and use validation tools appropriate for the project type.`;
 }

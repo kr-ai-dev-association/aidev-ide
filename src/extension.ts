@@ -1,18 +1,13 @@
 import * as vscode from "vscode";
+import * as path from "path";
 
-import {
-  GeminiApi,
-  BanyaApi,
-  NotificationService,
-  OllamaApi,
-  LicenseService,
-  GitRepositoryService,
-} from "./services";
+import { NotificationService, OllamaApi } from "./services";
 import { AiModelType } from "./services/types";
 import { ChatViewProvider } from "./webview/providers";
-import { openSettingsPanel } from "./core/webview/SettingsPanelProvider";
-import { DebugLogger } from "./utils";
-
+import {
+  openSettingsPanel,
+  broadcastToSettingsPanels,
+} from "./core/webview/SettingsPanelProvider";
 import {
   ActionManager,
   ExecutionManager,
@@ -29,11 +24,10 @@ import {
   LLMManager,
 } from "./core";
 import { PromptBuilder } from "./core/managers/context/PromptBuilder";
+import { PromptComposer } from "./core/managers/context/prompts/PromptComposer";
 import { ConversationManager } from "./core/managers/conversation/ConversationManager";
 import { LLMApiClient } from "./core/managers/model/LLMApiClient";
-import { IntentDetector } from "./core/managers/action/IntentDetector";
-import { ExternalApiService } from "./services/external/ExternalApiService";
-import { ContextHistoryManager } from "./core/managers/context/ContextHistoryManager";
+import { ModelConnectionService } from "./core/managers/model/ModelConnectionService";
 import { FileChangeTracker } from "./core/managers/action/file/FileChangeTracker";
 import { FileContextTracker } from "./core/managers/context/file/FileContextTracker";
 import { ToolRegistry } from "./core/tools/ToolRegistry";
@@ -42,6 +36,7 @@ import {
   DIFF_VIEW_URI_SCHEME,
 } from "./core/managers/diff/DiffContentProvider";
 import { DiffManager } from "./core/managers/diff/DiffManager";
+import { InlineCompletionProvider } from "./core/completion/InlineCompletionProvider";
 import { DiffCodeLensProvider } from "./core/managers/diff/DiffCodeLensProvider";
 import { InlineDiffManager } from "./core/managers/diff/InlineDiffManager";
 import {
@@ -50,29 +45,48 @@ import {
   RemoveFileToolHandler,
   ReadFileToolHandler,
   ListFilesToolHandler,
-  SearchFilesToolHandler,
   RipgrepSearchToolHandler,
-  ExpandAroundLineToolHandler,
   ListImportsToolHandler,
   StatFileToolHandler,
+  GlobSearchToolHandler,
 } from "./core/tools/file";
 import { RunCommandToolHandler } from "./core/tools/terminal";
-import { GitDiffToolHandler } from "./core/tools/git";
-import { ReadActiveFileToolHandler } from "./core/tools/ide";
+import { ReadActiveFileToolHandler, LspToolHandler } from "./core/tools/ide";
 import { FetchUrlToolHandler } from "./core/tools/web";
+import { ListCodeDefinitionsToolHandler } from "./core/tools/file";
 import { MCPToolHandler } from "./core/tools/mcp/MCPToolHandler";
 import { MCPManager } from "./core/mcp/MCPManager";
 import { HotLoadManager } from "./core/managers/hotload";
+import { MemoryManager } from "./core/memory/MemoryManager";
+import { MemorySaveToolHandler } from "./core/tools/memory/MemorySaveToolHandler";
+import { MemoryDeleteToolHandler } from "./core/tools/memory/MemoryDeleteToolHandler";
+import { LoadSkillToolHandler } from "./core/tools/skill/LoadSkillToolHandler";
+import { AskQuestionToolHandler } from "./core/tools/interaction/AskQuestionToolHandler";
+import { SpawnAgentToolHandler } from "./core/tools/agent/SpawnAgentToolHandler";
+import { StopAgentToolHandler } from "./core/tools/agent/StopAgentToolHandler";
+import { WorkPlanToolHandler } from "./core/tools/agent/WorkPlanToolHandler";
+import { AuthService } from "./services/auth/AuthService";
+import { DEFAULT_OLLAMA_URL } from "./core/config/ApiDefaults";
+import {
+  registerGitCommands,
+  registerMcpCommands,
+  registerSessionCommands,
+  registerDiagnosticCommands,
+} from "./commands";
+import { runCleanupFunctions, registerCleanup } from "./utils/cleanupRegistry";
 
 // 전역 변수
-let geminiApi: GeminiApi;
+let authService: AuthService;
 let ollamaApi: OllamaApi;
-let banyaApi: BanyaApi;
 let notificationService: NotificationService;
-let licenseService: LicenseService;
-let gitRepositoryService: GitRepositoryService;
 
 export async function activate(context: vscode.ExtensionContext) {
+  // 옛 단일 글로벌 apiKey 슬롯 cleanup — 모델별 슬롯 도입 (v1.0.77) 으로 deprecate.
+  // 동적 import 로 main 흐름 차단 X.
+  import("./utils/userApiKey")
+    .then((m) => m.cleanupLegacyApiKeySlot(context))
+    .catch(() => {});
+
   // punycode deprecation 경고 억제 (간접 의존성에서 발생, 기능에는 영향 없음)
   const originalEmitWarning = process.emitWarning;
   process.emitWarning = (warning: string | Error, ...args: any[]) => {
@@ -85,8 +99,86 @@ export async function activate(context: vscode.ExtensionContext) {
   // 서비스 초기화 (순서 중요: 의존성 주입)
   notificationService = new NotificationService();
 
-  licenseService = new LicenseService();
-  gitRepositoryService = new GitRepositoryService(context);
+  // InlineDiffManager에 ExtensionContext 주입 (영구 저장 복원)
+  InlineDiffManager.getInstance().setContext(context);
+
+  // Skills 파일을 storageUri (프로젝트 폴더 외부)에 저장
+  if (context.storageUri) {
+    const skillsDir = path.join(context.storageUri.fsPath, "rules");
+    PromptComposer.setSkillsDir(skillsDir);
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(skillsDir));
+  }
+
+  // 글로벌 규칙 디렉토리 설정 (globalStorageUri — 모든 프로젝트 공통)
+  const globalRulesDir = path.join(context.globalStorageUri.fsPath, "rules");
+  PromptComposer.setGlobalRulesDir(globalRulesDir);
+  await vscode.workspace.fs.createDirectory(vscode.Uri.file(globalRulesDir));
+
+  // CodePilot Backend 인증 서비스 초기화
+  authService = AuthService.initialize(context);
+
+  // OAuth 콜백 URI Handler 등록
+  context.subscriptions.push(
+    vscode.window.registerUriHandler({
+      handleUri(uri: vscode.Uri) {
+        if (uri.path === "/auth/callback") {
+          authService.handleOAuthCallback(uri);
+        }
+      },
+    }),
+  );
+
+  // 로그인 / 로그아웃 명령어 등록 (채팅 패널에서 라이선스 키 입력)
+  context.subscriptions.push(
+    vscode.commands.registerCommand("codepilot.login", async () => {
+      // 채팅 패널에 로그인 화면이 있으므로 포커스
+      await vscode.commands.executeCommand("codepilot.chatView.focus");
+    }),
+    vscode.commands.registerCommand("codepilot.logout", async () => {
+      await authService.logout();
+    }),
+  );
+
+  // 로그인 상태 변경 시 서버 설정 동기화
+  authService.onDidChangeAuth(async (loggedIn) => {
+    if (loggedIn) {
+      try {
+        const settingsManager = SettingsManager.getInstance();
+        await settingsManager.syncServerSettings();
+        console.log("[Extension] Server settings synced after login");
+      } catch (err) {
+        console.warn("[Extension] Settings sync failed:", err);
+      }
+    }
+  });
+
+  // 로그인 상태이면 서버 설정 동기화
+  if (authService.isLoggedIn()) {
+    SettingsManager.getInstance(context)
+      .syncServerSettings()
+      .catch((err) => {
+        console.warn("[Extension] Initial settings sync failed:", err);
+      });
+  }
+
+  // IDE 창 포커스 복귀 시 TTL 만료됐으면 서버 설정 refetch
+  context.subscriptions.push(
+    vscode.window.onDidChangeWindowState((e) => {
+      if (e.focused) {
+        SettingsManager.getInstance(context)
+          .syncIfStale()
+          .catch(() => {});
+      }
+    }),
+  );
+
+  // 조직 접근 권한 해제(403) 감지 시 webview에 알림 broadcast
+  SettingsManager.getInstance(context).onOrganizationAccessRevoked(() => {
+    broadcastToSettingsPanels({
+      command: "organizationAccessRevoked",
+      message: "조직 접근 권한이 해제되어 개인 모드로 전환되었습니다.",
+    });
+  });
 
   // Core Manager 시스템 초기화
   const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -97,7 +189,7 @@ export async function activate(context: vscode.ExtensionContext) {
     try {
       await projManager.initialize(workspacePath);
       // Core Manager System initialized
-      // (추가 로그가 필요하면 DebugLogger로 출력하세요)
+      // Core Manager System initialized
     } catch (error) {
       console.error("[Extension] Failed to initialize core managers:", error);
     }
@@ -112,67 +204,10 @@ export async function activate(context: vscode.ExtensionContext) {
   let currentAiModel = await stateManager.getCurrentAiModel();
   const currentAiModelInit = currentAiModel;
 
-  // fallback: 설정에서 모델 타입을 유추하거나 기본값 처리 가능 (여기서는 문자열 비교만)
-  const isGeminiSelected =
-    (currentAiModelInit || "").toLowerCase() === "gemini";
-  const initialApiKey = await stateManager.getApiKey();
-  const initialGeminiModel = await stateManager.getGeminiModel();
-
-  if (isGeminiSelected) {
-    if (!initialApiKey || initialApiKey.trim() === "") {
-      console.warn("[Extension] Gemini selected but API key is empty");
-      notificationService.showWarningMessage(
-        "codepilot: Gemini API Key is not set. Please set it in the Settings.",
-      );
-      geminiApi = new GeminiApi();
-    } else {
-      geminiApi = new GeminiApi(initialApiKey);
-      geminiApi.updateModelName(initialGeminiModel || "gemini-3-pro-preview");
-      const isInitialized = geminiApi.isInitialized();
-      if (!isInitialized) {
-        console.error(
-          "[Extension] API initialization failed on extension activation. API Key status:",
-          {
-            hasApiKey: !!initialApiKey,
-            apiKeyLength: initialApiKey?.length || 0,
-            apiKeyPrefix: initialApiKey
-              ? `${initialApiKey.substring(0, 10)}...`
-              : "N/A",
-            apiKeyTrimmed: initialApiKey ? initialApiKey.trim() : "N/A",
-          },
-        );
-        const reinitialized = geminiApi.updateApiKey(initialApiKey);
-        if (!reinitialized) {
-          console.error(
-            "[Extension] API reinitialization also failed on extension activation. Full status:",
-            {
-              hasApiKey: !!initialApiKey,
-              apiKeyLength: initialApiKey?.length || 0,
-              apiKeyPrefix: initialApiKey
-                ? `${initialApiKey.substring(0, 10)}...`
-                : "N/A",
-              geminiApiHasApiKey: !!geminiApi.apiKey,
-              geminiApiKeyLength: geminiApi.apiKey?.length || 0,
-            },
-          );
-        }
-      }
-    }
-  } else {
-    // Gemini가 선택되지 않은 경우 키 유무와 상관없이 조용히 초기화 (경고 출력 안 함)
-    geminiApi = new GeminiApi(initialApiKey);
-    geminiApi.updateModelName(initialGeminiModel || "gemini-3-pro-preview");
-  }
-
   // Ollama API 초기화
   const initialOllamaUrl = await stateManager.getOllamaApiUrl();
-  const initialOllamaEndpoint = await stateManager.getOllamaEndpoint();
   const initialOllamaModel = await stateManager.getOllamaModel();
-  ollamaApi = new OllamaApi(
-    initialOllamaUrl || "http://localhost:11434",
-    initialOllamaEndpoint,
-    context,
-  );
+  ollamaApi = new OllamaApi(initialOllamaUrl || DEFAULT_OLLAMA_URL, context);
   ollamaApi.setModel(initialOllamaModel);
   try {
     await ollamaApi.loadSettingsFromStorage();
@@ -180,18 +215,21 @@ export async function activate(context: vscode.ExtensionContext) {
     console.warn("[Extension] Failed to load Ollama settings at startup:", e);
   }
 
-  // Banya API 초기화
-  const config = vscode.workspace.getConfiguration("codepilot");
-  const initialBanyaApiUrl =
-    config.get<string>("banyaApiUrl") ||
-    "http://210.109.53.87:8083/v1/chat/completions";
-  const initialBanyaApiKey =
-    (await context.secrets.get("codepilot.banyaApiKey")) || "";
-  banyaApi = new BanyaApi(initialBanyaApiUrl, initialBanyaApiKey, context);
-  try {
-    await banyaApi.loadSettingsFromStorage();
-  } catch (e) {
-    console.warn("[Extension] Failed to load Banya settings at startup:", e);
+  // Ollama 모델의 실제 context length 조회 및 토큰 제한 업데이트 (현재 모델이 Ollama일 때만)
+  if (initialOllamaModel && currentAiModel === "ollama") {
+    ModelConnectionService.getOllamaModelContextLength(
+      initialOllamaModel,
+      initialOllamaUrl || DEFAULT_OLLAMA_URL,
+    )
+      .then((ctxLen: number | null) => {
+        if (ctxLen) {
+          const { updateOllamaTokenLimits } = require("./utils/tokenUtils");
+          updateOllamaTokenLimits(ctxLen);
+        }
+      })
+      .catch(() => {
+        /* non-critical */
+      });
   }
 
   // 사용자 OS 정보를 PromptBuilder에 설정
@@ -261,9 +299,7 @@ export async function activate(context: vscode.ExtensionContext) {
       const raw = await errorManager.sendMessageForErrorCorrection(
         prompt,
         new LLMApiClient(
-          geminiApi,
           ollamaApi,
-          banyaApi,
           (currentAiModel as AiModelType) || defaultModelForError,
         ),
         undefined,
@@ -295,23 +331,6 @@ export async function activate(context: vscode.ExtensionContext) {
     );
   }
 
-  // Git 리포지토리 정보 자동 감지
-  try {
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-    if (workspaceFolder) {
-      const gitInfo = await gitRepositoryService.detectAndSaveRepositoryInfo(
-        workspaceFolder.uri.fsPath,
-      );
-      if (gitInfo) {
-        // Git 리포지토리 감지됨
-      } else {
-        // Git 리포지토리가 감지되지 않았습니다
-      }
-    }
-  } catch (error) {
-    console.error("[Extension] Git 리포지토리 감지 중 오류:", error);
-  }
-
   // ============================================
   // Manager 시스템 초기화
   // ============================================
@@ -324,8 +343,14 @@ export async function activate(context: vscode.ExtensionContext) {
   // HotLoadManager 초기화 (Hot Load 기능 사용을 위해)
   HotLoadManager.getInstance(context);
 
+  // MemoryManager 초기화 (영속적 메모리 시스템)
+  if (workspacePath) {
+    MemoryManager.getInstance().initialize(context, workspacePath);
+  }
+
   // 커스텀 제외 패턴 캐시 로드
-  const { loadCustomExclusionPatterns } = await import('./core/utils/FileExclusionConstants');
+  const { loadCustomExclusionPatterns } =
+    await import("./core/utils/FileExclusionConstants");
   loadCustomExclusionPatterns(context);
 
   // Project Manager는 이미 위에서 초기화됨
@@ -392,11 +417,17 @@ export async function activate(context: vscode.ExtensionContext) {
     await stateManager.saveCurrentAiModel("ollama" as any);
   }
 
-  // UI에서 저장된 모델이 우선
+  // UI에서 저장된 모델이 우선 — 런타임 타입으로 매핑
   if (uiAiModel && uiAiModel !== currentAiModel) {
     let mappedUiModel: string = uiAiModel;
     if (uiAiModel.startsWith("ollama")) {
       mappedUiModel = "ollama";
+    } else if (
+      uiAiModel.startsWith("admin:") ||
+      uiAiModel.startsWith("group:") ||
+      uiAiModel.startsWith("supported:")
+    ) {
+      mappedUiModel = "admin";
     }
     currentAiModel = mappedUiModel as any;
     await stateManager.saveCurrentAiModel(mappedUiModel as any);
@@ -406,37 +437,77 @@ export async function activate(context: vscode.ExtensionContext) {
 
   const conversationManager = ConversationManager.getInstance(
     userOS,
-    geminiApi,
     ollamaApi,
-    banyaApi,
   );
-  const llmApiClient = new LLMApiClient(
-    geminiApi,
-    ollamaApi,
-    banyaApi,
-    currentAiModel as any,
-  );
-  const llmManager = LLMManager.getInstance(
-    geminiApi,
-    ollamaApi,
-    banyaApi,
-    currentAiModel as any,
-  );
-  // promptBuilder는 이미 위에서 선언됨
-  const intentDetector = new IntentDetector(llmManager);
-  const externalApiService = new ExternalApiService(context);
+  const llmApiClient = new LLMApiClient(ollamaApi, currentAiModel as any);
+  const llmManager = LLMManager.getInstance(ollamaApi, currentAiModel as any);
+  // 관리자 모델 설정 로드 (admin 타입인 경우)
+  if (currentAiModel === "admin") {
+    try {
+      const adminConfigJson = await stateManager.getAdminModelConfig();
+      if (adminConfigJson) {
+        const adminConfig = JSON.parse(adminConfigJson);
+        // 모델별 슬롯에서 사용자 로컬 키 + apiKeySource 슬롯 보고 admin/personal 결정.
+        // adminConfig.apiKey 자체는 admin 공유 키 캐시이므로 그걸 sharedApiKey 로 본다.
+        const { getUserApiKeyForModel, resolveApiKeyBySource } =
+          await import("./utils/userApiKey");
+        const userAdminApiKey = getUserApiKeyForModel(context, adminConfig.key);
+        const sharedApiKey = adminConfig.apiKey || "";
+        adminConfig.apiKey = resolveApiKeyBySource(
+          context,
+          adminConfig.key,
+          sharedApiKey,
+          userAdminApiKey,
+        );
+        // nativeToolCallingSupported 누락 시 서버 설정 캐시에서 보완
+        if (
+          adminConfig.nativeToolCallingSupported === undefined &&
+          adminConfig.key
+        ) {
+          try {
+            const aiModelSettings =
+              settingsManager.getServerSettings("ai_model");
+            const serverEntry = aiModelSettings.find(
+              (s: any) => s.key === adminConfig.key,
+            );
+            if (serverEntry?.value) {
+              const v = serverEntry.value;
+              const rawNative =
+                v.nativeToolCallingSupported ?? v.native_tool_calling_supported;
+              adminConfig.nativeToolCallingSupported =
+                rawNative === true || String(rawNative) === "true";
+              adminConfig.streamingSupported =
+                adminConfig.streamingSupported ??
+                v.streamingSupported ??
+                v.streaming_supported ??
+                true;
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+        llmManager.setAdminModelConfig(adminConfig);
+        llmApiClient.setAdminModelConfig(adminConfig);
+        // 토큰 제한 동적 업데이트
+        const { updateAdminTokenLimits } = await import("./utils/tokenUtils");
+        updateAdminTokenLimits(
+          adminConfig.contextWindow,
+          adminConfig.maxOutputTokens || adminConfig.maxTokens,
+        );
+        console.log(
+          "[Extension] Admin model config loaded:",
+          adminConfig.model,
+          `nativeToolCalling=${adminConfig.nativeToolCallingSupported}`,
+        );
+      }
+    } catch (e) {
+      console.warn("[Extension] Failed to load admin model config:", e);
+    }
+  }
 
   conversationManager.setLLMService(llmApiClient);
-  conversationManager.setSessionManager(sessionManager);
   conversationManager.setPromptBuilder(promptBuilder);
-  conversationManager.setIntentDetector(intentDetector);
-  conversationManager.setExternalApiService(externalApiService);
-  conversationManager.configurePlanManager(llmApiClient, currentAiModel);
   conversationManager.setStateManager(stateManager);
-
-  // ContextHistoryManager 초기화 및 설정 (Phase 2.1, 4.4)
-  const contextHistoryManager = ContextHistoryManager.getInstance(context);
-  conversationManager.setContextHistoryManager(contextHistoryManager);
 
   // LLM Manager를 ContextManager에 설정 (내용 기반 relevance scoring용)
   contextManager.setLLMManager(llmManager);
@@ -456,8 +527,6 @@ export async function activate(context: vscode.ExtensionContext) {
       diffContentProvider,
     ),
   );
-  console.log("[Extension] Diff Content Provider registered");
-
   // 커서 IDE 방식: 인라인 Diff CodeLens Provider 등록
   const diffCodeLensProvider = DiffCodeLensProvider.getInstance();
   context.subscriptions.push(
@@ -466,7 +535,17 @@ export async function activate(context: vscode.ExtensionContext) {
       diffCodeLensProvider,
     ),
   );
-  console.log("[Extension] Diff CodeLens Provider registered");
+  // 소스코드 자동완성 Provider 등록 (Ghost Text / Tab Completion)
+  const inlineCompletionProvider = new InlineCompletionProvider(
+    llmManager,
+    stateManager,
+  );
+  context.subscriptions.push(
+    vscode.languages.registerInlineCompletionItemProvider(
+      { scheme: "file" },
+      inlineCompletionProvider,
+    ),
+  );
 
   // 커서 IDE 방식: 인라인 Diff 명령어 등록
   context.subscriptions.push(
@@ -552,43 +631,58 @@ export async function activate(context: vscode.ExtensionContext) {
   toolRegistry.register(new RemoveFileToolHandler());
   toolRegistry.register(new ReadFileToolHandler());
   toolRegistry.register(new ListFilesToolHandler());
-  toolRegistry.register(new SearchFilesToolHandler());
   toolRegistry.register(new RipgrepSearchToolHandler());
   toolRegistry.register(new RunCommandToolHandler());
   // 새로운 파일 읽기 도구들
-  toolRegistry.register(new ExpandAroundLineToolHandler());
   toolRegistry.register(new ListImportsToolHandler());
   toolRegistry.register(new StatFileToolHandler());
-  // Git, IDE, Web 도구들
-  toolRegistry.register(new GitDiffToolHandler());
+  // IDE, Web 도구들
   toolRegistry.register(new ReadActiveFileToolHandler());
   toolRegistry.register(new FetchUrlToolHandler());
-  console.log(
-    "[Extension] Tool handlers registered:",
-    toolRegistry.getRegisteredTools(),
-  );
-
+  // 파일 경로 패턴 검색
+  toolRegistry.register(new GlobSearchToolHandler());
+  // 코드 인텔리전스 도구들
+  toolRegistry.register(new LspToolHandler());
+  toolRegistry.register(new ListCodeDefinitionsToolHandler());
+  // 영속적 메모리 도구들
+  toolRegistry.register(new MemorySaveToolHandler());
+  toolRegistry.register(new MemoryDeleteToolHandler());
+  // 스킬 로더 도구 (서브에이전트용)
+  toolRegistry.register(new LoadSkillToolHandler());
+  // 사용자 질문 도구
+  toolRegistry.register(new AskQuestionToolHandler());
+  // AGENT 모드: 작업 계획 + worker 에이전트 스폰/중단 도구
+  toolRegistry.register(new WorkPlanToolHandler());
+  toolRegistry.register(new SpawnAgentToolHandler());
+  toolRegistry.register(new StopAgentToolHandler());
   // MCP Manager 초기화 및 도구 등록 브릿지
   const mcpManager = MCPManager.getInstance();
   await mcpManager.initialize(context);
 
   // MCPManager 연결 이벤트 → ToolRegistry 동적 등록
   mcpManager.onConnectionEvent((event) => {
-    if (event.type === 'connected' && event.tools) {
+    if (event.type === "connected" && event.tools) {
       // 기존 도구 해제 후 새로 등록 (serverId 기반)
       toolRegistry.unregisterByServerId(event.serverId);
 
       for (const tool of event.tools) {
-        const handler = new MCPToolHandler(event.serverId, event.serverName, tool);
-        const registeredName = toolRegistry.registerMCP(handler, event.serverId, event.serverName, tool.name);
+        const handler = new MCPToolHandler(
+          event.serverId,
+          event.serverName,
+          tool,
+        );
+        const registeredName = toolRegistry.registerMCP(
+          handler,
+          event.serverId,
+          event.serverName,
+          tool.name,
+        );
         if (registeredName !== handler.name) {
           handler.setRegisteredName(registeredName);
         }
       }
-      console.log(`[Extension] MCP tools registered for ${event.serverName}: ${event.tools.length} tools`);
-    } else if (event.type === 'disconnected') {
-      const count = toolRegistry.unregisterByServerId(event.serverId);
-      console.log(`[Extension] MCP tools unregistered for ${event.serverName}: ${count} tools`);
+    } else if (event.type === "disconnected") {
+      toolRegistry.unregisterByServerId(event.serverId);
     }
   });
 
@@ -596,47 +690,26 @@ export async function activate(context: vscode.ExtensionContext) {
   const allMcpTools = mcpManager.getAllTools();
   for (const { serverId, serverName, tool } of allMcpTools) {
     const handler = new MCPToolHandler(serverId, serverName, tool);
-    const registeredName = toolRegistry.registerMCP(handler, serverId, serverName, tool.name);
+    const registeredName = toolRegistry.registerMCP(
+      handler,
+      serverId,
+      serverName,
+      tool.name,
+    );
     if (registeredName !== handler.name) {
       handler.setRegisteredName(registeredName);
     }
   }
-  if (allMcpTools.length > 0) {
-    console.log(`[Extension] Existing MCP tools registered: ${allMcpTools.length}`);
-  }
 
   // 터미널 매니저에 오류 수정 서비스 설정은 각 웹뷰 프로바이더에서 수행됨
 
-  // 디버그 로그: VS Code Run/Debug 이벤트에만 연동 (설정 플래그 사용 중단)
-  const projectRootForDebug = await settingsManager.getProjectRoot();
-  DebugLogger.setContext(false, projectRootForDebug);
-
-  // VS Code Run and Debug 연동: 디버그 세션 시작 시 자동으로 로그 파일 생성(덮어쓰기) 및 기록 시작
-  context.subscriptions.push(
-    vscode.debug.onDidStartDebugSession(async (session) => {
-      try {
-        const root = await settingsManager.getProjectRoot();
-        DebugLogger.setContext(true, root);
-        DebugLogger.startIfEnabled();
-        DebugLogger.log(`VS Code debug session started: ${session.name}`);
-      } catch {
-        /* ignore */
-      }
-    }),
-  );
-
-  // 디버그 세션 종료 시: 자동 기록 중단
-  context.subscriptions.push(
-    vscode.debug.onDidTerminateDebugSession(async (session) => {
-      try {
-        const root = await settingsManager.getProjectRoot();
-        DebugLogger.log(`VS Code debug session ended: ${session.name}`);
-        DebugLogger.setContext(false, root);
-      } catch {
-        /* ignore */
-      }
-    }),
-  );
+  // Graceful shutdown: register cleanup functions for ExecutionManager and MCPManager
+  registerCleanup(async () => {
+    await execManager.cleanup();
+  });
+  registerCleanup(async () => {
+    await mcpManager.dispose();
+  });
 
   const autoCorrectionEnabled = await stateManager.getAutoCorrectionEnabled();
   const errorRetryCount = await settingsManager.getErrorRetryCount();
@@ -652,8 +725,6 @@ export async function activate(context: vscode.ExtensionContext) {
         viewColumn,
         settingsManager,
         notificationService,
-        geminiApi,
-        licenseService,
         ollamaApi,
         undefined,
         undefined,
@@ -661,10 +732,28 @@ export async function activate(context: vscode.ExtensionContext) {
       ),
     settingsManager,
     notificationService,
-    gitRepositoryService,
-    geminiApi,
     ollamaApi,
-    banyaApi,
+  );
+
+  // 세션 만료(리프레시 토큰까지 실패) → webview에 "token_expired" 알림 + 로그인 화면 전환
+  context.subscriptions.push(
+    authService.onSessionExpired(() => {
+      const payload = {
+        command: "authState",
+        loggedIn: false,
+        reason: "token_expired",
+      };
+      try {
+        broadcastToSettingsPanels(payload);
+      } catch {
+        /* no settings panel open */
+      }
+      try {
+        (chatViewProvider as any)?._view?.webview?.postMessage(payload);
+      } catch {
+        /* chat webview not ready */
+      }
+    }),
   );
 
   context.subscriptions.push(
@@ -728,8 +817,6 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.ViewColumn.One,
         settingsManager,
         notificationService,
-        geminiApi,
-        licenseService,
         ollamaApi,
         undefined,
         undefined,
@@ -795,847 +882,29 @@ export async function activate(context: vscode.ExtensionContext) {
     }),
   );
 
-  // Firebase 연결 테스트 명령어
+  // 진단/테스트 커맨드 등록 (diagnosticCommands.ts)
   context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "codepilot.testFirebaseConnection",
-      async () => {
-        try {
-          const result = await licenseService.testFirebaseConnection();
-          if (result.success) {
-            vscode.window.showInformationMessage(
-              `Firebase 연결: ${result.message}`,
-            );
-          } else {
-            vscode.window.showErrorMessage(
-              `Firebase 연결 실패: ${result.message}`,
-            );
-          }
-        } catch (error) {
-          vscode.window.showErrorMessage(`Firebase 테스트 오류: ${error}`);
-        }
-      },
-    ),
+    ...registerDiagnosticCommands({ context, chatViewProvider }),
   );
 
-  // 터미널 모니터링 테스트 명령어
+  // 캐시/세션 커맨드 등록 (sessionCommands.ts)
   context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "codepilot.testTerminalMonitoring",
-      async () => {
-        try {
-          const { ErrorManager } = await import(
-            "./core/managers/error/ErrorManager"
-          );
-          const errorManager = ErrorManager.getInstance();
-          if (errorManager) {
-            const stats = errorManager.getStats();
-            vscode.window.showInformationMessage(
-              `에러 관리 상태: 총 에러=${stats.total}, 해결됨=${stats.resolved}, 미해결=${stats.unresolved}`,
-            );
-          } else {
-            vscode.window.showErrorMessage("ErrorManager를 찾을 수 없습니다.");
-          }
-        } catch (error) {
-          vscode.window.showErrorMessage(
-            `터미널 모니터링 테스트 오류: ${error}`,
-          );
-        }
-      },
-    ),
+    ...registerSessionCommands({ context, chatViewProvider, ollamaApi }),
   );
 
-  // 캐시 통계 보기 명령어 (패널에 출력)
+  // MCP 커맨드 등록 (mcpCommands.ts)
   context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot.viewCacheStats", async () => {
-      try {
-        const sessionManager = (
-          await import("./core/managers/state/SessionManager")
-        ).SessionManager.getInstance(context);
-        const stats = sessionManager.getCacheStats();
-
-        if (!stats) {
-          chatViewProvider.postMessageToWebview({
-            command: "receiveMessage",
-            sender: "System",
-            text: "캐시 통계를 가져올 수 없습니다.",
-          });
-          return;
-        }
-
-        chatViewProvider.postMessageToWebview({
-          command: "receiveMessage",
-          sender: "System",
-          text:
-            `\n캐시 통계\n\n` +
-            `- 총 캐시 엔트리: ${stats.totalEntries}개\n` +
-            `- 총 캐시 크기: ${(stats.totalSize / 1024 / 1024).toFixed(2)} MB\n` +
-            `- 캐시 히트: ${stats.hitCount}회\n` +
-            `- 캐시 미스: ${stats.missCount}회\n` +
-            `- 캐시 히트율: ${(stats.hitRate * 100).toFixed(1)}%\n\n`,
-        });
-      } catch (error) {
-        chatViewProvider.postMessageToWebview({
-          command: "receiveMessage",
-          sender: "System",
-          text: `캐시 통계 조회 실패: ${error}`,
-        });
-      }
-    }),
+    ...registerMcpCommands({ context, chatViewProvider }),
   );
 
-  // 캐시 초기화 명령어 (QuickPick 확인 + 패널에 결과 출력)
+  // Git 커맨드 등록 (gitCommands.ts)
   context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot.clearCache", async () => {
-      try {
-        const confirm = await vscode.window.showQuickPick(["예", "아니오"], {
-          title: "캐시 초기화",
-          placeHolder: "모든 컨텍스트 캐시를 초기화하시겠습니까?",
-        });
-
-        if (confirm === "예") {
-          const sessionManager = (
-            await import("./core/managers/state/SessionManager")
-          ).SessionManager.getInstance(context);
-          sessionManager.clearAllCache();
-          chatViewProvider.postMessageToWebview({
-            command: "receiveMessage",
-            sender: "System",
-            text: "\n캐시 초기화 완료\n\n모든 컨텍스트 캐시가 초기화되었습니다.\n\n",
-          });
-        }
-      } catch (error) {
-        chatViewProvider.postMessageToWebview({
-          command: "receiveMessage",
-          sender: "System",
-          text: `캐시 초기화 실패: ${error}`,
-        });
-      }
-    }),
-  );
-
-  // MCP 서버 목록 보기 명령어 (패널에 출력 + QuickPick 선택)
-  context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot.viewMcpServers", async () => {
-      try {
-        const { MCPManager } = await import("./core/mcp/MCPManager");
-        const mcpManager = MCPManager.getInstance();
-        const servers = mcpManager.getServers();
-
-        if (servers.length === 0) {
-          chatViewProvider.postMessageToWebview({
-            command: "receiveMessage",
-            sender: "System",
-            text: "등록된 MCP 서버가 없습니다.\n\n설정에서 MCP 서버를 추가해주세요.",
-          });
-          return;
-        }
-
-        // 서버 목록 QuickPick 표시
-        const items = servers.map((server: any) => ({
-          label: `${server.status === 'connected' ? '🟢' : '⚪'} ${server.name}`,
-          description: server.type === 'stdio' ? server.command : server.url,
-          detail: `상태: ${server.status || 'disconnected'} | 활성화: ${server.enabled ? '예' : '아니오'}`,
-          serverId: server.id,
-          serverName: server.name,
-        }));
-
-        const selected = await vscode.window.showQuickPick(items, {
-          title: "MCP 서버 목록",
-          placeHolder: "도구를 확인할 서버를 선택하세요",
-        });
-
-        if (selected) {
-          // 선택한 서버의 도구 목록 표시
-          const allTools = mcpManager.getAllTools();
-          const serverTools = allTools.filter((t: any) => t.serverId === selected.serverId);
-
-          if (serverTools.length === 0) {
-            chatViewProvider.postMessageToWebview({
-              command: "receiveMessage",
-              sender: "System",
-              text: `**${selected.serverName}**\n\n연결되지 않았거나 도구가 없습니다.\n\`/mcp connect\` 명령어로 연결해보세요.`,
-            });
-            return;
-          }
-
-          // 도구 목록을 패널에 표시
-          let toolListText = `**${selected.serverName}** - 도구 목록 (${serverTools.length}개)\n\n`;
-          serverTools.forEach((t: any, idx: number) => {
-            const tool = t.tool;
-            toolListText += `**${idx + 1}. ${tool.name}**\n`;
-            toolListText += `   ${tool.description || '설명 없음'}\n`;
-            if (tool.inputSchema?.properties) {
-              const params = Object.keys(tool.inputSchema.properties);
-              if (params.length > 0) {
-                toolListText += `   파라미터: \`${params.join(', ')}\`\n`;
-              }
-            }
-            toolListText += '\n';
-          });
-          toolListText += '\n\n';
-          chatViewProvider.postMessageToWebview({
-            command: "receiveMessage",
-            sender: "System",
-            text: toolListText,
-          });
-        }
-      } catch (error) {
-        chatViewProvider.postMessageToWebview({
-          command: "receiveMessage",
-          sender: "System",
-          text: `MCP 서버 조회 실패: ${error}`,
-        });
-      }
-    }),
-  );
-
-  // MCP 서버 연결 명령어
-  context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot.connectMcpServer", async () => {
-      try {
-        const { MCPManager } = await import("./core/mcp/MCPManager");
-        const mcpManager = MCPManager.getInstance();
-        const servers = mcpManager.getServers();
-
-        const disconnectedServers = servers.filter((s: any) => s.status !== 'connected');
-        if (disconnectedServers.length === 0) {
-          vscode.window.showInformationMessage("모든 MCP 서버가 이미 연결되어 있습니다.");
-          return;
-        }
-
-        const items = disconnectedServers.map((server: any) => ({
-          label: server.name,
-          description: server.type === 'stdio' ? server.command : server.url,
-          serverId: server.id,
-        }));
-
-        const selected = await vscode.window.showQuickPick(items, {
-          title: "MCP 서버 연결",
-          placeHolder: "연결할 서버를 선택하세요",
-        });
-
-        if (selected) {
-          chatViewProvider.postMessageToWebview({
-            command: "receiveMessage",
-            sender: "System",
-            text: `${selected.label} 서버에 연결 중...`,
-          });
-
-          try {
-            await mcpManager.connectToServer(selected.serverId);
-            // 연결 후 도구 개수 조회
-            const allTools = mcpManager.getAllTools();
-            const serverTools = allTools.filter((t: any) => t.serverId === selected.serverId);
-            chatViewProvider.postMessageToWebview({
-              command: "receiveMessage",
-              sender: "System",
-              text: `${selected.label} 서버 연결 되었습니다.`,
-            });
-          } catch (connectError) {
-            chatViewProvider.postMessageToWebview({
-              command: "receiveMessage",
-              sender: "System",
-              text: `${selected.label} 서버 연결 실패: ${connectError}`,
-            });
-          }
-        }
-      } catch (error) {
-        vscode.window.showErrorMessage(`MCP 서버 연결 실패: ${error}`);
-      }
-    }),
-  );
-
-  // MCP 서버 연결 해제 명령어
-  context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot.disconnectMcpServer", async () => {
-      try {
-        const { MCPManager } = await import("./core/mcp/MCPManager");
-        const mcpManager = MCPManager.getInstance();
-        const servers = mcpManager.getServers();
-
-        const connectedServers = servers.filter((s: any) => s.status === 'connected');
-        if (connectedServers.length === 0) {
-          vscode.window.showInformationMessage("연결된 MCP 서버가 없습니다.");
-          return;
-        }
-
-        const items = connectedServers.map((server: any) => ({
-          label: `🟢 ${server.name}`,
-          description: server.type === 'stdio' ? server.command : server.url,
-          serverId: server.id,
-          serverName: server.name,
-        }));
-
-        const selected = await vscode.window.showQuickPick(items, {
-          title: "MCP 서버 연결 해제",
-          placeHolder: "연결을 해제할 서버를 선택하세요",
-        });
-
-        if (selected) {
-          await mcpManager.disconnectFromServer(selected.serverId);
-          chatViewProvider.postMessageToWebview({
-            command: "receiveMessage",
-            sender: "System",
-            text: `${selected.serverName} 서버 연결이 해제되었습니다.`,
-          });
-        }
-      } catch (error) {
-        vscode.window.showErrorMessage(`MCP 서버 연결 해제 실패: ${error}`);
-      }
-    }),
-  );
-
-  // 저장된 세션 목록 보기 명령어 (QuickPick)
-  context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot.listSavedSessions", async () => {
-      try {
-        const sessionManager = (
-          await import("./core/managers/state/SessionManager")
-        ).SessionManager.getInstance(context);
-        const sessions = sessionManager.getAllSessions();
-
-        if (sessions.length === 0) {
-          vscode.window.showInformationMessage("저장된 세션이 없습니다.");
-          return;
-        }
-
-        const items = sessions.map((session: any) => ({
-          label: session.projectPath.split("/").pop() || session.projectPath,
-          description: `메시지 ${session.conversationHistory.length}개`,
-          detail: `마지막 활성: ${new Date(session.lastActiveAt).toLocaleString()}`,
-          sessionId: session.id,
-        }));
-
-        const selected = await vscode.window.showQuickPick(items, {
-          title: "저장된 세션 목록",
-          placeHolder: "세션을 선택하세요",
-        });
-
-        // 선택만 하고 알림 표시하지 않음
-      } catch (error) {
-        vscode.window.showErrorMessage(`세션 목록 조회 실패: ${error}`);
-      }
-    }),
-  );
-
-  // 저장된 세션 복원 명령어 (QuickPick)
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "codepilot.restoreSavedSession",
-      async () => {
-        try {
-          const sessionManager = (
-            await import("./core/managers/state/SessionManager")
-          ).SessionManager.getInstance(context);
-          const sessions = sessionManager.getAllSessions();
-
-          if (sessions.length === 0) {
-            vscode.window.showInformationMessage("복원할 세션이 없습니다.");
-            return;
-          }
-
-          const items = sessions.map((session: any) => ({
-            label: session.projectPath.split("/").pop() || session.projectPath,
-            description: `메시지 ${session.conversationHistory.length}개`,
-            detail: `생성: ${new Date(session.createdAt).toLocaleString()}`,
-            sessionId: session.id,
-          }));
-
-          const selected = await vscode.window.showQuickPick(items, {
-            title: "세션 복원",
-            placeHolder: "복원할 세션을 선택하세요",
-          });
-
-          if (selected && (selected as any).sessionId) {
-            const success = sessionManager.setCurrentSession(
-              (selected as any).sessionId,
-            );
-            if (success) {
-              const session = sessionManager.getSession(
-                (selected as any).sessionId,
-              );
-              if (session && chatViewProvider) {
-                // 채팅 패널에 대화 히스토리 복원
-                chatViewProvider.restoreConversationHistory(
-                  session.conversationHistory,
-                );
-              }
-            } else {
-              vscode.window.showErrorMessage("세션 복원에 실패했습니다.");
-            }
-          }
-        } catch (error) {
-          vscode.window.showErrorMessage(`세션 복원 실패: ${error}`);
-        }
-      },
-    ),
-  );
-
-  // 대화 압축 명령어 (QuickPick 확인 추가)
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "codepilot.compactConversation",
-      async () => {
-        try {
-          const sessionManager = (
-            await import("./core/managers/state/SessionManager")
-          ).SessionManager.getInstance(context);
-          const currentSession = sessionManager.getCurrentSession();
-
-          if (
-            !currentSession ||
-            currentSession.conversationHistory.length < 3
-          ) {
-            chatViewProvider.postMessageToWebview({
-              command: "receiveMessage",
-              sender: "System",
-              text: "압축할 대화가 충분하지 않습니다. (최소 3개 이상의 대화 필요)",
-            });
-            return;
-          }
-
-          // 확인 다이얼로그
-          const confirm = await vscode.window.showQuickPick(["예", "아니오"], {
-            title: "대화 압축",
-            placeHolder: `현재 대화(${currentSession.conversationHistory.length}개)를 압축하시겠습니까?`,
-          });
-
-          if (confirm !== "예") {
-            return;
-          }
-
-          // 로딩 표시 및 Processing Steps 업데이트
-          chatViewProvider.postMessageToWebview({ command: "showLoading" });
-          chatViewProvider.postMessageToWebview({
-            command: "updateProcessingStatus",
-            status: "> 대화 압축 준비 중...",
-          });
-
-          // LLMManager와 ConversationCompactor 가져오기
-          const { ConversationCompactor } = await import(
-            "./core/managers/conversation/ConversationCompactor"
-          );
-          const { LLMManager } = await import(
-            "./core/managers/model/LLMManager"
-          );
-          const { StateManager } = await import(
-            "./core/managers/state/StateManager"
-          );
-          const llmManager = LLMManager.getInstance(
-            geminiApi,
-            ollamaApi,
-            banyaApi,
-          );
-          const compactor = ConversationCompactor.getInstance(llmManager);
-          // StateManager 설정 (compactorModel 사용을 위해)
-          compactor.setStateManager(StateManager.getInstance(context));
-
-          // 현재 세션의 대화 히스토리를 userParts 형식으로 변환
-          const userParts = currentSession.conversationHistory.map(
-            (entry: any) => ({
-              text: `[User]: ${entry.userRequest}\n[Assistant]: ${entry.assistantResponse || "(응답 없음)"}`,
-            }),
-          );
-
-          // 모델의 최대 토큰 가져오기
-          const currentModelType = llmManager.getCurrentModel();
-          const { MODEL_TOKEN_LIMITS } = await import("./utils/tokenUtils");
-          const maxTokens =
-            MODEL_TOKEN_LIMITS[currentModelType]?.maxInputTokens || 128000;
-
-          chatViewProvider.postMessageToWebview({
-            command: "updateProcessingStatus",
-            status: `> 대화 압축 중... (${currentSession.conversationHistory.length}개 대화)`,
-          });
-
-          // 강제 압축 실행
-          const result = await compactor.forceCompact(userParts, maxTokens);
-
-          // 로딩 숨기기
-          chatViewProvider.postMessageToWebview({ command: "hideLoading" });
-
-          if (result.compacted && result.summary) {
-            // 세션에 압축 요약 저장
-            sessionManager.addCompactedSummary(
-              currentSession.id,
-              result.summary,
-            );
-
-            // 오래된 대화 히스토리 정리 (최근 N개만 유지)
-            const keepCount = Math.min(
-              6,
-              currentSession.conversationHistory.length,
-            );
-            sessionManager.trimSessionHistory(keepCount);
-
-            // 세션의 누적 토큰을 압축 후 값으로 업데이트 (중요: 재시작 후에도 유지됨)
-            sessionManager.setTotalTokensUsed(result.compactedTokens);
-
-            const savedPercent = (
-              (result.savedTokens / result.originalTokens) *
-              100
-            ).toFixed(1);
-
-            // 패널에 결과 메시지 표시
-            chatViewProvider.postMessageToWebview({
-              command: "receiveMessage",
-              sender: "System",
-              text:
-                `\n대화 압축 완료\n\n` +
-                `- 원본 토큰: ${result.originalTokens.toLocaleString()}\n` +
-                `- 압축 후 토큰: ${result.compactedTokens.toLocaleString()}\n` +
-                `- 절감률: ${savedPercent}%\n\n` +
-                `최근 ${keepCount}개의 대화만 유지됩니다.\n\n`,
-            });
-
-            // 토큰 게이지 업데이트
-            chatViewProvider.postMessageToWebview({
-              command: "updateContextInfo",
-              contextInfo: {
-                messageCount: keepCount,
-                tokenUsage: {
-                  current: result.compactedTokens,
-                  max: maxTokens,
-                  percentage: (result.compactedTokens / maxTokens) * 100,
-                },
-              },
-            });
-          } else {
-            chatViewProvider.postMessageToWebview({
-              command: "receiveMessage",
-              sender: "System",
-              text: "압축할 대화가 충분하지 않습니다.",
-            });
-          }
-        } catch (error) {
-          console.error("[Extension] 대화 압축 실패:", error);
-          chatViewProvider.postMessageToWebview({ command: "hideLoading" });
-          chatViewProvider.postMessageToWebview({
-            command: "receiveMessage",
-            sender: "System",
-            text: `대화 압축 실패: ${error}`,
-          });
-        }
-      },
-    ),
-  );
-
-  // Git 상태 보기 명령어
-  context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot.gitStatus", async () => {
-      try {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-          chatViewProvider.postMessageToWebview({
-            command: "receiveMessage",
-            sender: "System",
-            text: "워크스페이스가 열려있지 않습니다.",
-          });
-          return;
-        }
-
-        const { exec } = require("child_process");
-        const { promisify } = require("util");
-        const execAsync = promisify(exec);
-
-        const { stdout } = await execAsync("git status", {
-          cwd: workspaceFolder.uri.fsPath,
-        });
-
-        chatViewProvider.postMessageToWebview({
-          command: "receiveMessage",
-          sender: "System",
-          text: `### Git 상태\n\n\`\`\`\n${stdout}\n\`\`\``,
-        });
-      } catch (error: any) {
-        chatViewProvider.postMessageToWebview({
-          command: "receiveMessage",
-          sender: "System",
-          text: `Git 상태 확인 실패: ${error.message || error}`,
-        });
-      }
-    }),
-  );
-
-  // Git 변경사항 보기 명령어
-  context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot.gitDiff", async () => {
-      try {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-          chatViewProvider.postMessageToWebview({
-            command: "receiveMessage",
-            sender: "System",
-            text: "워크스페이스가 열려있지 않습니다.",
-          });
-          return;
-        }
-
-        const { exec } = require("child_process");
-        const { promisify } = require("util");
-        const execAsync = promisify(exec);
-
-        const { stdout } = await execAsync("git diff --stat", {
-          cwd: workspaceFolder.uri.fsPath,
-        });
-
-        if (!stdout.trim()) {
-          chatViewProvider.postMessageToWebview({
-            command: "receiveMessage",
-            sender: "System",
-            text: "### Git 변경사항\n\n변경된 파일이 없습니다.",
-          });
-          return;
-        }
-
-        chatViewProvider.postMessageToWebview({
-          command: "receiveMessage",
-          sender: "System",
-          text: `### Git 변경사항\n\n\`\`\`\n${stdout}\n\`\`\``,
-        });
-      } catch (error: any) {
-        chatViewProvider.postMessageToWebview({
-          command: "receiveMessage",
-          sender: "System",
-          text: `Git 변경사항 확인 실패: ${error.message || error}`,
-        });
-      }
-    }),
-  );
-
-  // Git 히스토리 보기 명령어
-  context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot.gitLog", async () => {
-      try {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-          chatViewProvider.postMessageToWebview({
-            command: "receiveMessage",
-            sender: "System",
-            text: "워크스페이스가 열려있지 않습니다.",
-          });
-          return;
-        }
-
-        const { exec } = require("child_process");
-        const { promisify } = require("util");
-        const execAsync = promisify(exec);
-
-        const { stdout } = await execAsync("git log --oneline -15", {
-          cwd: workspaceFolder.uri.fsPath,
-        });
-
-        chatViewProvider.postMessageToWebview({
-          command: "receiveMessage",
-          sender: "System",
-          text: `Git 커밋 히스토리 (최근 15개)\n\n\`\`\`\n${stdout}\n\`\`\``,
-        });
-      } catch (error: any) {
-        chatViewProvider.postMessageToWebview({
-          command: "receiveMessage",
-          sender: "System",
-          text: `Git 히스토리 확인 실패: ${error.message || error}`,
-        });
-      }
-    }),
-  );
-
-  // Git 브랜치 목록 명령어
-  context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot.gitBranch", async () => {
-      try {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-          chatViewProvider.postMessageToWebview({
-            command: "receiveMessage",
-            sender: "System",
-            text: "워크스페이스가 열려있지 않습니다.",
-          });
-          return;
-        }
-
-        const { exec } = require("child_process");
-        const { promisify } = require("util");
-        const execAsync = promisify(exec);
-
-        const { stdout: localBranches } = await execAsync("git branch", {
-          cwd: workspaceFolder.uri.fsPath,
-        });
-        const { stdout: remoteBranches } = await execAsync("git branch -r", {
-          cwd: workspaceFolder.uri.fsPath,
-        });
-
-        chatViewProvider.postMessageToWebview({
-          command: "receiveMessage",
-          sender: "System",
-          text: `### Git 브랜치 목록\n\n**로컬 브랜치:**\n\`\`\`\n${localBranches}\n\`\`\`\n\n**원격 브랜치:**\n\`\`\`\n${remoteBranches}\n\`\`\``,
-        });
-      } catch (error: any) {
-        chatViewProvider.postMessageToWebview({
-          command: "receiveMessage",
-          sender: "System",
-          text: `Git 브랜치 확인 실패: ${error.message || error}`,
-        });
-      }
-    }),
-  );
-
-  // Git 리포지토리 정보 명령어
-  context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot.gitInfo", async () => {
-      try {
-        const gitInfo = await gitRepositoryService.getRepositoryInfo();
-
-        if (!gitInfo) {
-          chatViewProvider.postMessageToWebview({
-            command: "receiveMessage",
-            sender: "System",
-            text: "### ℹGit 리포지토리 정보\n\nGit 리포지토리가 감지되지 않았습니다.",
-          });
-          return;
-        }
-
-        chatViewProvider.postMessageToWebview({
-          command: "receiveMessage",
-          sender: "System",
-          text:
-            `### ℹGit 리포지토리 정보\n\n` +
-            `- **소유자**: ${gitInfo.owner}\n` +
-            `- **리포지토리**: ${gitInfo.repo}\n` +
-            `- **현재 브랜치**: ${gitInfo.branch}\n` +
-            `- **원격 저장소**: ${gitInfo.remoteName}\n` +
-            `- **URL**: ${gitInfo.url}\n` +
-            `- **GitHub**: ${gitInfo.isGitHub ? "✅" : "❌"}`,
-        });
-      } catch (error: any) {
-        chatViewProvider.postMessageToWebview({
-          command: "receiveMessage",
-          sender: "System",
-          text: `Git 정보 확인 실패: ${error.message || error}`,
-        });
-      }
-    }),
-  );
-
-  // Git 스테이징된 변경사항 보기 명령어
-  context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot.gitStaged", async () => {
-      try {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-          chatViewProvider.postMessageToWebview({
-            command: "receiveMessage",
-            sender: "System",
-            text: "워크스페이스가 열려있지 않습니다.",
-          });
-          return;
-        }
-
-        const { exec } = require("child_process");
-        const { promisify } = require("util");
-        const execAsync = promisify(exec);
-
-        const { stdout } = await execAsync("git diff --staged --stat", {
-          cwd: workspaceFolder.uri.fsPath,
-        });
-
-        if (!stdout.trim()) {
-          chatViewProvider.postMessageToWebview({
-            command: "receiveMessage",
-            sender: "System",
-            text: "### 스테이징된 변경사항\n\n스테이징된 파일이 없습니다.",
-          });
-          return;
-        }
-
-        chatViewProvider.postMessageToWebview({
-          command: "receiveMessage",
-          sender: "System",
-          text: `### 스테이징된 변경사항\n\n\`\`\`\n${stdout}\n\`\`\``,
-        });
-      } catch (error: any) {
-        chatViewProvider.postMessageToWebview({
-          command: "receiveMessage",
-          sender: "System",
-          text: `스테이징 변경사항 확인 실패: ${error.message || error}`,
-        });
-      }
-    }),
-  );
-
-  // Git Stash 목록 보기 명령어
-  context.subscriptions.push(
-    vscode.commands.registerCommand("codepilot.gitStash", async () => {
-      try {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-          chatViewProvider.postMessageToWebview({
-            command: "receiveMessage",
-            sender: "System",
-            text: "워크스페이스가 열려있지 않습니다.",
-          });
-          return;
-        }
-
-        const { exec } = require("child_process");
-        const { promisify } = require("util");
-        const execAsync = promisify(exec);
-
-        const { stdout } = await execAsync("git stash list", {
-          cwd: workspaceFolder.uri.fsPath,
-        });
-
-        if (!stdout.trim()) {
-          chatViewProvider.postMessageToWebview({
-            command: "receiveMessage",
-            sender: "System",
-            text: "### Git Stash 목록\n\n저장된 stash가 없습니다.",
-          });
-          return;
-        }
-
-        chatViewProvider.postMessageToWebview({
-          command: "receiveMessage",
-          sender: "System",
-          text: `### Git Stash 목록\n\n\`\`\`\n${stdout}\n\`\`\``,
-        });
-      } catch (error: any) {
-        chatViewProvider.postMessageToWebview({
-          command: "receiveMessage",
-          sender: "System",
-          text: `Stash 목록 확인 실패: ${error.message || error}`,
-        });
-      }
-    }),
-  );
-
-  // 워크스페이스 변경 시 Git 리포지토리 정보 업데이트
-  context.subscriptions.push(
-    vscode.workspace.onDidChangeWorkspaceFolders(async (event) => {
-      try {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (workspaceFolder) {
-          const gitInfo =
-            await gitRepositoryService.detectAndSaveRepositoryInfo(
-              workspaceFolder.uri.fsPath,
-            );
-          if (gitInfo) {
-            // 워크스페이스 변경 - Git 리포지토리 감지됨
-          } else {
-            // 워크스페이스 변경 - Git 리포지토리가 감지되지 않았습니다
-          }
-        }
-      } catch (error) {
-        console.error(
-          "[Extension] 워크스페이스 변경 시 Git 리포지토리 감지 중 오류:",
-          error,
-        );
-      }
-    }),
+    ...registerGitCommands({ context, chatViewProvider }),
   );
 }
 
-export function deactivate() {
-  // 터미널 정리는 TerminalManager에서 처리됨
+export async function deactivate(): Promise<void> {
+  console.log("[Extension] Deactivating...");
+  await runCleanupFunctions(5000);
+  console.log("[Extension] Deactivated");
 }

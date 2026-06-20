@@ -1,458 +1,1487 @@
 /**
  * Settings Manager
  * 사용자 설정을 관리하는 클래스
+ * v10.0: 백엔드 설정 동기화 (effective settings)
  */
 
-import * as vscode from 'vscode';
+import * as vscode from "vscode";
 import {
-    UserSettings,
-    WorkspaceSettings,
-    SettingChangeEvent,
-    SettingChangeListener
-} from './types';
-import { BaseManager } from '../base/BaseManager';
-import { ConfigurationService } from './ConfigurationService';
+  UserSettings,
+  WorkspaceSettings,
+  SettingChangeEvent,
+  SettingChangeListener,
+} from "./types";
+import { BaseManager } from "../base/BaseManager";
+import { ConfigurationService } from "./ConfigurationService";
+import { SETTINGS_CACHE_TTL_MS } from "../../config/ApiDefaults";
+
+/**
+ * 백엔드에서 받은 effective setting 항목
+ */
+interface EffectiveSetting {
+  key: string;
+  value: any;
+  enforcement: "required" | "recommended";
+  source: "admin" | "user";
+  skill_type?: string;
+  skill_description?: string;
+}
+
+/**
+ * 카테고리별 캐시된 서버 설정
+ */
+interface ServerSettingsCache {
+  settings: Record<string, EffectiveSetting[]>;
+  fetchedAt: number;
+}
 
 // @ts-ignore - BaseManager 상속 타입 호환성
 export class SettingsManager extends BaseManager {
-    private listeners: Set<SettingChangeListener> = new Set();
-    private _context: vscode.ExtensionContext;
+  private listeners: Set<SettingChangeListener> = new Set();
+  private _context: vscode.ExtensionContext;
+  private serverSettingsCache: ServerSettingsCache | null = null;
+  private readonly CACHE_TTL_MS = SETTINGS_CACHE_TTL_MS;
+  private readonly OFFLINE_CACHE_KEY = "codepilot.serverSettingsCache";
+  private readonly DISABLED_SETTINGS_KEY =
+    "codepilot.disabledRecommendedSettings";
+  private syncInProgress = false;
+  private syncPromise: Promise<void> | null = null;
+  private accessRevokedListeners = new Set<() => void>();
 
-    private constructor(context: vscode.ExtensionContext) {
-        super(context);
-        this._context = context;
-        this.registerVSCodeSettingsWatcher();
+  private constructor(context: vscode.ExtensionContext) {
+    super(context);
+    this._context = context;
+    this.registerVSCodeSettingsWatcher();
+    this.loadOfflineCache();
+  }
+
+  public static getInstance(
+    context?: vscode.ExtensionContext,
+  ): SettingsManager {
+    // BaseManager의 instances Map을 직접 확인하여 이미 인스턴스가 있는지 체크
+    // BaseManager의 private static instances에 접근하기 위해 any로 캐스팅
+    const BaseManagerClass = BaseManager as any;
+    const instances = BaseManagerClass.instances;
+    const key = SettingsManager.name;
+
+    if (instances && instances.has(key)) {
+      // 이미 인스턴스가 있으면 context 없이도 반환 가능
+      const existing = instances.get(key) as SettingsManager;
+      if (existing && existing._context) {
+        return existing;
+      }
     }
 
-    public static getInstance(context?: vscode.ExtensionContext): SettingsManager {
-        // BaseManager의 instances Map을 직접 확인하여 이미 인스턴스가 있는지 체크
-        // BaseManager의 private static instances에 접근하기 위해 any로 캐스팅
-        const BaseManagerClass = BaseManager as any;
-        const instances = BaseManagerClass.instances;
-        const key = SettingsManager.name;
+    // 인스턴스가 없고 context도 없으면 에러
+    if (!context) {
+      throw new Error(
+        "SettingsManager requires ExtensionContext for first initialization",
+      );
+    }
 
-        if (instances && instances.has(key)) {
-            // 이미 인스턴스가 있으면 context 없이도 반환 가능
-            const existing = instances.get(key) as SettingsManager;
-            if (existing && existing._context) {
-                return existing;
-            }
+    return BaseManager.getInstance.call(
+      SettingsManager as any,
+      context,
+    ) as unknown as SettingsManager;
+  }
+
+  public override get context(): vscode.ExtensionContext {
+    return this._context!;
+  }
+
+  // ===== 백엔드 설정 동기화 =====
+
+  /**
+   * 오프라인 캐시 로드 (초기화 시)
+   */
+  private loadOfflineCache(): void {
+    try {
+      const cached = this._context.globalState.get<ServerSettingsCache>(
+        this.OFFLINE_CACHE_KEY,
+      );
+      if (cached) {
+        this.serverSettingsCache = cached;
+      }
+    } catch {
+      // 캐시 로드 실패 무시
+    }
+  }
+
+  /**
+   * 백엔드에서 전체 effective settings 동기화
+   * 로그인 시, 주기적으로, 또는 수동 호출
+   */
+  public async syncServerSettings(): Promise<void> {
+    if (this.syncInProgress) {
+      // 이미 진행 중이면 기존 promise 반환 (대기 가능)
+      if (this.syncPromise) {
+        return this.syncPromise;
+      }
+      return;
+    }
+    this.syncInProgress = true;
+
+    this.syncPromise = this._doSync();
+    return this.syncPromise;
+  }
+
+  private async _doSync(): Promise<void> {
+    try {
+      const { AuthService } =
+        await import("../../../services/auth/AuthService");
+      const auth = AuthService.getInstance();
+      if (!auth.isLoggedIn()) {
+        console.log("[SettingsManager] Not logged in, skip server sync");
+        return;
+      }
+
+      const userInfo = auth.getUserInfo();
+      const orgId = userInfo?.organization_id;
+
+      const { CodePilotApiClient } =
+        await import("../../../services/api/CodePilotApiClient");
+      const api = CodePilotApiClient.getInstance();
+      // org 없어도 호출 (프리셋/지원모델 등 개인 사용자용 설정 조회)
+      // 프로젝트 ID가 설정되어 있으면 프로젝트별 설정 조회
+      const projectId = this._context?.globalState?.get<string>(
+        "codepilot.projectId",
+      );
+      const raw: any = await api.getAllEffectiveSettings(
+        orgId || undefined,
+        projectId || undefined,
+      );
+      // WrapResponseMiddleware가 {data: ...}로 래핑하므로 언래핑
+      const allSettings = raw.data || raw;
+
+      // RAG 소스 조회 (조직: org RAG, 개인: 개인 RAG)
+      try {
+        const ragRaw: any = await api.getRagSources(
+          orgId || undefined,
+          projectId || undefined,
+        );
+        const ragSources = Array.isArray(ragRaw)
+          ? ragRaw
+          : ragRaw?.data || ragRaw?.results || [];
+        if (Array.isArray(ragSources) && ragSources.length > 0) {
+          allSettings.rag = ragSources.map((s: any) => ({
+            key: s.id,
+            value: {
+              name: s.name,
+              description: s.description || "",
+              document_count: s.document_count || 0,
+              vector_count: s.vector_count || 0,
+              source_id: s.id,
+              similarity_threshold:
+                typeof s.similarity_threshold === "number"
+                  ? s.similarity_threshold
+                  : 0.8,
+              top_k: typeof s.top_k === "number" ? s.top_k : 3,
+            },
+            enforcement: s.enforcement || "personal",
+            source: s.project
+              ? "project"
+              : s.organization
+                ? "admin"
+                : "personal",
+            description: s.description || "",
+          }));
         }
+      } catch (ragError: any) {
+        console.warn(
+          "[SettingsManager] RAG sources fetch failed:",
+          ragError?.message,
+        );
+      }
 
-        // 인스턴스가 없고 context도 없으면 에러
-        if (!context) {
-            throw new Error('SettingsManager requires ExtensionContext for first initialization');
+      this.serverSettingsCache = {
+        settings: allSettings,
+        fetchedAt: Date.now(),
+      };
+
+      // 오프라인 캐시 저장
+      await this._context.globalState.update(
+        this.OFFLINE_CACHE_KEY,
+        this.serverSettingsCache,
+      );
+
+      // required 설정을 로컬에 강제 적용
+      this.applyRequiredSettings();
+
+      console.log("[SettingsManager] Server settings synced successfully");
+
+      // admin MCP 설정 재병합 — MCPManager 는 init 1회만 mergeServerMCPConfigs
+      // 를 호출하므로, sync 이후 변경된 admin MCP 가 IDE 에 즉시 반영되도록
+      // 여기서 명시적으로 다시 트리거. (다른 카테고리는 매 사용 시 캐시 직접
+      // 조회하므로 이 hook 불필요. MCP 만 별도 adminServers 배열을 유지.)
+      try {
+        const { MCPManager } = await import("../../mcp/MCPManager");
+        const mcpMgr = MCPManager.getInstance();
+        await mcpMgr.reloadAdminServers();
+        console.log("[SettingsManager] MCP admin servers reloaded");
+
+        // 열려 있는 설정 webview 에 즉시 푸시 — 사용자가 패널을 닫았다 다시
+        // 열지 않아도 admin 변경분이 보이도록. webview 의 case "mcpServers"
+        // 핸들러가 이 unsolicited push 를 그대로 처리한다.
+        try {
+          const { broadcastToSettingsPanels } =
+            await import("../../webview/SettingsPanelProvider");
+          if (this._context) {
+            const { StateManager } = await import("./StateManager");
+            const stateManager = StateManager.getInstance(this._context);
+            const personalServers =
+              (await stateManager.getMcpServers()) as any[];
+            const liveServers = mcpMgr.getServers() as any[];
+            const adminServers = mcpMgr.getAdminServers();
+            // getMcpServers 핸들러와 동일한 라이브 상태 병합 로직
+            const mergedServers = personalServers.map((s: any) => {
+              const live = liveServers.find((ls: any) => ls.id === s.id);
+              if (live) {
+                return {
+                  ...s,
+                  status: live.status,
+                  tools: live.tools || s.tools,
+                };
+              }
+              return s;
+            });
+            broadcastToSettingsPanels({
+              command: "mcpServers",
+              servers: mergedServers,
+              adminServers,
+            });
+            console.log(
+              "[SettingsManager] MCP servers broadcast to settings panels",
+            );
+          }
+        } catch (broadcastErr) {
+          console.warn(
+            "[SettingsManager] MCP broadcast to settings panels failed (non-critical):",
+            broadcastErr,
+          );
         }
+      } catch (mcpErr) {
+        console.warn(
+          "[SettingsManager] MCP reload after sync failed (non-critical):",
+          mcpErr,
+        );
+      }
 
-        return BaseManager.getInstance.call(SettingsManager as any, context) as unknown as SettingsManager;
+      // HotLoad 도 동일 회귀 — init 1회만 mergeServerHotLoadConfigs 가 호출되어
+      // admin 추가/수정분이 IDE 메모리에 반영 안 되던 문제 수정.
+      try {
+        const { HotLoadManager } = await import("../hotload/HotLoadManager");
+        await HotLoadManager.getInstance().reloadFromServer();
+        console.log("[SettingsManager] HotLoad reloaded from server");
+      } catch (hotLoadErr) {
+        console.warn(
+          "[SettingsManager] HotLoad reload after sync failed (non-critical):",
+          hotLoadErr,
+        );
+      }
+    } catch (error: any) {
+      console.warn(
+        "[SettingsManager] Server sync failed (using cache):",
+        error,
+      );
+
+      // 403 = 조직 멤버십 비활성화 → 개인 모드로 전환
+      if (error?.status === 403) {
+        await this._handleOrganizationAccessRevoked();
+      }
+
+      // 에러 리포팅
+      import("../../../services/error/ErrorReportingService")
+        .then(({ ErrorReportingService }) => {
+          ErrorReportingService.getInstance().reportSyncError(
+            error?.message || "Unknown sync error",
+          );
+        })
+        .catch(() => {});
+    } finally {
+      this.syncInProgress = false;
+      this.syncPromise = null;
     }
+  }
 
-    public override get context(): vscode.ExtensionContext {
-        return this._context!;
+  /**
+   * 진행 중인 sync가 있으면 완료될 때까지 대기
+   */
+  public async waitForSync(): Promise<void> {
+    if (this.syncPromise) {
+      await this.syncPromise;
     }
+  }
 
-    /**
-     * 사용자 설정을 가져옵니다
-     */
-    public getUserSettings(): UserSettings {
+  /**
+   * TTL이 만료됐거나 캐시가 없을 때만 서버 동기화 수행.
+   * 유효한 캐시가 있으면 네트워크 호출 없이 즉시 반환.
+   * 포커스 복귀/webview 가시화 같은 반복 트리거에서 사용.
+   */
+  public async syncIfStale(): Promise<void> {
+    if (this.isCacheValid()) return;
+    return this.syncServerSettings();
+  }
 
-        return {
-            // LLM 설정
-            aiModel: ConfigurationService.get<'gemini' | 'ollama'>('aiModel', 'ollama') ?? 'ollama',
-            geminiApiKey: ConfigurationService.get<string>('geminiApiKey') ?? '',
-            geminiModel: ConfigurationService.get<string>('geminiModel', 'gemini-3-pro-preview') ?? 'gemini-3-pro-preview',
-            ollamaUrl: ConfigurationService.get<string>('ollamaUrl') ?? '',
-            ollamaModel: ConfigurationService.get<string>('ollamaModel') ?? '',
-            useRemoteOllama: ConfigurationService.get<boolean>('useRemoteOllama', false) ?? false,
+  /**
+   * 조직 접근 권한 해제 시 listener 등록.
+   * extension.ts에서 webview로 알림 포워딩할 때 사용.
+   */
+  public onOrganizationAccessRevoked(cb: () => void): void {
+    this.accessRevokedListeners.add(cb);
+  }
 
-            // 동작 설정
-            autoExecuteCommands: ConfigurationService.get<boolean>('autoExecuteCommands', false) ?? false,
-            autoCorrectErrors: ConfigurationService.get<boolean>('autoCorrectErrors', true) ?? true,
-            maxErrorRetries: ConfigurationService.get<number>('maxErrorRetries', 3) ?? 3,
-
-            // UI 설정
-            theme: ConfigurationService.get<'light' | 'dark' | 'auto'>('theme', 'auto') ?? 'auto',
-            showNotifications: ConfigurationService.get<boolean>('showNotifications', true) ?? true,
-            showProcessingSteps: (ConfigurationService.get<boolean>('showProcessingSteps', true) ?? true) as boolean,
-
-            // 고급 설정
-            maxContextSize: (ConfigurationService.get<number>('maxContextSize', 100000) ?? 100000) as number,
-            includeAllSrcFiles: (ConfigurationService.get<boolean>('includeAllSrcFiles', true) ?? true) as boolean,
-            customSystemPrompt: ConfigurationService.get<string>('customSystemPrompt')
-        };
+  /**
+   * admin이 멤버십을 비활성화하여 API가 403을 반환한 경우 호출.
+   * 조직 컨텍스트 제거 + 캐시 초기화 + 구독자에게 알림.
+   */
+  private async _handleOrganizationAccessRevoked(): Promise<void> {
+    console.warn(
+      "[SettingsManager] Organization access revoked (403) — switching to personal mode",
+    );
+    this.serverSettingsCache = null;
+    try {
+      await this._context.globalState.update(this.OFFLINE_CACHE_KEY, undefined);
+    } catch {
+      /* ignore */
     }
-
-    /**
-     * 사용자 설정을 업데이트합니다
-     */
-    public async updateUserSetting<K extends keyof UserSettings>(
-        key: K,
-        value: UserSettings[K],
-        target: vscode.ConfigurationTarget = vscode.ConfigurationTarget.Global
-    ): Promise<void> {
-        const oldValue = ConfigurationService.get(key as string);
-        await ConfigurationService.updateConfig(key as string, value, target);
-
-        // 이벤트 발생
-        this.emitSettingChange({
-            key,
-            oldValue,
-            newValue: value,
-            scope: target === vscode.ConfigurationTarget.Global ? 'global' : 'workspace',
-            timestamp: Date.now()
-        });
-
-        console.log(`[SettingsManager] Updated setting: ${key}`);
+    try {
+      const userInfo: any = this._context.globalState.get("codepilot.userInfo");
+      if (
+        userInfo &&
+        typeof userInfo === "object" &&
+        userInfo.organization_id
+      ) {
+        const updated = { ...userInfo };
+        delete updated.organization_id;
+        delete updated.organization_name;
+        delete updated.organization;
+        await this._context.globalState.update("codepilot.userInfo", updated);
+      }
+    } catch {
+      /* userInfo 갱신 실패해도 계속 */
     }
+    this.accessRevokedListeners.forEach((cb) => {
+      try {
+        cb();
+      } catch {
+        /* listener error 무시 */
+      }
+    });
+  }
 
-    /**
-     * 워크스페이스 설정을 가져옵니다
-     */
-    public getWorkspaceSettings(projectPath: string): WorkspaceSettings {
-        return {
-            projectPath,
-            excludePatterns: ConfigurationService.get<string[]>('excludePatterns', []),
-            includePatterns: ConfigurationService.get<string[]>('includePatterns', []),
-            customCommands: ConfigurationService.get<any[]>('customCommands', []),
-            environmentVariables: ConfigurationService.get<Record<string, string>>('environmentVariables', {})
-        };
-    }
+  /**
+   * 캐시가 유효한지 확인
+   */
+  private isCacheValid(): boolean {
+    if (!this.serverSettingsCache) return false;
+    return Date.now() - this.serverSettingsCache.fetchedAt < this.CACHE_TTL_MS;
+  }
 
-    /**
-     * 워크스페이스 설정을 업데이트합니다
-     */
-    public async updateWorkspaceSetting<K extends keyof WorkspaceSettings>(
-        key: K,
-        value: WorkspaceSettings[K]
-    ): Promise<void> {
-        await ConfigurationService.updateConfig(key, value, vscode.ConfigurationTarget.Workspace);
+  /**
+   * 특정 카테고리의 서버 설정 가져오기
+   */
+  public getServerSettings(category: string): EffectiveSetting[] {
+    if (!this.serverSettingsCache?.settings) return [];
+    const data = this.serverSettingsCache.settings[category];
+    return Array.isArray(data) ? data : [];
+  }
 
-        console.log(`[SettingsManager] Updated workspace setting: ${key}`);
-    }
+  /**
+   * 특정 키의 서버 설정값 가져오기
+   * required 설정은 로컬 설정보다 우선
+   */
+  public getServerSettingValue(
+    category: string,
+    key: string,
+  ): { value: any; enforcement: string } | null {
+    const settings = this.getServerSettings(category);
+    const setting = settings.find((s) => s.key === key);
+    if (!setting) return null;
+    return { value: setting.value, enforcement: setting.enforcement };
+  }
 
-    /**
-     * 설정 변경 리스너를 등록합니다
-     */
-    public onSettingChange(listener: SettingChangeListener): void {
-        this.listeners.add(listener);
-    }
+  /**
+   * required 설정을 로컬 VS Code 설정에 강제 적용
+   */
+  private applyRequiredSettings(): void {
+    if (!this.serverSettingsCache?.settings) return;
 
-    /**
-     * 설정 변경 리스너를 제거합니다
-     */
-    public offSettingChange(listener: SettingChangeListener): void {
-        this.listeners.delete(listener);
-    }
+    const settingKeyMap: Record<string, string> = {
+      // ai_model 카테고리
+      default_model: "aiModel",
+      ollama_model: "ollamaModel",
+      ollama_url: "ollamaUrl",
+      // dev_rules 카테고리
+      auto_execute_commands: "autoExecuteCommands",
+      auto_correction_enabled: "autoCorrectionEnabled",
+      error_retry_count: "errorRetryCount",
+      auto_tool_execution: "autoToolExecution",
+      auto_mcp_tool_execution: "autoMcpToolExecution",
+      streaming_enabled: "streamingEnabled",
+      // build_test 카테고리
+      validation_command: "validationCommand",
+      formatter_command: "formatterCommand",
+      // exclude_patterns 카테고리
+      exclude_patterns: "excludePatterns",
+      // security_rules 카테고리
+      max_context_size: "maxContextSize",
+    };
 
-    /**
-     * 설정 변경 이벤트를 발생시킵니다
-     */
-    private emitSettingChange(event: SettingChangeEvent): void {
-        this.listeners.forEach(listener => {
-            try {
-                listener(event);
-            } catch (error) {
-                console.error('[SettingsManager] Listener error:', error);
-            }
-        });
-    }
-
-    /**
-     * VS Code 설정 변경 감지
-     */
-    private registerVSCodeSettingsWatcher(): void {
-        vscode.workspace.onDidChangeConfiguration((event) => {
-            if (event.affectsConfiguration('codepilot')) {
-                // 설정 변경 시 캐시 무효화
-                ConfigurationService.invalidateCache();
-                // 모든 codepilot 설정이 변경되었음을 알림
-                console.log('[SettingsManager] Configuration changed');
-            }
-        });
-    }
-
-    // ===== ConfigurationService 호환 메서드들 =====
-
-    /**
-     * 소스 경로를 가져옵니다
-     */
-    public async getSourcePaths(): Promise<string[]> {
-        return ConfigurationService.get<string[]>('sourcePaths') || [];
-    }
-
-    /**
-     * 소스 경로를 업데이트합니다
-     */
-    public async updateSourcePaths(paths: string[]): Promise<void> {
-        await this.updateUserSetting('sourcePaths' as any, paths, vscode.ConfigurationTarget.Global);
-    }
-
-    /**
-     * 자동 업데이트 활성화 여부를 가져옵니다
-     */
-    public async isAutoUpdateEnabled(): Promise<boolean> {
-        // Global 설정을 우선으로 읽기
-        const config = vscode.workspace.getConfiguration('codepilot');
-        const globalValue = config.inspect<boolean>('autoUpdateFiles')?.globalValue;
-        const value = globalValue ?? config.get<boolean>('autoUpdateFiles') ?? false;
-        console.log(`[SettingsManager] Get autoUpdateFiles: ${value} (global: ${globalValue})`);
-        return value;
-    }
-
-    /**
-     * 자동 업데이트 활성화 여부를 업데이트합니다
-     */
-    public async updateAutoUpdateEnabled(enabled: boolean): Promise<void> {
-        await this.updateUserSetting('autoUpdateFiles' as any, enabled, vscode.ConfigurationTarget.Global);
-    }
-
-    /**
-     * 자동 파일 삭제 On/Off 상태를 읽습니다
-     */
-    public async isAutoDeleteFilesEnabled(): Promise<boolean> {
-        // Global 설정을 우선으로 읽기
-        const config = vscode.workspace.getConfiguration('codepilot');
-        const globalValue = config.inspect<boolean>('autoDeleteFiles')?.globalValue;
-        const value = globalValue ?? config.get<boolean>('autoDeleteFiles') ?? false;
-        console.log(`[SettingsManager] Get autoDeleteFiles: ${value} (global: ${globalValue})`);
-        return value;
-    }
-
-    /**
-     * 자동 파일 삭제 On/Off 상태를 저장합니다
-     */
-    public async updateAutoDeleteFilesEnabled(enabled: boolean): Promise<void> {
-        console.log(`[SettingsManager] Update autoDeleteFiles -> ${enabled} (Global)`);
-        await this.updateUserSetting('autoDeleteFiles' as any, enabled, vscode.ConfigurationTarget.Global);
-    }
-
-    /**
-     * 현재 워크스페이스 루트 경로를 반환합니다
-     */
-    public async getProjectRoot(): Promise<string | undefined> {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (workspaceFolders && workspaceFolders.length > 0) {
-            const workspaceRoot = workspaceFolders[0].uri.fsPath;
-            console.log(`[SettingsManager] 워크스페이스 루트 사용: ${workspaceRoot}`);
-            return workspaceRoot;
+    for (const [_category, settings] of Object.entries(
+      this.serverSettingsCache.settings,
+    )) {
+      if (!Array.isArray(settings)) continue;
+      const requiredSettings = settings.filter(
+        (s: any) => s.enforcement === "required",
+      );
+      for (const setting of requiredSettings) {
+        const localKey = settingKeyMap[setting.key];
+        if (localKey) {
+          const currentValue = ConfigurationService.get(localKey);
+          if (currentValue !== setting.value) {
+            ConfigurationService.updateConfig(
+              localKey,
+              setting.value,
+              vscode.ConfigurationTarget.Global,
+            ).catch((err) =>
+              console.warn(
+                `[SettingsManager] Failed to apply required setting ${setting.key}:`,
+                err,
+              ),
+            );
+            console.log(
+              `[SettingsManager] Applied required setting: ${setting.key} = ${JSON.stringify(setting.value)}`,
+            );
+          }
         }
-        console.warn(`[SettingsManager] 워크스페이스가 열려있지 않습니다.`);
-        return undefined;
+      }
+    }
+  }
+
+  /**
+   * 설정값을 읽을 때 서버 required 값 우선 반환
+   */
+  private getEffectiveValue<T>(
+    localKey: string,
+    serverCategory: string,
+    serverKey: string,
+    localValue: T,
+  ): T {
+    const serverSetting = this.getServerSettingValue(serverCategory, serverKey);
+    if (serverSetting && serverSetting.enforcement === "required") {
+      return serverSetting.value as T;
+    }
+    return localValue;
+  }
+
+  /**
+   * 설정이 관리자에 의해 잠겨있는지 확인
+   */
+  public isSettingLocked(category: string, key: string): boolean {
+    const setting = this.getServerSettingValue(category, key);
+    return setting?.enforcement === "required";
+  }
+
+  // ===== 서버 설정 통합 API (설정 패널용) =====
+
+  /**
+   * 전체 서버 설정 반환 (설정 패널에서 조직 설정 표시용)
+   * is_disabled는 로컬 globalState에서 조회
+   */
+  public getAllServerSettings(): Record<
+    string,
+    Array<EffectiveSetting & { is_disabled: boolean }>
+  > {
+    if (!this.serverSettingsCache?.settings) return {};
+    const disabled = this.getDisabledSettingsSet();
+    const result: Record<
+      string,
+      Array<EffectiveSetting & { is_disabled: boolean }>
+    > = {};
+    for (const [category, settings] of Object.entries(
+      this.serverSettingsCache.settings,
+    )) {
+      // 배열이 아닌 경우 안전하게 건너뜀
+      if (!Array.isArray(settings)) {
+        console.warn(
+          `[SettingsManager] Skipping non-array settings for category: ${category}`,
+        );
+        continue;
+      }
+      result[category] = settings.map((s: any) => ({
+        ...s,
+        is_disabled:
+          s.enforcement === "required"
+            ? false
+            : disabled.has(`${category}:${s.key}`),
+      }));
+    }
+    return result;
+  }
+
+  /**
+   * 로컬에 저장된 비활성화 설정 Set 반환
+   */
+  private getDisabledSettingsSet(): Set<string> {
+    const list = this._context.globalState.get<string[]>(
+      this.DISABLED_SETTINGS_KEY,
+      [],
+    );
+    return new Set(list);
+  }
+
+  /**
+   * 권장 설정 로컬 비활성화/활성화 토글
+   * required 설정은 토글 불가
+   */
+  public async toggleRecommendedSetting(
+    category: string,
+    key: string,
+    disabled: boolean,
+  ): Promise<void> {
+    // required 설정은 비활성화 불가
+    if (this.isSettingLocked(category, key)) {
+      console.warn(
+        `[SettingsManager] Cannot disable required setting: ${category}/${key}`,
+      );
+      return;
     }
 
-    /**
-     * 프로젝트 루트를 업데이트합니다
-     */
-    public async updateProjectRoot(path: string | undefined): Promise<void> {
-        const valueToSave = path ? path.replace(/\/$/, '') : '';
-        console.log(`[SettingsManager] 프로젝트 Root 설정 시도: "${valueToSave}"`);
+    const disabledList = this._context.globalState.get<string[]>(
+      this.DISABLED_SETTINGS_KEY,
+      [],
+    );
+    const settingId = `${category}:${key}`;
+    const set = new Set(disabledList);
 
-        await ConfigurationService.updateConfig('projectRoot', valueToSave, vscode.ConfigurationTarget.Global);
-        await new Promise(resolve => setTimeout(resolve, 200));
+    if (disabled) {
+      set.add(settingId);
+    } else {
+      set.delete(settingId);
+    }
 
-        let savedValue = ConfigurationService.get<string>('projectRoot');
-        console.log(`[SettingsManager] 저장된 프로젝트 Root 값 (첫 번째 확인): "${savedValue}"`);
+    await this._context.globalState.update(
+      this.DISABLED_SETTINGS_KEY,
+      Array.from(set),
+    );
+    console.log(
+      `[SettingsManager] Setting ${settingId} ${disabled ? "disabled" : "enabled"} locally`,
+    );
+  }
 
-        if (savedValue !== valueToSave) {
-            for (let i = 0; i < 3; i++) {
-                await new Promise(resolve => setTimeout(resolve, 300));
-                savedValue = ConfigurationService.get<string>('projectRoot');
-                console.log(`[SettingsManager] 저장된 프로젝트 Root 값 (${i + 2}번째 확인): "${savedValue}"`);
-                if (savedValue === valueToSave) {
-                    break;
-                }
-            }
+  /**
+   * 특정 설정이 로컬에서 비활성화되었는지 확인
+   */
+  public isSettingDisabled(category: string, key: string): boolean {
+    const disabled = this.getDisabledSettingsSet();
+    return disabled.has(`${category}:${key}`);
+  }
+
+  // ===== 카테고리별 서버 설정 접근 API =====
+
+  /**
+   * 서버 Skills(dev_rules) 목록
+   * 로컬에서 비활성화한 권장 설정은 제외
+   */
+  public getServerDevRules(): {
+    key: string;
+    content: string;
+    enforcement: string;
+    title?: string;
+    skill_type?: string;
+    skill_description?: string;
+  }[] {
+    const disabled = this.getDisabledSettingsSet();
+    return this.getServerSettings("dev_rules")
+      .filter(
+        (s) =>
+          s.enforcement === "required" || !disabled.has(`dev_rules:${s.key}`),
+      )
+      .map((s) => ({
+        key: s.key,
+        content:
+          typeof s.value === "string"
+            ? s.value
+            : s.value?.content || JSON.stringify(s.value),
+        enforcement: s.enforcement,
+        title: s.value?.title,
+        skill_type: s.skill_type || "rule",
+        skill_description: s.skill_description || "",
+      }));
+  }
+
+  /**
+   * 서버 MCP 서버 설정 목록
+   */
+  public getServerMCPConfigs(): {
+    key: string;
+    value: any;
+    enforcement: string;
+    source?: string;
+  }[] {
+    return this.getServerSettings("mcp_server").map((s) => ({
+      key: s.key,
+      value: s.value,
+      enforcement: s.enforcement,
+      source: s.source,
+    }));
+  }
+
+  /**
+   * 서버 빌드/테스트 설정
+   */
+  public getServerBuildTestConfigs(): {
+    key: string;
+    value: any;
+    enforcement: string;
+  }[] {
+    return this.getServerSettings("build_test").map((s) => ({
+      key: s.key,
+      value: s.value,
+      enforcement: s.enforcement,
+    }));
+  }
+
+  /**
+   * 개인 빌드/테스트 설정 (로컬 globalState)
+   */
+  public getPersonalBuildTestConfigs(): {
+    key: string;
+    value: any;
+    description: string;
+  }[] {
+    return this._context.globalState.get<any[]>(
+      "personalBuildTestSettings",
+      [],
+    );
+  }
+
+  /**
+   * 서버 핫로드 설정 목록
+   */
+  public getServerHotLoadConfigs(): {
+    key: string;
+    value: any;
+    enforcement: string;
+  }[] {
+    return this.getServerSettings("hotload").map((s) => ({
+      key: s.key,
+      value: s.value,
+      enforcement: s.enforcement,
+    }));
+  }
+
+  /**
+   * 서버 보안 규칙 목록 (차단 명령어 + 보호 파일)
+   */
+  public getServerSecurityRules(): {
+    key: string;
+    pattern: string;
+    enforcement: string;
+    description: string;
+    type: string;
+  }[] {
+    return this.getServerSettings("security_rules").map((s) => ({
+      key: s.key,
+      pattern: typeof s.value === "string" ? s.value : s.value?.pattern || "",
+      enforcement: s.enforcement,
+      description:
+        typeof s.value === "object" ? s.value?.description || s.key : s.key,
+      type: (s.value?.type as string) || "blocked_command",
+    }));
+  }
+
+  /**
+   * RAG 검색 파라미터 계산 — 하드코딩 제거용.
+   * - topK: 등록된 모든 RAG 소스 중 가장 큰 top_k (없으면 3)
+   * - thresholdBySourceId: source_id별 similarity_threshold (없으면 0.8)
+   * 호출처: ContextGatherer, OrchestrationRouter
+   */
+  public getRagSearchParams(): {
+    topK: number;
+    thresholdBySourceId: Map<string, number>;
+  } {
+    const map = new Map<string, number>();
+    let maxTopK = 3;
+    const ragList = this.getServerSettings("rag");
+    for (const r of ragList) {
+      const v: any = (r as any).value || {};
+      const sid = v.source_id || (r as any).key;
+      if (sid) {
+        const t =
+          typeof v.similarity_threshold === "number"
+            ? v.similarity_threshold
+            : 0.8;
+        map.set(String(sid), t);
+      }
+      const k = typeof v.top_k === "number" ? v.top_k : 3;
+      if (k > maxTopK) maxTopK = k;
+    }
+    return { topK: maxTopK, thresholdBySourceId: map };
+  }
+
+  /**
+   * 서버 제외 패턴 목록
+   */
+  public getServerExcludePatterns(): {
+    key: string;
+    pattern: string;
+    enforcement: string;
+  }[] {
+    return this.getServerSettings("exclude_patterns").map((s) => ({
+      key: s.key,
+      pattern: typeof s.value === "string" ? s.value : s.value?.pattern || "",
+      enforcement: s.enforcement,
+    }));
+  }
+
+  // ===== 기존 설정 관리 =====
+
+  /**
+   * 사용자 설정을 가져옵니다
+   */
+  public getUserSettings(): UserSettings {
+    const localSettings: UserSettings = {
+      // LLM 설정
+      aiModel:
+        ConfigurationService.get<"ollama" | "admin">("aiModel", "ollama") ??
+        "ollama",
+      ollamaUrl: ConfigurationService.get<string>("ollamaUrl") ?? "",
+      ollamaModel: ConfigurationService.get<string>("ollamaModel") ?? "",
+      useRemoteOllama:
+        ConfigurationService.get<boolean>("useRemoteOllama", false) ?? false,
+
+      // 동작 설정
+      autoExecuteCommands:
+        ConfigurationService.get<boolean>("autoExecuteCommands", false) ??
+        false,
+      autoCorrectErrors:
+        ConfigurationService.get<boolean>("autoCorrectErrors", true) ?? true,
+      maxErrorRetries:
+        ConfigurationService.get<number>("maxErrorRetries", 3) ?? 3,
+
+      // UI 설정
+      theme:
+        ConfigurationService.get<"light" | "dark" | "auto">("theme", "auto") ??
+        "auto",
+      showNotifications:
+        ConfigurationService.get<boolean>("showNotifications", true) ?? true,
+      showProcessingSteps: (ConfigurationService.get<boolean>(
+        "showProcessingSteps",
+        true,
+      ) ?? true) as boolean,
+
+      // 고급 설정
+      maxContextSize: (ConfigurationService.get<number>(
+        "maxContextSize",
+        100000,
+      ) ?? 100000) as number,
+      includeAllSrcFiles: (ConfigurationService.get<boolean>(
+        "includeAllSrcFiles",
+        true,
+      ) ?? true) as boolean,
+      customSystemPrompt:
+        ConfigurationService.get<string>("customSystemPrompt"),
+    };
+
+    // 서버 required 설정 오버라이드
+    if (this.serverSettingsCache?.settings) {
+      // ai_model
+      localSettings.aiModel = this.getEffectiveValue(
+        "aiModel",
+        "ai_model",
+        "default_model",
+        localSettings.aiModel,
+      );
+      localSettings.ollamaModel = this.getEffectiveValue(
+        "ollamaModel",
+        "ai_model",
+        "ollama_model",
+        localSettings.ollamaModel,
+      );
+      localSettings.ollamaUrl = this.getEffectiveValue(
+        "ollamaUrl",
+        "ai_model",
+        "ollama_url",
+        localSettings.ollamaUrl,
+      );
+      // dev_rules
+      localSettings.autoExecuteCommands = this.getEffectiveValue(
+        "autoExecuteCommands",
+        "dev_rules",
+        "auto_execute_commands",
+        localSettings.autoExecuteCommands,
+      );
+      localSettings.autoCorrectErrors = this.getEffectiveValue(
+        "autoCorrectErrors",
+        "dev_rules",
+        "auto_correction_enabled",
+        localSettings.autoCorrectErrors,
+      );
+      localSettings.maxErrorRetries = this.getEffectiveValue(
+        "maxErrorRetries",
+        "dev_rules",
+        "error_retry_count",
+        localSettings.maxErrorRetries,
+      );
+      // security_rules
+      localSettings.maxContextSize = this.getEffectiveValue(
+        "maxContextSize",
+        "security_rules",
+        "max_context_size",
+        localSettings.maxContextSize,
+      );
+    }
+
+    return localSettings;
+  }
+
+  /**
+   * 사용자 설정을 업데이트합니다
+   * required로 잠긴 설정은 업데이트 차단
+   */
+  public async updateUserSetting<K extends keyof UserSettings>(
+    key: K,
+    value: UserSettings[K],
+    target: vscode.ConfigurationTarget = vscode.ConfigurationTarget.Global,
+  ): Promise<void> {
+    // required 설정 잠금 체크 (카테고리-키 매핑)
+    const lockCheckMap: Record<string, [string, string]> = {
+      aiModel: ["ai_model", "default_model"],
+      ollamaModel: ["ai_model", "ollama_model"],
+      ollamaUrl: ["ai_model", "ollama_url"],
+      autoExecuteCommands: ["dev_rules", "auto_execute_commands"],
+      autoCorrectionEnabled: ["dev_rules", "auto_correction_enabled"],
+      errorRetryCount: ["dev_rules", "error_retry_count"],
+      autoToolExecution: ["dev_rules", "auto_tool_execution"],
+      autoMcpToolExecution: ["dev_rules", "auto_mcp_tool_execution"],
+      streamingEnabled: ["dev_rules", "streaming_enabled"],
+      maxContextSize: ["security_rules", "max_context_size"],
+      excludePatterns: ["exclude_patterns", "exclude_patterns"],
+    };
+
+    const lockInfo = lockCheckMap[key as string];
+    if (lockInfo && this.isSettingLocked(lockInfo[0], lockInfo[1])) {
+      console.warn(
+        `[SettingsManager] Setting "${String(key)}" is locked by admin (required)`,
+      );
+      vscode.window.showWarningMessage(
+        `이 설정은 관리자에 의해 잠겨있습니다: ${String(key)}`,
+      );
+      return;
+    }
+
+    const oldValue = ConfigurationService.get(key as string);
+    await ConfigurationService.updateConfig(key as string, value, target);
+
+    // 이벤트 발생
+    this.emitSettingChange({
+      key,
+      oldValue,
+      newValue: value,
+      scope:
+        target === vscode.ConfigurationTarget.Global ? "global" : "workspace",
+      timestamp: Date.now(),
+    });
+
+    // 서버에 사용자 설정 동기화 (비동기, 실패 무시)
+    this.syncUserSettingToServer(key as string, value).catch(() => {});
+
+    console.log(`[SettingsManager] Updated setting: ${key}`);
+  }
+
+  /**
+   * 사용자 설정 변경을 백엔드에 동기화
+   */
+  private async syncUserSettingToServer(
+    key: string,
+    value: any,
+  ): Promise<void> {
+    try {
+      const { AuthService } =
+        await import("../../../services/auth/AuthService");
+      const auth = AuthService.getInstance();
+      if (!auth.isLoggedIn()) return;
+
+      const userInfo = auth.getUserInfo();
+      if (!userInfo?.organization_id) return;
+
+      // 로컬 키 → 서버 카테고리/키 매핑
+      const serverMap: Record<string, [string, string]> = {
+        aiModel: ["ai_model", "default_model"],
+        ollamaModel: ["ai_model", "ollama_model"],
+        ollamaUrl: ["ai_model", "ollama_url"],
+        autoExecuteCommands: ["dev_rules", "auto_execute_commands"],
+        autoCorrectionEnabled: ["dev_rules", "auto_correction_enabled"],
+        errorRetryCount: ["dev_rules", "error_retry_count"],
+        autoToolExecution: ["dev_rules", "auto_tool_execution"],
+        autoMcpToolExecution: ["dev_rules", "auto_mcp_tool_execution"],
+        streamingEnabled: ["dev_rules", "streaming_enabled"],
+        maxContextSize: ["security_rules", "max_context_size"],
+        excludePatterns: ["exclude_patterns", "exclude_patterns"],
+      };
+
+      const mapping = serverMap[key];
+      if (!mapping) return; // 매핑 없는 설정은 로컬만 저장
+
+      const { CodePilotApiClient } =
+        await import("../../../services/api/CodePilotApiClient");
+      const api = CodePilotApiClient.getInstance();
+      await api.updateUserSetting(
+        mapping[0],
+        mapping[1],
+        value,
+        userInfo.organization_id,
+      );
+      console.log(`[SettingsManager] Synced setting to server: ${key}`);
+    } catch {
+      // 서버 동기화 실패 시 무시 (오프라인 등)
+    }
+  }
+
+  /**
+   * 워크스페이스 설정을 가져옵니다
+   */
+  public getWorkspaceSettings(projectPath: string): WorkspaceSettings {
+    return {
+      projectPath,
+      excludePatterns: ConfigurationService.get<string[]>(
+        "excludePatterns",
+        [],
+      ),
+      includePatterns: ConfigurationService.get<string[]>(
+        "includePatterns",
+        [],
+      ),
+      customCommands: ConfigurationService.get<any[]>("customCommands", []),
+      environmentVariables: ConfigurationService.get<Record<string, string>>(
+        "environmentVariables",
+        {},
+      ),
+    };
+  }
+
+  /**
+   * 워크스페이스 설정을 업데이트합니다
+   */
+  public async updateWorkspaceSetting<K extends keyof WorkspaceSettings>(
+    key: K,
+    value: WorkspaceSettings[K],
+  ): Promise<void> {
+    await ConfigurationService.updateConfig(
+      key,
+      value,
+      vscode.ConfigurationTarget.Workspace,
+    );
+
+    console.log(`[SettingsManager] Updated workspace setting: ${key}`);
+  }
+
+  /**
+   * 설정 변경 리스너를 등록합니다
+   */
+  public onSettingChange(listener: SettingChangeListener): void {
+    this.listeners.add(listener);
+  }
+
+  /**
+   * 설정 변경 리스너를 제거합니다
+   */
+  public offSettingChange(listener: SettingChangeListener): void {
+    this.listeners.delete(listener);
+  }
+
+  /**
+   * 설정 변경 이벤트를 발생시킵니다
+   */
+  private emitSettingChange(event: SettingChangeEvent): void {
+    this.listeners.forEach((listener) => {
+      try {
+        listener(event);
+      } catch (error) {
+        console.error("[SettingsManager] Listener error:", error);
+      }
+    });
+  }
+
+  /**
+   * VS Code 설정 변경 감지
+   */
+  private registerVSCodeSettingsWatcher(): void {
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration("codepilot")) {
+        // 설정 변경 시 캐시 무효화
+        ConfigurationService.invalidateCache();
+        // 모든 codepilot 설정이 변경되었음을 알림
+        console.log("[SettingsManager] Configuration changed");
+      }
+    });
+  }
+
+  // ===== ConfigurationService 호환 메서드들 =====
+
+  /**
+   * 소스 경로를 가져옵니다
+   */
+  public async getSourcePaths(): Promise<string[]> {
+    return ConfigurationService.get<string[]>("sourcePaths") || [];
+  }
+
+  /**
+   * 소스 경로를 업데이트합니다
+   */
+  public async updateSourcePaths(paths: string[]): Promise<void> {
+    await this.updateUserSetting(
+      "sourcePaths" as any,
+      paths,
+      vscode.ConfigurationTarget.Global,
+    );
+  }
+
+  /**
+   * 자동 업데이트 활성화 여부를 가져옵니다
+   */
+  public async isAutoUpdateEnabled(): Promise<boolean> {
+    // Global 설정을 우선으로 읽기
+    const config = vscode.workspace.getConfiguration("codepilot");
+    const globalValue = config.inspect<boolean>("autoUpdateFiles")?.globalValue;
+    const value =
+      globalValue ?? config.get<boolean>("autoUpdateFiles") ?? false;
+    return value;
+  }
+
+  /**
+   * 자동 업데이트 활성화 여부를 업데이트합니다
+   */
+  public async updateAutoUpdateEnabled(enabled: boolean): Promise<void> {
+    await this.updateUserSetting(
+      "autoUpdateFiles" as any,
+      enabled,
+      vscode.ConfigurationTarget.Global,
+    );
+  }
+
+  /**
+   * 자동 파일 삭제 On/Off 상태를 읽습니다
+   */
+  public async isAutoDeleteFilesEnabled(): Promise<boolean> {
+    // Global 설정을 우선으로 읽기
+    const config = vscode.workspace.getConfiguration("codepilot");
+    const globalValue = config.inspect<boolean>("autoDeleteFiles")?.globalValue;
+    const value =
+      globalValue ?? config.get<boolean>("autoDeleteFiles") ?? false;
+    return value;
+  }
+
+  /**
+   * 자동 파일 삭제 On/Off 상태를 저장합니다
+   */
+  public async updateAutoDeleteFilesEnabled(enabled: boolean): Promise<void> {
+    await this.updateUserSetting(
+      "autoDeleteFiles" as any,
+      enabled,
+      vscode.ConfigurationTarget.Global,
+    );
+  }
+
+  /**
+   * 현재 워크스페이스 루트 경로를 반환합니다
+   */
+  public async getProjectRoot(): Promise<string | undefined> {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (workspaceFolders && workspaceFolders.length > 0) {
+      const workspaceRoot = workspaceFolders[0].uri.fsPath;
+      return workspaceRoot;
+    }
+    console.warn(`[SettingsManager] 워크스페이스가 열려있지 않습니다.`);
+    return undefined;
+  }
+
+  /**
+   * 프로젝트 루트를 업데이트합니다
+   */
+  public async updateProjectRoot(path: string | undefined): Promise<void> {
+    const valueToSave = path ? path.replace(/\/$/, "") : "";
+    await ConfigurationService.updateConfig(
+      "projectRoot",
+      valueToSave,
+      vscode.ConfigurationTarget.Global,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    let savedValue = ConfigurationService.get<string>("projectRoot");
+
+    if (savedValue !== valueToSave) {
+      for (let i = 0; i < 3; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        savedValue = ConfigurationService.get<string>("projectRoot");
+        if (savedValue === valueToSave) {
+          break;
         }
-
-        const normalizedSaved = savedValue ? savedValue.replace(/\/$/, '') : '';
-        const normalizedExpected = valueToSave ? valueToSave.replace(/\/$/, '') : '';
-
-        if (normalizedSaved !== normalizedExpected) {
-            console.warn(`[SettingsManager] 프로젝트 Root 설정 불일치: 예상값 "${normalizedExpected}", 실제값 "${normalizedSaved}"`);
-            console.log(`[SettingsManager] 프로젝트 Root 설정을 계속 진행합니다: "${savedValue || 'undefined'}"`);
-        } else {
-            console.log(`[SettingsManager] 프로젝트 Root 설정 성공: "${savedValue}"`);
-        }
+      }
     }
 
-    /**
-     * 언어 설정을 업데이트합니다
-     */
-    public async updateLanguage(language: string): Promise<void> {
-        await this.updateUserSetting('language' as any, language, vscode.ConfigurationTarget.Global);
-    }
+    const normalizedSaved = savedValue ? savedValue.replace(/[\\/]$/, "") : "";
+    const normalizedExpected = valueToSave
+      ? valueToSave.replace(/[\\/]$/, "")
+      : "";
 
-    /**
-     * 현재 언어 설정을 가져옵니다
-     */
-    public async getLanguage(): Promise<string> {
-        return ConfigurationService.get<string>('language', 'ko') || 'ko';
+    if (normalizedSaved !== normalizedExpected) {
+      console.warn(
+        `[SettingsManager] 프로젝트 Root 설정 불일치: 예상값 "${normalizedExpected}", 실제값 "${normalizedSaved}"`,
+      );
     }
+  }
 
-    /**
-     * 터미널 데몬 활성화 여부를 가져옵니다
-     */
-    public async isTerminalDaemonEnabled(): Promise<boolean> {
-        return ConfigurationService.get<boolean>('terminalDaemonEnabled') || false;
-    }
+  /**
+   * 언어 설정을 업데이트합니다
+   */
+  public async updateLanguage(language: string): Promise<void> {
+    await this.updateUserSetting(
+      "language" as any,
+      language,
+      vscode.ConfigurationTarget.Global,
+    );
+  }
 
-    /**
-     * 터미널 데몬 활성화 여부를 업데이트합니다
-     */
-    public async updateTerminalDaemonEnabled(enabled: boolean): Promise<void> {
-        await this.updateUserSetting('terminalDaemonEnabled' as any, enabled, vscode.ConfigurationTarget.Global);
-    }
+  /**
+   * 현재 언어 설정을 가져옵니다
+   */
+  public async getLanguage(): Promise<string> {
+    return ConfigurationService.get<string>("language", "ko") || "ko";
+  }
 
-    /**
-     * 자동 오류 수정 횟수를 가져옵니다
-     */
-    public async getErrorRetryCount(): Promise<number> {
-        const count = ConfigurationService.get<number>('errorRetryCount') ?? 5;
-        return Math.max(1, Math.min(10, count));
-    }
+  /**
+   * 터미널 데몬 활성화 여부를 가져옵니다
+   */
+  public async isTerminalDaemonEnabled(): Promise<boolean> {
+    return ConfigurationService.get<boolean>("terminalDaemonEnabled") || false;
+  }
 
-    /**
-     * 자동 오류 수정 횟수를 업데이트합니다
-     */
-    public async updateErrorRetryCount(count: number): Promise<void> {
-        const validCount = Math.max(1, Math.min(10, count));
-        await this.updateUserSetting('errorRetryCount' as any, validCount, vscode.ConfigurationTarget.Global);
-    }
+  /**
+   * 터미널 데몬 활성화 여부를 업데이트합니다
+   */
+  public async updateTerminalDaemonEnabled(enabled: boolean): Promise<void> {
+    await this.updateUserSetting(
+      "terminalDaemonEnabled" as any,
+      enabled,
+      vscode.ConfigurationTarget.Global,
+    );
+  }
 
-    /**
-     * 자동 오류 수정 On/Off 상태를 가져옵니다
-     */
-    public async isAutoCorrectionEnabled(): Promise<boolean> {
-        // Global 설정을 우선으로 읽기
-        const config = vscode.workspace.getConfiguration('codepilot');
-        const globalValue = config.inspect<boolean>('autoCorrectionEnabled')?.globalValue;
-        const value = globalValue ?? config.get<boolean>('autoCorrectionEnabled') ?? false;
-        console.log(`[SettingsManager] Get autoCorrectionEnabled: ${value} (global: ${globalValue})`);
-        return value;
-    }
+  /**
+   * 자동 오류 수정 횟수를 가져옵니다
+   */
+  public async getErrorRetryCount(): Promise<number> {
+    const count = ConfigurationService.get<number>("errorRetryCount") ?? 5;
+    return Math.max(1, Math.min(10, count));
+  }
 
-    /**
-     * 자동 오류 수정 On/Off 상태를 저장합니다
-     */
-    public async updateAutoCorrectionEnabled(enabled: boolean): Promise<void> {
-        console.log(`[SettingsManager] Update autoCorrectionEnabled -> ${enabled} (Global)`);
-        await ConfigurationService.updateConfig('autoCorrectionEnabled', enabled, vscode.ConfigurationTarget.Global);
-    }
+  /**
+   * 자동 오류 수정 횟수를 업데이트합니다
+   */
+  public async updateErrorRetryCount(count: number): Promise<void> {
+    const validCount = Math.max(1, Math.min(10, count));
+    await this.updateUserSetting(
+      "errorRetryCount" as any,
+      validCount,
+      vscode.ConfigurationTarget.Global,
+    );
+  }
 
-    /**
-     * 명령어 자동 실행 On/Off 상태를 읽습니다
-     */
-    public async isAutoExecuteCommandsEnabled(): Promise<boolean> {
-        // Global 설정을 우선으로 읽기
-        const config = vscode.workspace.getConfiguration('codepilot');
-        const globalValue = config.inspect<boolean>('autoExecuteCommands')?.globalValue;
-        const value = globalValue ?? config.get<boolean>('autoExecuteCommands') ?? true;
-        console.log(`[SettingsManager] Get autoExecuteCommands: ${value} (global: ${globalValue})`);
-        return value;
-    }
+  /**
+   * 자동 오류 수정 On/Off 상태를 가져옵니다
+   */
+  public async isAutoCorrectionEnabled(): Promise<boolean> {
+    // Global 설정을 우선으로 읽기
+    const config = vscode.workspace.getConfiguration("codepilot");
+    const globalValue = config.inspect<boolean>(
+      "autoCorrectionEnabled",
+    )?.globalValue;
+    const value =
+      globalValue ?? config.get<boolean>("autoCorrectionEnabled") ?? false;
+    return value;
+  }
 
-    /**
-     * 명령어 자동 실행 On/Off 상태를 저장합니다
-     */
-    public async updateAutoExecuteCommandsEnabled(enabled: boolean): Promise<void> {
-        console.log(`[SettingsManager] Update autoExecuteCommands -> ${enabled} (Global)`);
-        await this.updateUserSetting('autoExecuteCommands' as any, enabled, vscode.ConfigurationTarget.Global);
-    }
+  /**
+   * 자동 오류 수정 On/Off 상태를 저장합니다
+   */
+  public async updateAutoCorrectionEnabled(enabled: boolean): Promise<void> {
+    await ConfigurationService.updateConfig(
+      "autoCorrectionEnabled",
+      enabled,
+      vscode.ConfigurationTarget.Global,
+    );
+  }
 
-    /**
-     * 도구 자동 실행 On/Off 상태를 읽습니다
-     */
-    public async isAutoToolExecutionEnabled(): Promise<boolean> {
-        // Global 설정을 우선으로 읽기
-        const config = vscode.workspace.getConfiguration('codepilot');
-        const globalValue = config.inspect<boolean>('autoToolExecution')?.globalValue;
-        const value = globalValue ?? config.get<boolean>('autoToolExecution') ?? true;
-        console.log(`[SettingsManager] Get autoToolExecution: ${value} (global: ${globalValue})`);
-        return value;
-    }
+  /**
+   * 명령어 자동 실행 On/Off 상태를 읽습니다
+   */
+  public async isAutoExecuteCommandsEnabled(): Promise<boolean> {
+    // Global 설정을 우선으로 읽기
+    const config = vscode.workspace.getConfiguration("codepilot");
+    const globalValue = config.inspect<boolean>(
+      "autoExecuteCommands",
+    )?.globalValue;
+    const value =
+      globalValue ?? config.get<boolean>("autoExecuteCommands") ?? true;
+    return value;
+  }
 
-    /**
-     * 도구 자동 실행 On/Off 상태를 저장합니다
-     */
-    public async updateAutoToolExecutionEnabled(enabled: boolean): Promise<void> {
-        console.log(`[SettingsManager] Update autoToolExecution -> ${enabled} (Global)`);
-        await this.updateUserSetting('autoToolExecution' as any, enabled, vscode.ConfigurationTarget.Global);
-    }
+  /**
+   * 명령어 자동 실행 On/Off 상태를 저장합니다
+   */
+  public async updateAutoExecuteCommandsEnabled(
+    enabled: boolean,
+  ): Promise<void> {
+    await this.updateUserSetting(
+      "autoExecuteCommands" as any,
+      enabled,
+      vscode.ConfigurationTarget.Global,
+    );
+  }
 
-    /**
-     * 스트리밍 On/Off 상태를 읽습니다
-     */
-    public async isStreamingEnabled(): Promise<boolean> {
-        // Global 설정을 우선으로 읽기
-        const config = vscode.workspace.getConfiguration('codepilot');
-        const globalValue = config.inspect<boolean>('streamingEnabled')?.globalValue;
-        const value = globalValue ?? config.get<boolean>('streamingEnabled') ?? false;
-        console.log(`[SettingsManager] Get streamingEnabled: ${value} (global: ${globalValue})`);
-        return value;
-    }
+  public async isBlockOutsideProjectEnabled(): Promise<boolean> {
+    const config = vscode.workspace.getConfiguration("codepilot");
+    const globalValue = config.inspect<boolean>(
+      "blockOutsideProject",
+    )?.globalValue;
+    return globalValue ?? config.get<boolean>("blockOutsideProject") ?? true;
+  }
 
-    /**
-     * 스트리밍 On/Off 상태를 저장합니다
-     */
-    public async updateStreamingEnabled(enabled: boolean): Promise<void> {
-        console.log(`[SettingsManager] Update streamingEnabled -> ${enabled} (Global)`);
-        await ConfigurationService.updateConfig('streamingEnabled', enabled, vscode.ConfigurationTarget.Global);
-    }
+  public async updateBlockOutsideProjectEnabled(
+    enabled: boolean,
+  ): Promise<void> {
+    await this.updateUserSetting(
+      "blockOutsideProject" as any,
+      enabled,
+      vscode.ConfigurationTarget.Global,
+    );
+  }
 
-    /**
-     * 디버그 모드 On/Off 상태를 가져옵니다
-     */
-    public async isDebugEnabled(): Promise<boolean> {
-        return ConfigurationService.get<boolean>('debugEnabled') ?? false;
-    }
+  /**
+   * 도구 자동 실행 On/Off 상태를 읽습니다
+   */
+  public async isAutoToolExecutionEnabled(): Promise<boolean> {
+    // Global 설정을 우선으로 읽기
+    const config = vscode.workspace.getConfiguration("codepilot");
+    const globalValue =
+      config.inspect<boolean>("autoToolExecution")?.globalValue;
+    const value =
+      globalValue ?? config.get<boolean>("autoToolExecution") ?? true;
+    return value;
+  }
 
-    /**
-     * 디버그 모드 On/Off 상태를 저장합니다
-     */
-    public async updateDebugEnabled(enabled: boolean): Promise<void> {
-        await this.updateUserSetting('debugEnabled' as any, enabled, vscode.ConfigurationTarget.Global);
-    }
+  /**
+   * 도구 자동 실행 On/Off 상태를 저장합니다
+   */
+  public async updateAutoToolExecutionEnabled(enabled: boolean): Promise<void> {
+    await this.updateUserSetting(
+      "autoToolExecution" as any,
+      enabled,
+      vscode.ConfigurationTarget.Global,
+    );
+  }
 
-    /**
-     * 자동 코드 검증 On/Off 상태를 가져옵니다
-     */
-    public async isAutoTestRetryEnabled(): Promise<boolean> {
-        // Global 설정을 우선으로 읽기
-        const config = vscode.workspace.getConfiguration('codepilot');
-        const globalValue = config.inspect<boolean>('autoTestRetryEnabled')?.globalValue;
-        const value = globalValue ?? config.get<boolean>('autoTestRetryEnabled') ?? false;
-        console.log(`[SettingsManager] Get autoTestRetryEnabled: ${value} (global: ${globalValue})`);
-        return value;
-    }
+  /**
+   * MCP 도구 자동 실행 On/Off 상태를 읽습니다
+   */
+  public async isAutoMcpToolExecutionEnabled(): Promise<boolean> {
+    const config = vscode.workspace.getConfiguration("codepilot");
+    const globalValue = config.inspect<boolean>(
+      "autoMcpToolExecution",
+    )?.globalValue;
+    const value =
+      globalValue ?? config.get<boolean>("autoMcpToolExecution") ?? false;
+    return value;
+  }
 
-    /**
-     * 자동 코드 검증 On/Off 상태를 저장합니다
-     */
-    public async updateAutoTestRetryEnabled(enabled: boolean): Promise<void> {
-        console.log(`[SettingsManager] Update autoTestRetryEnabled -> ${enabled} (Global)`);
-        await this.updateUserSetting('autoTestRetryEnabled' as any, enabled, vscode.ConfigurationTarget.Global);
-    }
+  /**
+   * MCP 도구 자동 실행 On/Off 상태를 저장합니다
+   */
+  public async updateAutoMcpToolExecutionEnabled(
+    enabled: boolean,
+  ): Promise<void> {
+    await this.updateUserSetting(
+      "autoMcpToolExecution" as any,
+      enabled,
+      vscode.ConfigurationTarget.Global,
+    );
+  }
 
-    /**
-     * 자동 테스트 재시도 횟수를 가져옵니다
-     */
-    public async getTestRetryCount(): Promise<number> {
-        // Global 설정을 우선으로 읽기
-        const config = vscode.workspace.getConfiguration('codepilot');
-        const globalValue = config.inspect<number>('testRetryCount')?.globalValue;
-        const count = globalValue ?? config.get<number>('testRetryCount') ?? 5;
-        const validCount = Math.max(1, Math.min(10, count));
-        console.log(`[SettingsManager] Get testRetryCount: ${validCount} (global: ${globalValue})`);
-        return validCount;
-    }
+  /**
+   * 오케스트레이션 On/Off 상태를 읽습니다
+   */
+  public async isOrchestrationEnabled(): Promise<boolean> {
+    const config = vscode.workspace.getConfiguration("codepilot");
+    const globalValue = config.inspect<boolean>("orchestration")?.globalValue;
+    const value = globalValue ?? config.get<boolean>("orchestration") ?? false;
+    return value;
+  }
 
-    /**
-     * 자동 테스트 재시도 횟수를 업데이트합니다
-     */
-    public async updateTestRetryCount(count: number): Promise<void> {
-        const validCount = Math.max(1, Math.min(10, count));
-        console.log(`[SettingsManager] Update testRetryCount -> ${validCount} (Global)`);
-        await this.updateUserSetting('testRetryCount' as any, validCount, vscode.ConfigurationTarget.Global);
-    }
+  /**
+   * 오케스트레이션 On/Off 상태를 저장합니다
+   */
+  public async updateOrchestrationEnabled(enabled: boolean): Promise<void> {
+    await this.updateUserSetting(
+      "orchestration" as any,
+      enabled,
+      vscode.ConfigurationTarget.Global,
+    );
+  }
+
+  /**
+   * 스트리밍 On/Off 상태를 읽습니다
+   */
+  public async isStreamingEnabled(): Promise<boolean> {
+    // Global 설정을 우선으로 읽기
+    const config = vscode.workspace.getConfiguration("codepilot");
+    const globalValue =
+      config.inspect<boolean>("streamingEnabled")?.globalValue;
+    const value =
+      globalValue ?? config.get<boolean>("streamingEnabled") ?? false;
+    return value;
+  }
+
+  /**
+   * 스트리밍 On/Off 상태를 저장합니다
+   */
+  public async updateStreamingEnabled(enabled: boolean): Promise<void> {
+    await ConfigurationService.updateConfig(
+      "streamingEnabled",
+      enabled,
+      vscode.ConfigurationTarget.Global,
+    );
+  }
+
+  /**
+   * 네이티브 툴 콜링 On/Off 상태를 읽습니다
+   */
+  public async isNativeToolCallingEnabled(): Promise<boolean> {
+    const config = vscode.workspace.getConfiguration("codepilot");
+    const globalValue = config.inspect<boolean>(
+      "nativeToolCallingEnabled",
+    )?.globalValue;
+    return (
+      globalValue ?? (config.get("nativeToolCallingEnabled") as boolean) ?? true
+    );
+  }
+
+  /**
+   * 네이티브 툴 콜링 On/Off 상태를 저장합니다
+   */
+  public async updateNativeToolCallingEnabled(enabled: boolean): Promise<void> {
+    await ConfigurationService.updateConfig(
+      "nativeToolCallingEnabled",
+      enabled,
+      vscode.ConfigurationTarget.Global,
+    );
+  }
+
+  /**
+   * Thinking On/Off 상태를 읽습니다
+   */
+  public async isThinkingEnabled(): Promise<boolean> {
+    const config = vscode.workspace.getConfiguration("codepilot");
+    const globalValue = config.inspect<boolean>("thinkingEnabled")?.globalValue;
+    return globalValue ?? (config.get("thinkingEnabled") as boolean) ?? true;
+  }
+
+  /**
+   * Thinking On/Off 상태를 저장합니다
+   */
+  public async updateThinkingEnabled(enabled: boolean): Promise<void> {
+    await ConfigurationService.updateConfig(
+      "thinkingEnabled",
+      enabled,
+      vscode.ConfigurationTarget.Global,
+    );
+  }
+
+  /**
+   * Thinking 레벨을 읽습니다 (low/medium/high)
+   */
+  public async getThinkingLevel(): Promise<string> {
+    const config = vscode.workspace.getConfiguration("codepilot");
+    const globalValue = config.inspect<string>("thinkingLevel")?.globalValue;
+    return globalValue ?? (config.get("thinkingLevel") as string) ?? "medium";
+  }
+
+  /**
+   * Thinking 레벨을 저장합니다
+   */
+  public async updateThinkingLevel(level: string): Promise<void> {
+    await ConfigurationService.updateConfig(
+      "thinkingLevel",
+      level,
+      vscode.ConfigurationTarget.Global,
+    );
+  }
+
+  /**
+   * 디버그 모드 On/Off 상태를 가져옵니다
+   */
+  public async isDebugEnabled(): Promise<boolean> {
+    return ConfigurationService.get<boolean>("debugEnabled") ?? false;
+  }
+
+  /**
+   * 디버그 모드 On/Off 상태를 저장합니다
+   */
+  public async updateDebugEnabled(enabled: boolean): Promise<void> {
+    await this.updateUserSetting(
+      "debugEnabled" as any,
+      enabled,
+      vscode.ConfigurationTarget.Global,
+    );
+  }
+
+  /**
+   * 자동 코드 검증 On/Off 상태를 가져옵니다
+   */
+  public async isAutoTestRetryEnabled(): Promise<boolean> {
+    // Global 설정을 우선으로 읽기
+    const config = vscode.workspace.getConfiguration("codepilot");
+    const globalValue = config.inspect<boolean>(
+      "autoTestRetryEnabled",
+    )?.globalValue;
+    const value =
+      globalValue ?? config.get<boolean>("autoTestRetryEnabled") ?? true;
+    return value;
+  }
+
+  /**
+   * 자동 코드 검증 On/Off 상태를 저장합니다
+   */
+  public async updateAutoTestRetryEnabled(enabled: boolean): Promise<void> {
+    await this.updateUserSetting(
+      "autoTestRetryEnabled" as any,
+      enabled,
+      vscode.ConfigurationTarget.Global,
+    );
+  }
+
+  /**
+   * 자동 테스트 재시도 횟수를 가져옵니다
+   */
+  public async getTestRetryCount(): Promise<number> {
+    // Global 설정을 우선으로 읽기
+    const config = vscode.workspace.getConfiguration("codepilot");
+    const globalValue = config.inspect<number>("testRetryCount")?.globalValue;
+    const count = globalValue ?? config.get<number>("testRetryCount") ?? 5;
+    const validCount = Math.max(1, Math.min(10, count));
+    return validCount;
+  }
+
+  /**
+   * 자동 테스트 재시도 횟수를 업데이트합니다
+   */
+  public async updateTestRetryCount(count: number): Promise<void> {
+    const validCount = Math.max(1, Math.min(10, count));
+    await this.updateUserSetting(
+      "testRetryCount" as any,
+      validCount,
+      vscode.ConfigurationTarget.Global,
+    );
+  }
 }
-

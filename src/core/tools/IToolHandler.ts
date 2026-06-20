@@ -38,4 +38,6 @@ export interface ToolExecutionContext {
     terminalManager: TerminalManager;
     contextManager: ContextManager;
     webview?: vscode.Webview; // diff 승인을 위한 webview
+    conversationTurnId?: string; // LLM 턴 식별자 (턴 단위 Accept/Reject용)
+    isAgentMode?: boolean; // AGENT 모드 여부 — true이면 cwd 자동 추론 스킵 (Claude Code 스타일)
 }

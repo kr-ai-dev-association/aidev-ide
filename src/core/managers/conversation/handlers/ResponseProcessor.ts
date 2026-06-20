@@ -3,10 +3,13 @@
  * LLM 응답 처리, 검증, 정제를 담당하는 클래스
  */
 
+import * as path from 'path';
 import { getSimpleSummaryPrompt } from '../../context/prompts/task';
 import { LLMManager } from '../../model/LLMManager';
 import { StringUtils } from '../../../utils/StringUtils';
 import { AgentConfig } from '../../../config/AgentConfig';
+import { UsageMetricsManager } from '../../state/UsageMetricsManager';
+import { estimateTokens } from '../../../../utils';
 
 export class ResponseProcessor {
     private llmManager: LLMManager;
@@ -21,14 +24,14 @@ export class ResponseProcessor {
     public extractResponseText(llmResponse: string): string {
         if (!llmResponse) return '';
 
-        // StringUtils를 사용하여 모든 패턴 제거
+        // thinking/시스템 태그만 제거, 자연어 및 마크다운 구조는 유지
         return StringUtils.cleanText(llmResponse, {
             removeThinking: true,
-            removeNaturalLanguage: true,
+            removeNaturalLanguage: false,
             removeSystemMessages: true,
             removeToolTags: true,
             removeJsonThinking: true,
-            extractJson: true
+            extractJson: false
         });
     }
 
@@ -69,14 +72,14 @@ export class ResponseProcessor {
     /**
      * LLM에게 요약 요청 (재시도 로직 포함)
      *
-     * 🔥 수정: 첫 시도부터 context 없이 요약 요청
+     * 수정: 첫 시도부터 context 없이 요약 요청
      * - 이전 에러 메시지나 도구 호출 컨텍스트가 요약 품질을 저하시킴
      * - LLM이 "다음 할 일"을 응답하는 문제 방지
      */
     private async requestLLMSummary(
         createdFiles: string[],
         modifiedFiles: string[],
-        __accumulatedParts: any[], // 🔥 더 이상 사용하지 않음 (API 호환성 유지)
+        __accumulatedParts: any[], // 더 이상 사용하지 않음 (API 호환성 유지)
         abortSignal?: AbortSignal,
         retryCount: number = 0
     ): Promise<string> {
@@ -84,26 +87,30 @@ export class ResponseProcessor {
         const summaryPrompt = getSimpleSummaryPrompt(createdFiles, modifiedFiles);
 
         try {
-            // 🔥 수정: 요약 요청에 필요한 최소한의 context만 제공
+            // 수정: 요약 요청에 필요한 최소한의 context만 제공
             // Gemini API는 빈 parts를 허용하지 않음 - "Request has empty input" 에러 발생
             // 파일 목록을 context로 제공하여 LLM이 요약할 대상을 명확히 알 수 있게 함
             const fileListText = [
-                createdFiles.length > 0 ? `생성된 파일: ${createdFiles.join(', ')}` : '',
-                modifiedFiles.length > 0 ? `수정된 파일: ${modifiedFiles.join(', ')}` : ''
+                createdFiles.length > 0 ? `Created files: ${createdFiles.join(', ')}` : '',
+                modifiedFiles.length > 0 ? `Modified files: ${modifiedFiles.join(', ')}` : ''
             ].filter(Boolean).join('\n');
 
-            const contextParts: any[] = [{ text: fileListText || '작업 완료' }];
+            const contextParts: any[] = [{ text: fileListText || 'Task complete' }];
 
             console.log(`[ResponseProcessor] Requesting LLM summary (attempt ${retryCount + 1}/${MAX_RETRIES + 1}, contextParts=${contextParts.length})`);
 
+            const _llmStart = Date.now();
             const verifiedSummary = await this.llmManager.sendMessageWithSystemPrompt(
                 summaryPrompt,
                 contextParts,
                 { signal: abortSignal }
             );
+            try {
+                UsageMetricsManager.getInstance().recordLLMCall(Date.now() - _llmStart, estimateTokens(verifiedSummary), true);
+            } catch { /* metrics should never break main flow */ }
 
             // ✅ LLM이 도구 태그로 응답한 경우
-            const hasToolTags = /<(create_file|update_file|remove_file|read_file|run_command|list_files|search_files|ripgrep_search)>/i.test(verifiedSummary);
+            const hasToolTags = /<(create_file|update_file|remove_file|read_file|run_command|list_files|ripgrep_search)>/i.test(verifiedSummary);
             if (hasToolTags) {
                 console.warn(`[ResponseProcessor] LLM responded with tool tags (attempt ${retryCount + 1})`);
 
@@ -124,7 +131,7 @@ export class ResponseProcessor {
                 return this.generateDefaultSummary(createdFiles, modifiedFiles);
             }
 
-            // 🔥 에러 응답이 반환된 경우 기본 요약 생성
+            // 에러 응답이 반환된 경우 기본 요약 생성
             // LLM API 에러가 문자열로 반환되는 경우 처리
             if (verifiedSummary.startsWith('Error:') || verifiedSummary.startsWith('OFFLINE:')) {
                 console.warn('[ResponseProcessor] LLM returned error response:', verifiedSummary.substring(0, 100));
@@ -165,7 +172,7 @@ export class ResponseProcessor {
      */
     private extractTextFromToolResponse(response: string): string {
         // 도구 태그 제거
-        let text = response.replace(/<(create_file|update_file|remove_file|read_file|run_command|list_files|search_files|ripgrep_search)>[\s\S]*?<\/\1>/gi, '');
+        let text = response.replace(/<(create_file|update_file|remove_file|read_file|run_command|list_files|ripgrep_search)>[\s\S]*?<\/\1>/gi, '');
         // thinking 태그 제거
         text = text.replace(/<(think|thinking|reasoning)>[\s\S]*?<\/\1>/gi, '');
         // 연속 공백 정리
@@ -189,14 +196,14 @@ export class ResponseProcessor {
 
         if (createdFiles.length > 0) {
             createdFiles.forEach(f => {
-                const fileName = f.split('/').pop() || f;
+                const fileName = path.basename(f) || f;
                 summary += `- **${fileName}**: 새로 생성됨\n`;
             });
         }
 
         if (modifiedFiles.length > 0) {
             modifiedFiles.forEach(f => {
-                const fileName = f.split('/').pop() || f;
+                const fileName = path.basename(f) || f;
                 summary += `- **${fileName}**: 수정됨\n`;
             });
         }
@@ -213,7 +220,7 @@ export class ResponseProcessor {
         hasNaturalLanguage: boolean;
         extractedToolCalls: string;
     } {
-        const hasToolCalls = /<(create_file|update_file|remove_file|read_file|list_files|search_files|ripgrep_search|run_command|plan|task_progress)>/i.test(response);
+        const hasToolCalls = /<(create_file|update_file|remove_file|read_file|list_files|ripgrep_search|run_command|plan|task_progress)>/i.test(response);
         const hasNaturalLanguage = /[가-힣a-zA-Z]{3,}/.test(response.replace(/<[^>]+>/g, '').trim());
 
         // EXECUTION phase에서는 자연어가 있으면 안 됨
@@ -227,7 +234,7 @@ export class ResponseProcessor {
         }
 
         // Tool calls 추출
-        const toolCallMatch = response.match(/<(create_file|update_file|remove_file|read_file|list_files|search_files|ripgrep_search|run_command|plan|task_progress)[\s\S]*?<\/(?:create_file|update_file|remove_file|read_file|list_files|search_files|ripgrep_search|run_command|plan|task_progress)>/gi);
+        const toolCallMatch = response.match(/<(create_file|update_file|remove_file|read_file|list_files|ripgrep_search|run_command|plan|task_progress)[\s\S]*?<\/(?:create_file|update_file|remove_file|read_file|list_files|ripgrep_search|run_command|plan|task_progress)>/gi);
         const extractedToolCalls = toolCallMatch ? toolCallMatch.join('\n') : '';
 
         return {

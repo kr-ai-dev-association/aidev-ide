@@ -4,6 +4,7 @@
  */
 
 import { ChildProcess, spawn } from 'child_process';
+import * as fs from 'fs';
 import {
     Process,
     ProcessStatus,
@@ -11,9 +12,61 @@ import {
     ExecutionOptions
 } from './types';
 
+const MAX_OUTPUT_SIZE = 10 * 1024 * 1024; // 10MB output limit
+
+// Git Bash 후보 경로 (Windows)
+const GIT_BASH_CANDIDATES = [
+    'C:\\Program Files\\Git\\bin\\bash.exe',
+    'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+    'C:\\Users\\' + (process.env.USERNAME || '') + '\\AppData\\Local\\Programs\\Git\\bin\\bash.exe',
+];
+
+function findGitBash(): string | null {
+    for (const p of GIT_BASH_CANDIDATES) {
+        try {
+            if (fs.existsSync(p)) { return p; }
+        } catch { /* ignore */ }
+    }
+    return null;
+}
+
+// PowerShell 후보 경로 (Windows) — pwsh (7+) 우선, powershell (5.1) 폴백
+function findPowerShell(): string | null {
+    const candidates = ['pwsh.exe', 'pwsh', 'powershell.exe', 'powershell'];
+    for (const name of candidates) {
+        try {
+            const { execSync } = require('child_process');
+            execSync(`where ${name}`, { stdio: 'pipe', timeout: 3000 });
+            return name;
+        } catch { /* not found */ }
+    }
+    return null;
+}
+
+// 프로세스 시작 시 한 번만 탐색
+const GIT_BASH_PATH = process.platform === 'win32' ? findGitBash() : null;
+const POWERSHELL_PATH = process.platform === 'win32' ? findPowerShell() : null;
+
+if (process.platform === 'win32') {
+    const winShell = GIT_BASH_PATH ? `Git Bash (${GIT_BASH_PATH})` : POWERSHELL_PATH ? `PowerShell (${POWERSHELL_PATH})` : 'cmd.exe';
+    console.log(`[ProcessManager] Shell: ${winShell}`);
+} else {
+    console.log(`[ProcessManager] Shell: ${process.env.SHELL || '/bin/zsh'} (login mode)`);
+}
+
+/** Stall detection tracking data per process */
+interface StallTracker {
+    lastOutputSize: number;
+    stallStartTime: number;
+    recentStdout: string;
+    recentStderr: string;
+    interval: ReturnType<typeof setInterval>;
+}
+
 export class ProcessManager {
     private processes: Map<number, Process> = new Map();
     private childProcesses: Map<number, ChildProcess> = new Map();
+    private stallTrackers: Map<number, StallTracker> = new Map();
 
     constructor() {
     }
@@ -26,18 +79,88 @@ export class ProcessManager {
         options: ExecutionOptions = {},
         metadata?: ProcessMetadata
     ): Promise<Process> {
+        // Git Bash 사용 시 Windows 경로 구분자(.\)를 bash 호환(./)으로 치환
+        if (GIT_BASH_PATH) {
+            command = command.replace(/\.\\/g, './');
+        }
+
         console.log('[ProcessManager] Starting process:', command);
 
         // 명령어와 인자 분리
         const [cmd, ...args] = this.parseCommand(command);
 
         // 프로세스 생성
-        const childProcess = spawn(cmd, args, {
-            cwd: options.cwd,
-            env: { ...process.env, ...options.env },
-            shell: typeof options.shell === 'boolean' ? options.shell : true,
-            ...(options.encoding && { encoding: options.encoding })
-        });
+        // Windows: Git Bash → cmd.exe (PowerShell은 ExecutionPolicy 문제로 사용하지 않음)
+        // Mac/Linux: 사용자 기본 shell (login mode — .zshrc/.bashrc 로드하여 nvm 등 PATH 포함)
+        let childProcess: ChildProcess;
+        if (typeof options.shell === 'boolean') {
+            childProcess = spawn(cmd, args, {
+                cwd: options.cwd,
+                env: { ...process.env, ...options.env },
+                shell: options.shell,
+                ...(options.encoding && { encoding: options.encoding })
+            });
+        } else if (process.platform === 'win32') {
+            // Windows 확장자 기반 쉘 라우팅
+            const scriptExt = this.getScriptExtension(command);
+            const winEnv = { ...process.env, ...options.env, PYTHONIOENCODING: 'utf-8' };
+
+            if (scriptExt === '.ps1') {
+                // .ps1 → PowerShell 직접 실행 (Cline 방식: shell: false)
+                const psPath = POWERSHELL_PATH || 'powershell.exe';
+                const ps1Path = [cmd, ...args].join(' ');
+                childProcess = spawn(psPath, [
+                    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                    '-Command', `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; & '${ps1Path.replace(/'/g, "''")}'`,
+                ], {
+                    cwd: options.cwd, env: winEnv, shell: false,
+                    ...(options.encoding && { encoding: options.encoding }),
+                });
+            } else if (scriptExt === '.sh' && GIT_BASH_PATH) {
+                // .sh → Git Bash
+                childProcess = spawn(cmd, args, {
+                    cwd: options.cwd, env: winEnv, shell: GIT_BASH_PATH,
+                    ...(options.encoding && { encoding: options.encoding }),
+                });
+            } else if (scriptExt === '.bat' || scriptExt === '.cmd') {
+                // .bat/.cmd → cmd.exe
+                childProcess = spawn(`chcp 65001 >nul && ${cmd}`, args, {
+                    cwd: options.cwd, env: winEnv, shell: 'cmd.exe',
+                    ...(options.encoding && { encoding: options.encoding }),
+                });
+            } else if (GIT_BASH_PATH) {
+                // 기본 1순위: Git Bash (Unix 명령어 호환)
+                childProcess = spawn(cmd, args, {
+                    cwd: options.cwd, env: winEnv, shell: GIT_BASH_PATH,
+                    ...(options.encoding && { encoding: options.encoding }),
+                });
+            } else if (POWERSHELL_PATH) {
+                // 2순위: PowerShell 직접 실행 (Cline 방식: shell: false, 프로세스 1개)
+                const fullCmd = [cmd, ...args].join(' ');
+                childProcess = spawn(POWERSHELL_PATH, [
+                    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                    '-Command', `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${fullCmd}`,
+                ], {
+                    cwd: options.cwd, env: winEnv, shell: false,
+                    ...(options.encoding && { encoding: options.encoding }),
+                });
+            } else {
+                // 3순위: cmd.exe (최후 폴백)
+                childProcess = spawn(`chcp 65001 >nul && ${cmd}`, args, {
+                    cwd: options.cwd, env: winEnv, shell: 'cmd.exe',
+                    ...(options.encoding && { encoding: options.encoding }),
+                });
+            }
+        } else {
+            // Mac/Linux: login shell로 실행하여 사용자 환경(nvm, fnm, volta 등) PATH 로드
+            const userShell = process.env.SHELL || '/bin/zsh';
+            const fullCommand = [cmd, ...args].join(' ');
+            childProcess = spawn(userShell, ['-l', '-c', fullCommand], {
+                cwd: options.cwd,
+                env: { ...process.env, ...options.env },
+                ...(options.encoding && { encoding: options.encoding })
+            });
+        }
 
         const pid = childProcess.pid!;
 
@@ -55,8 +178,45 @@ export class ProcessManager {
         this.processes.set(pid, processInfo);
         this.childProcesses.set(pid, childProcess);
 
+        // Output size watchdog
+        let totalOutputSize = 0;
+        const trackSize = (data: Buffer | string) => {
+            totalOutputSize += typeof data === 'string' ? data.length : data.byteLength;
+            if (totalOutputSize > MAX_OUTPUT_SIZE) {
+                console.warn(`[ProcessManager] Output size exceeded ${MAX_OUTPUT_SIZE} bytes for PID ${pid}. Consider backgrounding.`);
+            }
+        };
+        childProcess.stdout?.on('data', trackSize);
+        childProcess.stderr?.on('data', trackSize);
+
         // 프로세스 이벤트 핸들러 등록
         this.registerProcessHandlers(pid, childProcess);
+
+        // Stall detection setup
+        const stallTracker: StallTracker = {
+            lastOutputSize: 0,
+            stallStartTime: Date.now(),
+            recentStdout: '',
+            recentStderr: '',
+            interval: setInterval(() => this.checkForStall(pid), 5000),
+        };
+        this.stallTrackers.set(pid, stallTracker);
+
+        // Track recent output for stall detection
+        childProcess.stdout?.on('data', (data: Buffer | string) => {
+            const tracker = this.stallTrackers.get(pid);
+            if (tracker) {
+                const text = typeof data === 'string' ? data : data.toString();
+                tracker.recentStdout = (tracker.recentStdout + text).slice(-1024);
+            }
+        });
+        childProcess.stderr?.on('data', (data: Buffer | string) => {
+            const tracker = this.stallTrackers.get(pid);
+            if (tracker) {
+                const text = typeof data === 'string' ? data : data.toString();
+                tracker.recentStderr = (tracker.recentStderr + text).slice(-1024);
+            }
+        });
 
         // 시작 완료
         this.updateStatus(pid, ProcessStatus.RUNNING);
@@ -91,8 +251,8 @@ export class ProcessManager {
         try {
             this.updateStatus(pid, ProcessStatus.STOPPING);
 
-            // SIGTERM으로 먼저 시도
-            const killed = childProcess.kill(signal);
+            // 프로세스 종료 시도 (Windows는 SIGTERM을 즉시 종료로 처리)
+            const killed = childProcess.kill(process.platform === 'win32' ? undefined : signal);
 
             if (!killed) {
                 console.warn(`[ProcessManager] Failed to send ${signal} to PID=${pid}`);
@@ -106,7 +266,7 @@ export class ProcessManager {
                 const timeout = setTimeout(() => {
                     if (this.isProcessRunning(pid)) {
                         console.warn(`[ProcessManager] Force killing PID=${pid} after grace period`);
-                        childProcess.kill('SIGKILL');
+                        childProcess.kill(process.platform === 'win32' ? undefined : 'SIGKILL');
                     }
                     resolve();
                 }, gracePeriod);
@@ -194,6 +354,9 @@ export class ProcessManager {
         childProcess.on('exit', (code, signal) => {
             console.log(`[ProcessManager] Process ${pid} exited: code=${code}, signal=${signal}`);
 
+            // Clear stall detection interval
+            this.clearStallTracker(pid);
+
             if (signal === 'SIGKILL' || signal === 'SIGTERM') {
                 this.updateStatus(pid, ProcessStatus.KILLED);
             } else if (code === 0) {
@@ -212,18 +375,61 @@ export class ProcessManager {
     }
 
     /**
+     * Check if a process is stalled waiting for interactive input
+     */
+    private checkForStall(pid: number): void {
+        const proc = this.processes.get(pid);
+        const tracker = this.stallTrackers.get(pid);
+        if (!proc || !tracker || proc.status !== ProcessStatus.RUNNING) return;
+
+        const currentSize = tracker.recentStdout.length + tracker.recentStderr.length;
+        if (currentSize > tracker.lastOutputSize) {
+            tracker.lastOutputSize = currentSize;
+            tracker.stallStartTime = Date.now();
+            return;
+        }
+
+        // No output growth for 45s
+        if (Date.now() - tracker.stallStartTime > 45000) {
+            const recentOutput = tracker.recentStdout.slice(-1024) + tracker.recentStderr.slice(-1024);
+            const interactivePatterns = /\(y\/n\)|\(Y\/n\)|Continue\?|Press Enter|\[yes\/no\]|password:|Are you sure/i;
+            if (interactivePatterns.test(recentOutput)) {
+                console.warn(`[ProcessManager] Stall detected: process PID ${pid} may be waiting for user input`);
+            }
+        }
+    }
+
+    /**
+     * Clear stall detection tracker for a process
+     */
+    private clearStallTracker(pid: number): void {
+        const tracker = this.stallTrackers.get(pid);
+        if (tracker) {
+            clearInterval(tracker.interval);
+            this.stallTrackers.delete(pid);
+        }
+    }
+
+    /**
+     * 명령어에서 스크립트 파일 확장자를 추출합니다 (Windows 쉘 라우팅용)
+     */
+    private getScriptExtension(command: string): string | null {
+        // 명령어 첫 토큰에서 확장자 추출 (예: "./script.ps1 arg1" → ".ps1")
+        const firstToken = command.trim().split(/\s+/)[0];
+        const match = firstToken.match(/\.(ps1|sh|bat|cmd)$/i);
+        return match ? match[0].toLowerCase() : null;
+    }
+
+    /**
      * 명령어를 파싱합니다
      */
     private parseCommand(command: string): string[] {
         // 간단한 파싱 (쉘이 처리하므로 복잡한 파싱 불필요)
         const trimmed = command.trim();
 
-        // 쉘 명령어인 경우 그대로 반환
-        if (process.platform === 'win32') {
-            return ['cmd', '/c', trimmed];
-        } else {
-            return [trimmed]; // shell: true이므로 쉘이 파싱
-        }
+        // shell: true 옵션과 함께 사용하므로 명령어를 그대로 반환
+        // (Node.js spawn이 shell: true일 때 자동으로 cmd.exe /c 또는 /bin/sh -c로 래핑)
+        return [trimmed];
     }
 
 
@@ -237,6 +443,11 @@ export class ProcessManager {
         const stopPromises = runningProcesses.map(p => this.stopProcess(p.pid));
 
         await Promise.all(stopPromises);
+
+        // Clear all stall trackers
+        for (const [pid] of this.stallTrackers) {
+            this.clearStallTracker(pid);
+        }
 
         this.processes.clear();
         this.childProcesses.clear();

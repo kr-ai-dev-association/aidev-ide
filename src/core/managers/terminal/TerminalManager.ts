@@ -24,7 +24,6 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { debugLog } from '../../../utils';
 
 const execAsync = promisify(exec);
 
@@ -110,8 +109,6 @@ export class TerminalManager {
      * 새로운 터미널을 생성합니다
      */
     public createTerminal(options?: TerminalCreateOptions): TerminalSession {
-        console.log('[TerminalManager] Creating new terminal');
-
         const sessionId = this.generateSessionId();
         const name = options?.name || `Terminal ${sessionId}`;
 
@@ -133,8 +130,6 @@ export class TerminalManager {
         // TerminalSession 생성
         const session = new TerminalSession(sessionId, vscodeTerminal, options);
         this.sessions.set(sessionId, session);
-
-        console.log(`[TerminalManager] Terminal created: ${sessionId} (${name})`);
 
         return session;
     }
@@ -195,7 +190,6 @@ export class TerminalManager {
         session.dispose();
         this.sessions.delete(sessionId);
 
-        console.log(`[TerminalManager] Terminal closed: ${sessionId}`);
         return true;
     }
 
@@ -203,15 +197,12 @@ export class TerminalManager {
      * 모든 터미널을 닫습니다
      */
     public closeAllTerminals(): void {
-        console.log('[TerminalManager] Closing all terminals');
-
         const sessions = Array.from(this.sessions.values());
         for (const session of sessions) {
             session.dispose();
         }
 
         this.sessions.clear();
-        console.log('[TerminalManager] All terminals closed');
     }
 
     /**
@@ -361,13 +352,10 @@ export class TerminalManager {
     private registerVSCodeEventHandlers(): void {
         // 터미널 닫힘 감지
         const closeDisposable = vscode.window.onDidCloseTerminal((terminal) => {
-            console.log(`[TerminalManager] VS Code terminal closed: ${terminal.name}`);
-
             // 해당 터미널 세션 찾기
             for (const [sessionId, session] of this.sessions.entries()) {
                 if (session.getTerminal() === terminal) {
                     this.sessions.delete(sessionId);
-                    console.log(`[TerminalManager] Removed session: ${sessionId}`);
                     break;
                 }
             }
@@ -375,9 +363,8 @@ export class TerminalManager {
 
         this.disposables.push(closeDisposable);
 
-        // 터미널 열림 감지 (정보 로깅용)
-        const openDisposable = vscode.window.onDidOpenTerminal((terminal) => {
-            console.log(`[TerminalManager] VS Code terminal opened: ${terminal.name}`);
+        const openDisposable = vscode.window.onDidOpenTerminal((_terminal) => {
+            // terminal open event tracked
         });
 
         this.disposables.push(openDisposable);
@@ -395,7 +382,6 @@ export class TerminalManager {
         const onDidEndExecution = windowAny.onDidEndTerminalShellExecution;
 
         if (onDidStartExecution && onDidEndExecution) {
-            console.log('[TerminalManager] Shell Integration API available, registering handlers');
 
             // 명령어 실행 시작 감지
             const startDisposable = onDidStartExecution.call(windowAny, (event: any) => {
@@ -403,8 +389,6 @@ export class TerminalManager {
                 const execution = event.execution;
                 const commandLine = execution.commandLine?.value || '';
                 const terminalName = terminal.name;
-
-                console.log(`[TerminalManager] Shell execution started in "${terminalName}": ${commandLine}`);
 
                 // 명령어 시작 시 기록 (출력은 나중에 업데이트)
                 if (!this.shellIntegrationHistory.has(terminalName)) {
@@ -432,8 +416,6 @@ export class TerminalManager {
                 const execution = event.execution;
                 const terminalName = terminal.name;
                 const exitCode = event.exitCode;
-
-                console.log(`[TerminalManager] Shell execution ended in "${terminalName}" with exit code: ${exitCode}`);
 
                 // 해당 터미널의 히스토리에서 마지막 항목 업데이트
                 const history = this.shellIntegrationHistory.get(terminalName);
@@ -465,7 +447,7 @@ export class TerminalManager {
 
             this.disposables.push(endDisposable);
         } else {
-            console.log('[TerminalManager] Shell Integration API not available (requires VS Code 1.93+)');
+            // Shell Integration API not available (requires VS Code 1.93+)
         }
     }
 
@@ -504,16 +486,12 @@ export class TerminalManager {
      * 정리 작업을 수행합니다
      */
     public dispose(): void {
-        console.log('[TerminalManager] Disposing');
-
         // 모든 터미널 닫기
         this.closeAllTerminals();
 
         // 이벤트 핸들러 정리
         this.disposables.forEach(d => d.dispose());
         this.disposables = [];
-
-        console.log('[TerminalManager] Disposed');
     }
 
     /**
@@ -565,7 +543,10 @@ export class TerminalManager {
         if (!fs.existsSync(p)) {
             return { success: false, message: 'terminal-daemon 바이너리를 찾을 수 없습니다.' };
         }
-        await execAsync(`chmod +x "${p}"`);
+        // Windows에서는 chmod 불필요 (.exe가 자동 실행 가능)
+        if (process.platform !== 'win32') {
+            await execAsync(`chmod +x "${p}"`);
+        }
         return { success: true, message: 'terminal-daemon 설치 완료' };
     }
 
@@ -650,7 +631,7 @@ export class TerminalManager {
 
         if (this.daemonProcessRef) {
             try {
-                this.daemonProcessRef.kill('SIGTERM');
+                this.daemonProcessRef.kill(process.platform === 'win32' ? undefined : 'SIGTERM');
             } catch (error) {
                 console.warn('[TerminalManager] Failed to kill daemon process:', error);
             }
@@ -689,7 +670,6 @@ export class TerminalManager {
             const instance = TerminalManager.getInstance();
             const disposable = vscode.window.onDidCloseTerminal(event => {
                 if (event === term) {
-                    console.log(`[TerminalManager] 터미널 종료 감지: ${name}`);
                     disposable.dispose();
                     // disposables 배열에서도 제거
                     const idx = instance.disposables.indexOf(disposable);
@@ -703,31 +683,26 @@ export class TerminalManager {
         // 기존 동작 (재사용) 경로
         const existing = vscode.window.terminals.filter(t => t.name === 'codepilot Terminal');
         if (existing.length > 0) {
-            console.log(`[TerminalManager] 기존 터미널 재사용: ${existing.length}개 발견, 첫 번째 터미널 사용`);
             TerminalManager.codePilotTerminal = existing[0];
             // 나머지 중복 터미널 정리
             for (let i = 1; i < existing.length; i++) {
                 try {
-                    console.log(`[TerminalManager] 중복 터미널 정리: ${existing[i].name} dispose`);
                     existing[i].dispose();
                 } catch { }
             }
         }
 
         if (!TerminalManager.codePilotTerminal || TerminalManager.codePilotTerminal.exitStatus !== undefined) {
-            console.log(`[TerminalManager] 새로운 터미널 생성: codepilot Terminal`);
             const terminalOptions: vscode.TerminalOptions = { name: 'codepilot Terminal' };
 
             if (projectRoot) {
                 terminalOptions.cwd = projectRoot;
-                console.log(`[TerminalManager] 터미널 작업 디렉토리 설정: ${projectRoot}`);
             }
 
             TerminalManager.codePilotTerminal = vscode.window.createTerminal(terminalOptions);
             const instance = TerminalManager.getInstance();
             const disposable = vscode.window.onDidCloseTerminal(event => {
                 if (event === TerminalManager.codePilotTerminal) {
-                    console.log(`[TerminalManager] 터미널 종료 감지: codepilot Terminal`);
                     TerminalManager.codePilotTerminal = undefined;
                     disposable.dispose();
                     // disposables 배열에서도 제거
@@ -769,7 +744,7 @@ export class TerminalManager {
         while ((match = bashBlockRegex.exec(llmResponse)) !== null) {
             const block = match[1].trim();
             if (!block) continue;
-            const lines = block.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+            const lines = block.split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#'));
             commands.push(...lines);
         }
 
@@ -777,7 +752,7 @@ export class TerminalManager {
         while ((match = pwshBlockRegex.exec(llmResponse)) !== null) {
             const block = (match[1] || '').trim();
             if (!block) continue;
-            const lines = block.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+            const lines = block.split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#'));
             if (lines.length > 0) {
                 commands.push(`powershell -Command "${lines.join('; ')}"`);
             }
@@ -787,7 +762,7 @@ export class TerminalManager {
         while ((match = cmdBlockRegex.exec(llmResponse)) !== null) {
             const block = (match[1] || '').trim();
             if (!block) continue;
-            const lines = block.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('REM') && !l.startsWith('::'));
+            const lines = block.split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('REM') && !l.startsWith('::'));
             if (lines.length > 0) {
                 commands.push(`cmd.exe /d /c "${lines.join(' & ')}"`);
             }
@@ -839,7 +814,6 @@ export class TerminalManager {
             this.currentWorkingDirectory = projectRoot;
         }
         this.enqueueCommands(commands, priority);
-        console.log('[TerminalManager] enqueueCommandsBatch called with', commands.length, 'commands');
     }
 
     /**
@@ -1025,24 +999,20 @@ export class TerminalManager {
             try {
                 const effectiveCwd = await this.getEffectiveCwd();
                 const cwd = effectiveCwd || projectRoot;
-                console.log('[TerminalManager] npm install 감지 - esbuild 사전 정리 시작');
-
                 const osAdapter = this.executionManager.getOSAdapter();
                 if (osAdapter.osType === 'win32') {
                     await this.executionManager.runCommandCapture(`if exist node_modules\\esbuild rmdir /s /q node_modules\\esbuild 2>nul`, { cwd });
                 } else {
                     await this.executionManager.runCommandCapture(`rm -rf node_modules/esbuild 2>/dev/null || true`, { cwd });
                 }
-                console.log('[TerminalManager] esbuild 사전 정리 완료');
-            } catch (error) {
-                console.log(`[TerminalManager] esbuild 사전 정리 실패 (계속 진행): ${error}`);
+            } catch {
             }
         }
 
         // 장기 실행 명령어 실행 전 기존 프로세스 종료
         if (isDevLong) {
             try {
-                console.log(`[TerminalManager] 장기 실행 명령어 감지: ${command}, 기존 프로세스 종료 시도`);
+                console.log(`[TerminalManager] 장기 실행 명령어 감지, 기존 프로세스 종료 시도`);
                 const effectiveCwd = await this.getEffectiveCwd();
                 const cwd = effectiveCwd || projectRoot;
 
@@ -1053,73 +1023,65 @@ export class TerminalManager {
                     );
                     for (const terminal of aidevTerminals) {
                         try {
-                            console.log(`[TerminalManager] 기존 codepilot 터미널 종료 시도: ${terminal.name}`);
                             terminal.sendText('\x03'); // Ctrl+C
                             await new Promise(resolve => setTimeout(resolve, 300));
                             terminal.dispose();
-                            console.log(`[TerminalManager] 터미널 종료 완료: ${terminal.name}`);
-                        } catch (e) {
-                            console.log(`[TerminalManager] 터미널 종료 중 오류 (무시): ${e}`);
-                        }
+                        } catch { }
                     }
-                } catch (e) {
-                    console.log(`[TerminalManager] VS Code 터미널 종료 시도 중 오류 (무시): ${e}`);
-                }
+                } catch { }
 
-                // 3. 프로세스 이름 기반 종료
+                // 3. 프로세스 이름 기반 종료 (OS 어댑터 활용)
                 const osAdapter = this.executionManager.getOSAdapter();
-                if (osAdapter.osType === 'win32') {
-                    const killCommand = `taskkill /F /FI "WINDOWTITLE eq *npm*dev*" /T 2>nul || taskkill /F /FI "COMMANDLINE eq *npm*run*dev*" /T 2>nul || echo "No process found"`;
+                const isWin = osAdapter.osType === 'win32';
+                const errSink = isWin ? '2>nul' : '2>/dev/null';
+
+                if (isWin) {
+                    const killCommand = `taskkill /F /FI "WINDOWTITLE eq *npm*dev*" /T ${errSink} || taskkill /F /FI "COMMANDLINE eq *npm*run*dev*" /T ${errSink} || echo "No process found"`;
                     try {
                         await this.executionManager.runCommandCapture(killCommand, { cwd });
-                    } catch (e) {
-                        console.log(`[TerminalManager] Windows 프로세스 종료 시도 완료 (오류 무시): ${e}`);
-                    }
-                } else {
-                    try {
-                        const absCwd = path.resolve(cwd || '.');
-                        console.log(`[TerminalManager] 현재 디렉토리에서만 프로세스 종료: ${absCwd}`);
-
-                        const findProcessCmd = `lsof -a -d cwd -c node -F p | grep -E "^p[0-9]+" | head -1 | sed 's/^p//'`;
-                        const processResult = await this.executionManager.runCommandCapture(findProcessCmd, { cwd: absCwd });
-
-                        if (processResult.stdout && processResult.stdout.trim()) {
-                            const pids = processResult.stdout.trim().split('\n').filter(pid => pid && /^\d+$/.test(pid));
-                            for (const pid of pids) {
-                                try {
-                                    const checkCwdCmd = `lsof -a -p ${pid} -d cwd -Fn | grep -E "^n" | head -1 | sed 's/^n//'`;
-                                    const cwdResult = await this.executionManager.runCommandCapture(checkCwdCmd, { cwd: absCwd });
-                                    const processCwd = cwdResult.stdout.trim();
-
-                                    if (processCwd === absCwd) {
-                                        console.log(`[TerminalManager] 현재 디렉토리 프로세스 종료: PID ${pid} (CWD: ${processCwd})`);
-                                        await this.executionManager.runCommandCapture(`kill -9 ${pid} 2>/dev/null || true`, { cwd: absCwd });
-                                    } else {
-                                        console.log(`[TerminalManager] 다른 디렉토리 프로세스는 종료하지 않음: PID ${pid} (CWD: ${processCwd}, 현재: ${absCwd})`);
-                                    }
-                                } catch (e) {
-                                    console.debug(`[TerminalManager] Individual process check failed (non-critical):`, e);
-                                }
-                            }
-                        }
-
-                        const psCmd = `ps aux | grep -E "(npm run dev|vite|next dev|nuxt dev)" | grep -v grep | awk '{print $2}' | xargs -I {} sh -c 'lsof -a -p {} -d cwd -Fn 2>/dev/null | grep -E "^n" | head -1 | sed "s/^n//" | grep -q "^${absCwd}" && echo {}'`;
-                        const psResult = await this.executionManager.runCommandCapture(psCmd, { cwd: absCwd });
-
-                        if (psResult.stdout && psResult.stdout.trim()) {
-                            const matchingPids = psResult.stdout.trim().split('\n').filter(pid => pid && /^\d+$/.test(pid));
-                            for (const pid of matchingPids) {
-                                console.log(`[TerminalManager] 현재 디렉토리 프로세스 종료: PID ${pid}`);
-                                await this.executionManager.runCommandCapture(`kill -9 ${pid} 2>/dev/null || true`, { cwd: absCwd });
-                            }
-                        }
-                    } catch (e) {
-                        console.log(`[TerminalManager] 프로세스 종료 시도 완료 (오류 무시): ${e}`);
-                    }
+                    } catch { }
                 }
 
+                try {
+                    const absCwd = path.resolve(cwd || '.');
+
+                    // CWD 기반 node 프로세스 검색 후 종료
+                    const findProcessCmd = osAdapter.getFindNodeProcessByCwdCommand(absCwd);
+                    const processResult = await this.executionManager.runCommandCapture(findProcessCmd, { cwd: absCwd });
+
+                    if (processResult.stdout && processResult.stdout.trim()) {
+                        const pids = processResult.stdout.trim().split(/\r?\n/).filter(pid => pid && /^\d+$/.test(pid));
+                        for (const pid of pids) {
+                            try {
+                                const checkCwdCmd = osAdapter.getProcessCwdCommand(parseInt(pid));
+                                const cwdResult = await this.executionManager.runCommandCapture(checkCwdCmd, { cwd: absCwd });
+                                const processCwd = cwdResult.stdout.trim();
+
+                                // Unix: CWD 일치 확인 후 종료 / Windows: CommandLine 기반이므로 바로 종료
+                                if (isWin || processCwd === absCwd) {
+                                    const killCmd = osAdapter.getKillProcessCommand(parseInt(pid));
+                                    await this.executionManager.runCommandCapture(`${killCmd} ${errSink} || ${isWin ? 'echo ok' : 'true'}`, { cwd: absCwd });
+                                }
+                            } catch (e) {
+                                console.debug(`[TerminalManager] Individual process check failed (non-critical):`, e);
+                            }
+                        }
+                    }
+
+                    // dev 서버 패턴 프로세스 검색 후 종료
+                    const devServerCmd = osAdapter.getFindDevServerProcessCommand(absCwd);
+                    const psResult = await this.executionManager.runCommandCapture(devServerCmd, { cwd: absCwd });
+
+                    if (psResult.stdout && psResult.stdout.trim()) {
+                        const matchingPids = psResult.stdout.trim().split(/\r?\n/).filter(pid => pid && /^\d+$/.test(pid));
+                        for (const pid of matchingPids) {
+                            const killCmd = osAdapter.getKillProcessCommand(parseInt(pid));
+                            await this.executionManager.runCommandCapture(`${killCmd} ${errSink} || ${isWin ? 'echo ok' : 'true'}`, { cwd: absCwd });
+                        }
+                    }
+                } catch { }
+
                 await new Promise(resolve => setTimeout(resolve, 1000));
-                console.log(`[TerminalManager] 기존 프로세스 종료 완료`);
             } catch (error) {
                 console.warn(`[TerminalManager] 기존 프로세스 종료 실패 (계속 진행): ${error}`);
             }
@@ -1267,7 +1229,6 @@ export class TerminalManager {
             }
 
             terminal.sendText(finalCommand);
-            debugLog(`TerminalManager: execute -> ${finalCommand}`);
             terminal.show(true);
 
             const runPromise = this.executionManager.runCommandCapture(
@@ -1407,18 +1368,15 @@ export class TerminalManager {
                 if (result.stderr) {
                     const decodedStderr = this.decodeTerminalOutput(result.stderr);
                     channel.appendLine(`Stderr: ${decodedStderr}`);
-                    debugLog(`TerminalManager: stderr -> ${decodedStderr.substring(0, 2000)}`);
                 }
                 if (result.stdout && hasErrorInStdout) {
                     const decodedStdout = this.decodeTerminalOutput(result.stdout);
                     channel.appendLine(`Stdout (contains errors): ${decodedStdout.substring(0, 500)}...`);
-                    debugLog(`TerminalManager: stdout(error) -> ${decodedStdout.substring(0, 2000)}`);
                 }
                 channel.show(true);
 
                 const errorOutput = `Exit code: ${result.code}\nStderr: ${result.stderr || ''}\nStdout: ${result.stdout || ''}`;
                 console.log(`[TerminalManager] 오류 감지: exitCode=${result.code}, hasErrorInStderr=${hasErrorInStderr}, hasErrorInStdout=${hasErrorInStdout}`);
-                debugLog(`TerminalManager: error detected, exit=${result.code}, err=${hasErrorInStderr}, outErr=${hasErrorInStdout}`);
                 console.log(`[TerminalManager] 오류 출력 길이: stderr=${(result.stderr || '').length}, stdout=${(result.stdout || '').length}`);
                 const isAutoCorrectionEnabled = await SafeSettingsHelper.isAutoCorrectionEnabled();
 
@@ -1459,7 +1417,6 @@ export class TerminalManager {
                 channel.appendLine(`Output: ${result.stdout}`);
             }
             console.log(`[TerminalManager] Executed via VS Code terminal: ${cleanCommand} (exit code: ${result.code})`);
-            debugLog(`TerminalManager: success -> ${cleanCommand} (exit code: ${result.code})`);
 
             if (result.code === 0) {
                 return true;
@@ -1725,18 +1682,9 @@ export class TerminalManager {
 4. 환경 변수 문제가 있는 경우 ${isWindows ? 'set 명령어를 사용하세요' : 'export 명령어를 추가하세요'}
 5. ${isUnixLike ? '셸 문제가 있는 경우 /bin/bash 또는 /bin/zsh를 명시적으로 사용하세요' : '셸 문제가 있는 경우 PowerShell 또는 cmd.exe를 명시적으로 사용하세요'}
 6. "No such file or directory" 오류의 경우, 프로젝트 루트 경로를 재확인하고 올바른 디렉토리에서 명령어를 실행하세요
-7. Spring Boot 프로젝트의 경우 Maven(mvn) 또는 Gradle(./gradlew) 명령어를 사용하고, npm/node.js 명령어는 사용하지 마세요
-8. 프로젝트 타입에 맞는 빌드 도구를 사용하세요 (Spring Boot: Maven/Gradle, React: npm/yarn, Python: pip)
-9. "앱 빌드하고 실행해" 요청의 경우 Spring Boot 프로젝트일 가능성이 높으므로 Maven(mvn clean package) 또는 Gradle(./gradlew build) 명령어를 사용하세요
-10. npm 오류가 발생하면 Spring Boot 프로젝트일 가능성이 높으므로 Maven/Gradle 명령어로 변경하세요
-11. **컴파일 오류가 발생한 경우 (package does not exist, cannot find symbol, unmappable character 등)**: 명령어를 다시 실행하는 것이 아니라 필요한 파일을 수정해야 합니다
-    - Maven 프로젝트: 
-      * pom.xml에 누락된 의존성 추가 (예: Spring Data JPA, Lombok, Jakarta Persistence 등)
-      * 인코딩 오류가 발생하면 pom.xml에 project.build.sourceEncoding을 UTF-8로 설정 추가
-      * maven-compiler-plugin에 encoding을 UTF-8로 설정 추가
-    - Gradle 프로젝트: build.gradle에 누락된 의존성 추가 및 인코딩 설정
-    - Java 소스 파일의 import 오류나 문법 오류를 수정
-    - 이런 경우 "correctedCommand"는 null로 설정하고, "fileOperations"에 필요한 파일 수정 작업을 포함하세요`;
+7. 프로젝트 타입에 맞는 빌드 도구를 사용하세요. 프로젝트 루트의 설정 파일(package.json, pom.xml, build.gradle, requirements.txt 등)을 확인하고 적절한 빌드 도구를 선택하세요
+8. **컴파일/빌드 오류가 발생한 경우**: 명령어를 다시 실행하는 것이 아니라 소스 코드나 설정 파일을 수정해야 합니다. "correctedCommand"는 null로 설정하고, "fileOperations"에 필요한 파일 수정 작업을 포함하세요
+9. 스크립트 파일(.cmd, .bat, .sh, .ps1)을 생성하여 우회하지 마세요. 오류의 근본 원인을 수정하세요`;
 
             // Windows 전용 가이드라인 (간소화)
             const windowsGuidelines = `
@@ -1775,59 +1723,20 @@ export class TerminalManager {
                 errorOutputForPrompt = `[오류 출력이 길어 일부만 표시합니다]\n${startPart}\n... (중간 생략) ...\n${endPart}`;
             }
 
-            // 컴파일/인코딩 오류가 있는지 사전 확인
-            const hasCompilationError = /(package.*does not exist|cannot find symbol|Compilation failure|BUILD FAILURE|unmappable character.*encoding|File encoding has not been set|platform encoding|x-windows-949|MissingProjectException|no POM.*directory|requires a project.*POM|POM file.*does not exist|package org\.springframework|package lombok|package jakarta\.persistence|symbol:.*class.*Page|symbol:.*class.*Pageable|symbol:.*class.*Getter|symbol:.*class.*Setter|symbol:.*class.*Entity|symbol:.*class.*Table|symbol:.*class.*JpaRepository|symbol:.*variable.*Customizer)/i.test(cleanedErrorOutput);
+            // 컴파일/빌드 오류가 있는지 사전 확인 (범용)
+            const hasCompilationError = /(Compilation failure|BUILD FAILURE|build failed|compile error|syntax error|cannot find symbol|cannot find module|Module not found|unmappable character|encoding error)/i.test(cleanedErrorOutput);
 
-            // ESM 모듈 오류 감지 (ts-node-dev 관련)
-            const hasESMError = /(Must use import to load ES Module|ERR_REQUIRE_ESM|Cannot use import statement|ts-node-dev.*ESM)/i.test(cleanedErrorOutput);
-
-            const missingPomError = /(POM file.*does not exist|MissingProjectException|no POM.*directory|requires a project.*POM)/i.test(cleanedErrorOutput);
-
-            // 컴파일/인코딩/프로젝트 누락 가이드라인 조립 (간소화)
+            // 빌드/컴파일 오류 가이드라인 (범용)
             let compilationGuidelines = '';
+            if (hasCompilationError) {
+                compilationGuidelines = `**⚠️ 빌드/컴파일 오류가 감지되었습니다 ⚠️**
+이 오류는 명령어를 다시 실행하는 것으로 해결되지 않습니다. 소스 코드나 설정 파일을 수정해야 합니다.
 
-            // ESM 모듈 오류 가이드라인
-            if (hasESMError) {
-                compilationGuidelines = `**⚠️ ts-node-dev ESM 모듈 오류 ⚠️**
-ts-node-dev는 ESM 모듈(type: module)을 제대로 처리하지 못합니다.
-
-**해결 방법:**
-1. package.json에 "type": "module"이 있으면 ts-node-dev 대신 tsx를 사용해야 합니다.
-2. 해결 방법: ts-node-dev를 tsx로 대체하세요.
-   - 예: "ts-node-dev src/index.ts" → "tsx src/index.ts"
-   - 또는: "ts-node-dev --respawn src/index.ts" → "tsx watch src/index.ts"
-3. tsx가 설치되어 있지 않으면: npm install -D tsx
-4. package.json의 scripts도 수정:
-   - "dev": "tsx watch src/index.ts" (또는 "tsx src/index.ts")
-   - "start": "tsx src/index.ts"
-5. **중요**: "type": "module"은 유지하세요. tsx는 ESM을 완벽하게 지원합니다.
-
-**수정 방법:**
-- "correctedCommand"에 tsx를 사용한 명령어를 제안하세요.
-- package.json의 scripts를 수정해야 하는 경우 "fileOperations"에 package.json 수정을 포함하세요.
-- tsx가 설치되지 않은 경우 "correctedCommand"에 "npm install -D tsx"를 먼저 실행하도록 제안하세요.`;
-            } else if (hasCompilationError) {
-                if (missingPomError) {
-                    compilationGuidelines = `**⚠️ 경고: 프로젝트 POM 파일이 없습니다! ⚠️**
-이 오류는 명령 재실행으로 해결되지 않습니다. 반드시 필요한 파일을 생성해야 합니다.
-
-**규칙**
-1. "correctedCommand"는 반드시 null로 설정하세요
-2. "fileOperations"에는 반드시 pom.xml(생성)을 포함하세요. 스크립트 파일(.cmd/.bat/.sh/.ps1)은 절대 포함하지 마세요.
-3. 작업은 create를 사용하세요 (pom.xml이 존재하지 않음)
-4. 내용에는 Spring Boot 3.x, Java 17, UTF-8 인코딩, maven-compiler-plugin(encoding=UTF-8), 필요한 의존성(spring-boot-starter-web, spring-boot-starter-data-jpa, spring-boot-starter-validation, lombok(optional), spring-boot-starter-security)을 포함하세요
-5. pom.xml 변경/생성 시 절대로 쉘/배치/PowerShell 스크립트를 사용하지 마세요 (예: sed, echo, cat, heredoc, Out-File, Set-Content 등 금지). 오직 JSON의 fileOperations로만 전체 내용을 제공합니다.`;
-                } else {
-                    compilationGuidelines = `**⚠️ 경고: 컴파일/인코딩 오류가 감지되었습니다! ⚠️**
-이 오류는 명령어를 다시 실행하는 것으로 절대 해결되지 않습니다. 반드시 파일을 수정해야 합니다.
-
-**⚠️ 매우 중요: 다음 규칙을 절대적으로 준수하세요 ⚠️**
-1. "correctedCommand"는 반드시 null로 설정하세요
-2. "fileOperations"에는 반드시 pom.xml만 포함해야 합니다. 다른 파일(예: build_and_run.cmd, build.sh, 스크립트 파일 등)은 절대 생성하거나 수정하지 마세요.
-3. Maven 프로젝트의 경우 pom.xml만 수정하면 됩니다. 다른 파일은 필요 없습니다.
-4. 파일 작업은 반드시 modify만 사용하세요 (create는 사용하지 마세요. pom.xml은 이미 존재합니다).
-5. pom.xml을 변경할 때는 절대로 쉘/배치/PowerShell 명령을 사용하지 마세요. sed/echo/heredoc/Out-File/Set-Content 등으로 편집하지 말고, 오직 JSON의 fileOperations로 전체 내용을 반환하세요.`;
-                }
+**규칙:**
+1. "correctedCommand"는 null로 설정하세요
+2. "fileOperations"에 오류의 근본 원인을 수정하는 파일 작업을 포함하세요
+3. 스크립트 파일(.cmd, .bat, .sh, .ps1)을 생성하여 우회하지 마세요
+4. 오류 메시지를 분석하여 누락된 의존성, 잘못된 import, 문법 오류 등을 수정하세요`;
             }
 
             const errorCorrectionPrompt = `다음 명령어가 실행 중 오류가 발생했습니다. 오류를 분석하고 수정된 명령어를 제안해주세요.
@@ -1872,14 +1781,13 @@ ${compilationGuidelines || ''}
 
             console.log('[TerminalManager] LLM에게 오류 수정 요청 전송');
             console.log(`[TerminalManager] 컴파일 오류 감지 여부: ${hasCompilationError}`);
-            console.log(`[TerminalManager] 오류 출력 샘플 (처음 500자): ${cleanedErrorOutput.substring(0, 500)}...`);
+            console.log(`[TerminalManager] 오류 출력 길이: ${cleanedErrorOutput.length} chars`);
 
             // ErrorManager를 통해 LLM 호출
             const errorManager = ErrorManager.getInstance();
             const response = await errorManager.sendMessageForErrorCorrection(errorCorrectionPrompt, this.llmApiClient);
             console.log(`[TerminalManager] LLM 응답 받음 (길이: ${response.length})`);
-            debugLog(`TerminalManager:getCorrectedCommand LLM response length=${response.length}`);
-            console.log(`[TerminalManager] LLM 응답 샘플 (처음 300자): ${response.substring(0, 300)}...`);
+            console.log(`[TerminalManager] LLM 응답 길이: ${response.length} chars`);
 
             // Strip code fences and language headers if present
             const fenceStripped = response
@@ -1899,7 +1807,6 @@ ${compilationGuidelines || ''}
                         const hasFileOps = result.fileOperations && Array.isArray(result.fileOperations) && result.fileOperations.length > 0;
 
                         console.log(`[TerminalManager] JSON 파싱 결과: hasValidCommand=${hasValidCommand}, hasFileOps=${hasFileOps}, correctedCommand=${result.correctedCommand}, fileOperations.length=${result.fileOperations?.length || 0}`);
-                        debugLog(`TerminalManager: parsed JSON -> cmd=${hasValidCommand}, fileOps=${hasFileOps}`);
 
                         if (hasValidCommand || (hasFileOps && (!result.correctedCommand || result.correctedCommand === null))) {
                             if (hasValidCommand) {
@@ -1911,25 +1818,15 @@ ${compilationGuidelines || ''}
                             // 파일 작업 추출 및 경로 정규화
                             const fileOperations: { type: 'create' | 'modify' | 'delete'; path: string; content?: string }[] = [];
                             if (result.fileOperations && Array.isArray(result.fileOperations)) {
-                                const isPomOrGradle = (p: string) => /pom\.xml|build\.gradle/i.test(p);
-
                                 for (const op of result.fileOperations) {
                                     const opType = op.type || op.operation;
                                     if (opType && op.path && (opType === 'create' || opType === 'modify' || opType === 'delete')) {
                                         const pathLower = op.path.toLowerCase();
 
-                                        // 모든 경우에 스크립트 파일(.cmd, .bat, .sh, .ps1) 생성/수정 거부
+                                        // 스크립트 파일(.cmd, .bat, .sh, .ps1) 생성/수정 거부
                                         if (/\.(cmd|bat|sh|ps1)$/i.test(pathLower)) {
                                             console.log(`[TerminalManager] 스크립트 파일 작업 거부: ${op.path}`);
                                             continue;
-                                        }
-
-                                        // 컴파일 오류가 있는 경우: pom.xml 또는 build.gradle만 허용
-                                        if (hasCompilationError) {
-                                            if (!isPomOrGradle(pathLower)) {
-                                                console.log(`[TerminalManager] 컴파일 오류 시 허용되지 않은 파일 작업 거부: ${op.path} (허용: pom.xml, build.gradle)`);
-                                                continue;
-                                            }
                                         }
 
                                         // 경로 정규화
@@ -1956,9 +1853,7 @@ ${compilationGuidelines || ''}
                                             normalizedPath = path.join(projectRoot || cwd, normalizedPath);
                                         }
 
-                                        // 컴파일 오류 시: 기본적으로 create→modify 변경하지만, POM 누락(missingPomError)일 땐 create 허용
-                                        const shouldForceModify = hasCompilationError && !missingPomError && opType === 'create' && isPomOrGradle(normalizedPath.toLowerCase());
-                                        const finalOpType = shouldForceModify ? 'modify' : (opType as 'create' | 'modify' | 'delete');
+                                        const finalOpType = opType as 'create' | 'modify' | 'delete';
 
                                         // 경로 검증
                                         const invalidChars = /[<>:"|?*]/;
@@ -2290,7 +2185,6 @@ JSON 형식으로 응답해주세요:
                     command: 'hideProcessingSteps',
                     step: 'error_correction'
                 });
-                debugLog('TerminalManager: hideProcessingSteps (max retry exceeded)');
             }
 
             this.errorRetryCount = 0;
@@ -2312,7 +2206,6 @@ JSON 형식으로 응답해주세요:
                 try { this.currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' }); } catch { }
                 try { this.currentWebview.postMessage({ command: 'hideLoading' }); } catch { }
                 try { this.currentWebview.postMessage({ command: 'hideAutoCorrecting' }); } catch { }
-                debugLog('TerminalManager: hideProcessingSteps (no correctionResult)');
             }
             return false;
         }
@@ -2350,7 +2243,6 @@ JSON 형식으로 응답해주세요:
                     command: 'hideProcessingSteps',
                     step: 'error_correction'
                 });
-                debugLog('TerminalManager: hideProcessingSteps (file ops only)');
             }
 
             this.errorRetryCount = 0;
@@ -2379,32 +2271,6 @@ JSON 형식으로 응답해주세요:
 
             if (/[<>]/.test(t)) return false;
             if (/Your(Command|ActualCommand)(Here)?/i.test(t)) return false;
-
-            let isSpringBootProject = false;
-            try {
-                isSpringBootProject =
-                    fs.existsSync(path.join(cwd, 'pom.xml')) ||
-                    fs.existsSync(path.join(cwd, 'build.gradle')) ||
-                    fs.existsSync(path.join(cwd, 'build.gradle.kts')) ||
-                    fs.existsSync(path.join(cwd, 'mvnw.cmd')) ||
-                    fs.existsSync(path.join(cwd, 'mvnw')) ||
-                    fs.existsSync(path.join(cwd, 'gradlew')) ||
-                    fs.existsSync(path.join(cwd, 'gradlew.bat'));
-            } catch (e) {
-                console.warn('[TerminalManager] 프로젝트 타입 확인 중 오류:', e);
-                isSpringBootProject = true;
-            }
-
-            if (!isSpringBootProject) {
-                if (/\bmvn(\.cmd)?\b/i.test(t)) {
-                    console.log('[TerminalManager] Maven 명령어 차단: Spring Boot 프로젝트 아님');
-                    return false;
-                }
-                if (/\bgradle(w)?\b/i.test(t)) {
-                    console.log('[TerminalManager] Gradle 명령어 차단: Spring Boot 프로젝트 아님');
-                    return false;
-                }
-            }
 
             if (/^```/.test(t)) return false;
             if (t.length < 2) return false;
@@ -2455,7 +2321,6 @@ JSON 형식으로 응답해주세요:
                     command: 'hideProcessingSteps',
                     step: 'error_correction'
                 });
-                debugLog('TerminalManager: hideProcessingSteps (success)');
             }
 
             return true;
@@ -2469,7 +2334,6 @@ JSON 형식으로 응답해주세요:
                 try { this.currentWebview.postMessage({ command: 'hideProcessingSteps', step: 'error_correction' }); } catch { }
                 try { this.currentWebview.postMessage({ command: 'hideLoading' }); } catch { }
                 try { this.currentWebview.postMessage({ command: 'hideAutoCorrecting' }); } catch { }
-                debugLog('TerminalManager: hideProcessingSteps (invalid corrected command)');
             }
             this.errorRetryCount = 0;
             return false;
@@ -2535,6 +2399,7 @@ JSON 형식으로 응답해주세요:
      */
     private isInteractiveCommand(command: string): boolean {
         const interactiveCommands = [
+            'npm init',
             'npm create',
             'npx create',
             'yarn create',

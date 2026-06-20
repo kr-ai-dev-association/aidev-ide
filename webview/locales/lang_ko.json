@@ -1,6 +1,6 @@
 {
   "settingsTitle": "CODEPILOT 설정",
-  "languageLabel": "언어 (Language)",
+  "languageLabel": "언어",
   "apiKeySectionTitle": "AI 모델 설정",
   "aiModelSettingsTitle": "AI 모델 설정",
   "aiModelSettingsDescription": "CODEPILOT의 AI 기능을 사용하기 위한 모델 설정입니다. 사용할 AI 모델을 선택하고 해당 설정을 구성하세요.",
@@ -119,7 +119,7 @@
   "banyaLicenseDeleteError": "CODEPILOT 시리얼 번호 삭제 실패:",
   "verifyButton": "검증",
   "aiModelSelectLabel": "AI 모델 선택",
-  "geminiOption": "Google Gemini",
+  "geminiOption": "Google AI",
   "ollamaOption": "Ollama",
   "banyaOption": "Banya",
   "aiModelSaved": "AI 모델이 저장되었습니다.",

@@ -6,8 +6,11 @@
 export class AgentConfig {
     // 루프 및 재시도 설정
     static readonly MAX_TURNS = 15;
+    static readonly AGENT_MAX_TURNS = 25;
+    static readonly AGENT_MAX_CONSECUTIVE_ERRORS = 3;
+    static readonly AGENT_MAX_NO_PROGRESS_TURNS = 5;
     static readonly MAX_TEST_FIX_ATTEMPTS = 5; // 기본값 (실제로는 SettingsManager에서 가져옴)
-    static readonly MAX_NUDGE_COUNT = 3; // INVESTIGATION 단계에서 최대 nudge 횟수
+    static readonly MAX_NUDGE_COUNT = 1; // INVESTIGATION 단계에서 최대 nudge 횟수
     static readonly MAX_NUDGE_COUNT_EXECUTION = 1; // EXECUTION 단계에서 최대 nudge 횟수
     static readonly MAX_INVESTIGATION_TEXT_ONLY_COUNT = 3; // 텍스트만 출력 시 최대 허용 횟수
 
@@ -46,7 +49,7 @@ export class AgentConfig {
     static readonly MAX_ERROR_MESSAGE_LENGTH = 500;
 
     // 타임아웃 설정 (밀리초)
-    static readonly VALIDATION_COMMAND_TIMEOUT = 15000;
+    static readonly VALIDATION_COMMAND_TIMEOUT = 30000;
     static readonly BUILD_RETRY_TIMEOUT_MULTIPLIER = 2;  // 빌드 타임아웃 재시도 시 타임아웃 배수
     static readonly MAX_BUILD_TIMEOUT = 120000;           // 빌드 최대 타임아웃 (2분)
 
@@ -106,4 +109,41 @@ export class AgentConfig {
     static readonly MIN_RESPONSE_LENGTH = 2;
     static readonly DEFAULT_GREETING_MESSAGE = '안녕하세요! 무엇을 도와드릴까요?';
     static readonly DEFAULT_COMPLETION_MESSAGE = '작업이 완료되었습니다.';
+
+    // ===== 오케스트레이션 =====
+    static readonly MAX_CONCURRENT_AGENTS = 3; // 병렬 Sub-Agent 최대 수
+    static readonly SUB_AGENT_LLM_CALL_TIMEOUT = 360000; // Sub-Agent LLM 호출 타임아웃 (6분)
+    static readonly SUB_AGENT_TOTAL_TIMEOUT = 600000;     // Sub-Agent 전체 루프 타임아웃 (10분)
+
+    // ===== 프로젝트 타입별 빌드 검증 타임아웃 =====
+    static readonly VALIDATION_TIMEOUT_BY_PROJECT: Record<string, number> = {
+        'node': 15000,
+        'react': 20000,
+        'vue': 20000,
+        'angular': 25000,
+        'nextjs': 25000,
+        'java': 60000,
+        'gradle': 60000,
+        'maven': 60000,
+        'python': 20000,
+        'django': 25000,
+        'dotnet': 30000,
+        'rust': 45000,
+        'go': 20000,
+        'default': 15000,
+    };
+
+    // ===== 대화 압축 =====
+    static readonly COMPACTION_TOKEN_THRESHOLD = 0.9; // 압축 트리거 토큰 임계값 (90%)
+
+    // ===== 메모리 누수 방지 =====
+    static readonly MAX_DELETED_FILES = 100; // deletedFiles 배열 최대 크기
+    static readonly MAX_TERMINAL_OUTPUT_PER_ENTRY = 100000; // 히스토리 엔트리당 최대 출력 길이 (100KB)
+
+    // ===== 에디터 선택 컨텍스트 =====
+    static readonly EDITOR_SELECTION_MIN_LENGTH = 5;    // 무시할 최소 선택 길이
+    static readonly EDITOR_SELECTION_MAX_LENGTH = 5000; // 최대 허용 선택 길이
+
+    // ===== 웹뷰 =====
+    static readonly WEBVIEW_RESTORE_DELAY_MS = 2000; // 상태 복원 재시도 딜레이 (ms)
 }

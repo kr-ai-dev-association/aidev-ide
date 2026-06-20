@@ -18,16 +18,14 @@ import { ActionManager } from "../action/ActionManager";
 import { ExecutionManager } from "../execution/ExecutionManager";
 import { TerminalManager } from "../terminal/TerminalManager";
 import { Tool } from "../../tools/types";
-import { IntentDetector } from "../action/IntentDetector";
+import { ToolSpecBuilder } from "../../tools/ToolSpecBuilder";
 import { ProjectManager } from "../project/ProjectManager";
-import { ProjectDetector } from "../project/ProjectDetector";
-import { ProjectType } from "../project/types";
 import { InvestigationManager } from "../investigation/InvestigationManager";
 import { SettingsManager } from "../state/SettingsManager";
 import { StateManager } from "../state/StateManager";
 import { UsageMetricsManager } from "../state/UsageMetricsManager";
-import { AiModelType, OllamaApi, GeminiApi, BanyaApi } from "../../../services";
-import type { NotificationService, GitRepositoryService } from "../../../services";
+import { AiModelType, OllamaApi } from "../../../services";
+import type { NotificationService } from "../../../services";
 import { AgentStateManager, AgentPhase } from "./AgentStateManager";
 import { getSimpleSummaryPrompt } from "../context/prompts/task";
 import * as fs from "fs/promises";
@@ -40,9 +38,13 @@ import { ToolExecutionCoordinator } from "./handlers/ToolExecutionCoordinator";
 import { AgentConfig } from "../../config/AgentConfig";
 import { InlineDiffManager } from "../diff/InlineDiffManager";
 import { HotLoadManager } from "../hotload/HotLoadManager";
+import { MemoryManager } from "../../memory/MemoryManager";
+import { PromptComposer } from "../context/prompts/PromptComposer";
 import { FetchUrlToolHandler } from "../../tools/web/FetchUrlToolHandler";
 import { StringUtils } from "../../utils/StringUtils";
 import { getExecutionPhasePrompt } from "../context/prompts/phase";
+import { resetAgentTaskManager } from "../../tools/agent/SpawnAgentToolHandler";
+import { resetWorkPlan } from "../../tools/agent/WorkPlanToolHandler";
 import {
   getExecutionFirstRulePrompt,
   getTestRetryExceededMessage,
@@ -60,15 +62,30 @@ import {
   getExecutionNoToolCallWarningPrompt,
 } from "../context/prompts/rules";
 import { RetryCoordinator } from "./handlers/RetryCoordinator";
-import { CompletionJudge } from "./handlers/CompletionJudge";
+import { FileChangeHandler } from "./handlers/FileChangeHandler";
+
+import { LoopStateTracker } from "./handlers/LoopStateTracker";
+import { ContextGatherer } from "./handlers/ContextGatherer";
 import { getGeneralAnalysisPrompt } from "../context/prompts/analysis/generalAnalysis";
 import { ConversationCompactor } from "./ConversationCompactor";
-import { MCPManager } from "../../mcp/MCPManager";
+import { AgentLoopManager } from "./AgentLoopManager";
 import { MODEL_TOKEN_LIMITS } from "../../../utils/tokenUtils";
 import { estimateTokens } from "../../../utils";
-import { TurnContext, TurnAction, LoopState, UserPart, CollectedAction, CollectedUIMessage } from "./types/TurnContext";
+import {
+  TurnContext,
+  TurnAction,
+  LoopState,
+  UserPart,
+  CollectedAction,
+  CollectedUIMessage,
+} from "./types/TurnContext";
 import { IntentDetectionResult } from "../action/IntentDetector";
-import { ToolUse, ToolResponse } from "../../tools/types";
+import {
+  ToolUse,
+  ToolResponse,
+  READ_ONLY_TOOLS,
+  AGENT_ONLY_TOOLS,
+} from "../../tools/types";
 import { FileTransactionManager } from "../action/file/FileTransactionManager";
 import * as crypto from "crypto";
 
@@ -80,15 +97,14 @@ export interface ConversationOptions {
   imageData?: string;
   imageMimeType?: string;
   selectedFiles?: string[];
+  selectedCode?: string; // 에디터에서 선택된 코드 (RAG 쿼리 보강용)
   terminalContext?: string;
   diagnosticsContext?: string;
   extensionContext?: vscode.ExtensionContext;
-  geminiApi?: GeminiApi;
   ollamaApi?: OllamaApi;
   currentModelType?: AiModelType;
   userOS?: string;
   notificationService?: NotificationService;
-  gitRepositoryService?: GitRepositoryService;
 }
 
 /**
@@ -105,6 +121,9 @@ export interface GatheredContext {
   terminalContextContent: string;
   diagnosticsContextContent: string;
   frameworkRulesPrompt: string;
+  ragContext: string;
+  subProjectStructure?: string;
+  repoMap?: string;
 }
 
 // AgentPhase는 AgentStateManager에서 import
@@ -120,40 +139,36 @@ export class ConversationManager implements IConversationHandler {
   private responseProcessor: ResponseProcessor;
   private currentAbortController: AbortController | null = null;
   private stateManager: StateManager | null = null;
-  private completionJudge: CompletionJudge; // A4: 완료 판단기
+  private _retryGaveUp = false; // RetryCoordinator가 동일 에러 반복으로 포기한 경우
+  private _isAgentMode = false; // AGENT 모드 플래그 (dispatch 및 finally에서 참조)
+  private deletedFiles: string[] = []; // 파일 삭제 추적 (import 정리용)
+  private _pendingImportCleanupMsg: string | null = null; // 삭제 후 import 정리 메시지
+  private _pendingTokenInfo: { tokens: number; model?: string } | null = null; // CODE 모드 토큰 누적
+  private loopStateTracker = new LoopStateTracker();
+  private contextGatherer!: ContextGatherer;
 
-  private constructor(
-    userOS: string,
-    geminiApi: GeminiApi,
-    ollamaApi: OllamaApi,
-    banyaApi: BanyaApi,
-  ) {
+  private constructor(userOS: string, ollamaApi: OllamaApi) {
     this.promptBuilder = new PromptBuilder(userOS, AiModelType.OLLAMA);
     this.contextManager = ContextManager.getInstance();
-    this.llmManager = LLMManager.getInstance(geminiApi, ollamaApi, banyaApi);
+    this.llmManager = LLMManager.getInstance(ollamaApi);
     this.responseProcessor = new ResponseProcessor(this.llmManager);
-    this.completionJudge = new CompletionJudge(this.llmManager); // A4
+    this.contextGatherer = new ContextGatherer(
+      this.contextManager,
+      this.llmManager,
+    );
   }
 
   public static getInstance(
     userOS: string = process.platform,
-    geminiApi?: GeminiApi,
     ollamaApi?: OllamaApi,
-    banyaApi?: BanyaApi,
   ): ConversationManager {
     if (!ConversationManager.instance) {
-      if (!geminiApi || !ollamaApi || !banyaApi) {
-        // 이 처리는 extension.ts에서 초기화된 후 호출됨을 보장해야 함
+      if (!ollamaApi) {
         throw new Error(
-          "ConversationManager requires GeminiApi, OllamaApi, and BanyaApi for initial creation",
+          "ConversationManager requires OllamaApi for initial creation",
         );
       }
-      ConversationManager.instance = new ConversationManager(
-        userOS,
-        geminiApi,
-        ollamaApi,
-        banyaApi,
-      );
+      ConversationManager.instance = new ConversationManager(userOS, ollamaApi);
     }
     return ConversationManager.instance;
   }
@@ -166,10 +181,10 @@ export class ConversationManager implements IConversationHandler {
    */
   public static resetInstance(): void {
     if (process.env.NODE_ENV === "test" || process.env.VSCODE_TEST) {
-      ConversationManager.instance = undefined as unknown as ConversationManager;
-      console.log("[ConversationManager] Instance reset for testing");
+      ConversationManager.instance =
+        undefined as unknown as ConversationManager;
     } else {
-      console.warn("[ConversationManager] resetInstance() called in non-test environment - ignored");
+      // non-test environment - ignored
     }
   }
 
@@ -179,44 +194,34 @@ export class ConversationManager implements IConversationHandler {
    */
   public static createIsolatedInstance(
     userOS: string,
-    geminiApi: GeminiApi,
     ollamaApi: OllamaApi,
-    banyaApi: BanyaApi,
   ): ConversationManager {
     if (process.env.NODE_ENV !== "test" && !process.env.VSCODE_TEST) {
-      console.warn("[ConversationManager] createIsolatedInstance() called in non-test environment");
+      // non-test environment warning suppressed
     }
-    // private 생성자를 우회하여 새 인스턴스 생성
-    return new ConversationManager(userOS, geminiApi, ollamaApi, banyaApi);
+    return new ConversationManager(userOS, ollamaApi);
   }
 
   // extension.ts 호환성을 위한 Setter 메서드들 (레거시, 대부분 no-op)
-  public setLLMService(service: { getCurrentModel?: () => AiModelType } | null): void {
+  public setLLMService(
+    service: { getCurrentModel?: () => AiModelType } | null,
+  ): void {
     if (service && typeof service.getCurrentModel === "function") {
       const model = service.getCurrentModel();
       this.llmManager.setCurrentModel(model);
       this.promptBuilder.setModelType(model);
     }
   }
-  /** @deprecated 사용되지 않음 */
-  public setSessionManager(_manager: unknown): void {}
   public setPromptBuilder(builder: PromptBuilder): void {
     this.promptBuilder = builder;
   }
-  /** @deprecated 사용되지 않음 */
-  public setIntentDetector(_detector: unknown): void {}
   public setStateManager(stateManager: StateManager): void {
     this.stateManager = stateManager;
+    this.contextGatherer.setStateManager(stateManager);
     console.log(
       "[ConversationManager] StateManager configured for model routing",
     );
   }
-  /** @deprecated 사용되지 않음 */
-  public setExternalApiService(_service: unknown): void {}
-  /** @deprecated 사용되지 않음 */
-  public configurePlanManager(_client: unknown, _model: unknown): void {}
-  /** @deprecated 사용되지 않음 */
-  public setContextHistoryManager(_manager: unknown): void {}
 
   /**
    * 현재 진행 중인 LLM 호출을 취소합니다
@@ -227,207 +232,6 @@ export class ConversationManager implements IConversationHandler {
       this.currentAbortController.abort();
       this.currentAbortController = null;
     }
-  }
-
-  /**
-   * LoopState 초기화
-   * v9.4.0: 무한 루프 감지 메커니즘
-   */
-  private initializeLoopState(): LoopState {
-    return {
-      lastPhase: AgentPhase.INVESTIGATION,
-      lastPlanItemId: null,
-      lastToolCalls: [],
-      lastResponseHash: "",
-      consecutiveNoProgressTurns: 0,
-      consecutiveSamePhase: 0,
-      consecutiveSamePlanItem: 0,
-    };
-  }
-
-  /**
-   * LLM 응답의 간단한 해시 생성 (중복 응답 감지용)
-   */
-  private computeResponseHash(response: string): string {
-    // 응답에서 도구 호출과 핵심 텍스트만 추출하여 해시 생성
-    const normalized = response
-      .replace(/\s+/g, " ")
-      .trim()
-      .substring(0, 500); // 처음 500자만 사용
-    return crypto.createHash("md5").update(normalized).digest("hex");
-  }
-
-  /**
-   * LoopState 업데이트 및 무한 루프 감지
-   * @returns 무한 루프가 감지되었는지 여부
-   */
-  private updateAndCheckLoopState(
-    loopState: LoopState,
-    currentPhase: AgentPhase,
-    currentPlanItemId: string | null,
-    toolCalls: string[],
-    llmResponse: string,
-    hasProgress: boolean,
-  ): { isLoop: boolean; reason?: string } {
-    const responseHash = this.computeResponseHash(llmResponse);
-
-    // Phase 연속 카운트 업데이트
-    if (currentPhase === loopState.lastPhase) {
-      loopState.consecutiveSamePhase++;
-    } else {
-      loopState.consecutiveSamePhase = 1;
-      loopState.lastPhase = currentPhase;
-    }
-
-    // Plan Item 연속 카운트 업데이트
-    if (
-      currentPlanItemId !== null &&
-      currentPlanItemId === loopState.lastPlanItemId
-    ) {
-      loopState.consecutiveSamePlanItem++;
-    } else {
-      loopState.consecutiveSamePlanItem = 1;
-      loopState.lastPlanItemId = currentPlanItemId;
-    }
-
-    // 진전 없음 카운트 업데이트
-    const sameToolCalls =
-      JSON.stringify(toolCalls) === JSON.stringify(loopState.lastToolCalls);
-    const sameResponse = responseHash === loopState.lastResponseHash;
-
-    if (!hasProgress && (sameToolCalls || sameResponse)) {
-      loopState.consecutiveNoProgressTurns++;
-    } else if (hasProgress) {
-      loopState.consecutiveNoProgressTurns = 0;
-    }
-
-    loopState.lastToolCalls = toolCalls;
-    loopState.lastResponseHash = responseHash;
-
-    // 무한 루프 감지 조건 체크
-    if (
-      loopState.consecutiveNoProgressTurns >=
-      AgentConfig.LOOP_DETECTION_NO_PROGRESS_THRESHOLD
-    ) {
-      return {
-        isLoop: true,
-        reason: `진전 없이 ${loopState.consecutiveNoProgressTurns}턴 연속 반복`,
-      };
-    }
-
-    if (
-      loopState.consecutiveSamePlanItem >=
-      AgentConfig.LOOP_DETECTION_SAME_PLAN_ITEM_THRESHOLD
-    ) {
-      return {
-        isLoop: true,
-        reason: `동일 Plan Item에서 ${loopState.consecutiveSamePlanItem}턴 연속 미완료`,
-      };
-    }
-
-    if (
-      loopState.consecutiveSamePhase >=
-      AgentConfig.LOOP_DETECTION_SAME_PHASE_THRESHOLD
-    ) {
-      return {
-        isLoop: true,
-        reason: `동일 Phase(${currentPhase})에서 ${loopState.consecutiveSamePhase}턴 연속`,
-      };
-    }
-
-    return { isLoop: false };
-  }
-
-  /**
-   * 무한 루프 탈출 처리
-   * @returns 루프를 종료해야 하는지 여부
-   */
-  private escapeAttemptCount = 0;
-  private static readonly MAX_ESCAPE_ATTEMPTS = 3;
-
-  private handleInfiniteLoopEscape(
-    reason: string,
-    loopState: LoopState,
-    stateManager: AgentStateManager,
-    taskManager: TaskManager,
-    webview: vscode.Webview,
-  ): { shouldBreak: boolean; message: string } {
-    console.warn(
-      `[ConversationManager] 무한 루프 감지: ${reason}`,
-    );
-
-    // 탈출 시도 횟수 제한 체크
-    this.escapeAttemptCount++;
-    if (this.escapeAttemptCount >= ConversationManager.MAX_ESCAPE_ATTEMPTS) {
-      console.error(`[ConversationManager] 최대 탈출 시도 횟수(${ConversationManager.MAX_ESCAPE_ATTEMPTS}) 초과 - 강제 종료`);
-      WebviewBridge.receiveMessage(
-        webview,
-        "SYSTEM_WARNING",
-        `⚠️ 작업이 반복적으로 멈춰 자동으로 중단되었습니다.`,
-      );
-      return {
-        shouldBreak: true,
-        message: `탈출 시도 횟수 초과로 작업을 중단합니다.`,
-      };
-    }
-
-    // 1단계: 현재 Plan Item 스킵 시도
-    const currentPlanItem = taskManager.getNextPendingItem();
-    if (
-      currentPlanItem &&
-      loopState.consecutiveSamePlanItem >=
-        AgentConfig.LOOP_DETECTION_SAME_PLAN_ITEM_THRESHOLD
-    ) {
-      console.log(
-        `[ConversationManager] Plan Item "${currentPlanItem.title}" 스킵 처리`,
-      );
-      taskManager.updatePlanItemStatus(currentPlanItem.id, "skipped");
-      WebviewBridge.updateTaskQueue(webview, taskManager.listPlanItems());
-
-      // 다음 Plan Item이 있으면 계속 진행
-      const nextItem = taskManager.getNextPendingItem();
-      if (nextItem) {
-        loopState.consecutiveSamePlanItem = 0;
-        loopState.consecutiveNoProgressTurns = 0;
-        return {
-          shouldBreak: false,
-          message: `작업 "${currentPlanItem.title}"을(를) 건너뛰고 다음 작업으로 진행합니다.`,
-        };
-      }
-    }
-
-    // 2단계: Phase 전환 강제
-    const currentPhase = stateManager.getCurrentState();
-    if (
-      currentPhase === AgentPhase.INVESTIGATION ||
-      currentPhase === AgentPhase.EXECUTION
-    ) {
-      console.log(
-        `[ConversationManager] ${currentPhase} → REVIEW 강제 전환`,
-      );
-      stateManager.transitionTo(AgentPhase.REVIEW);
-
-      // REVIEW로 전환 후 한 번 더 시도
-      loopState.consecutiveSamePhase = 0;
-      loopState.consecutiveNoProgressTurns = 0;
-      return {
-        shouldBreak: false,
-        message: `반복이 감지되어 검토 단계로 전환합니다.`,
-      };
-    }
-
-    // 3단계: 최종 탈출 - 사용자에게 알림 및 종료
-    console.log(`[ConversationManager] 무한 루프 탈출 불가 - 대화 종료`);
-    WebviewBridge.receiveMessage(
-      webview,
-      "SYSTEM_WARNING",
-      `⚠️ 작업이 반복되어 자동으로 중단되었습니다. (${reason})`,
-    );
-
-    return {
-      shouldBreak: true,
-      message: `무한 루프가 감지되어 작업을 중단합니다: ${reason}`,
-    };
   }
 
   /**
@@ -456,13 +260,14 @@ export class ConversationManager implements IConversationHandler {
 
     try {
       // 1. 초기화 및 준비
-      this.prepareUI(webviewToRespond);
+      this.contextGatherer.prepareUI(webviewToRespond);
 
-      // A4: CompletionJudge 리셋 (새 요청 시작)
-      this.completionJudge.reset();
+      TestRunner.clearSubProjectCache();
+      PromptComposer.clearTouchedFiles();
+      this._retryGaveUp = false;
 
       // 탈출 시도 카운터 리셋 (새 대화 시작)
-      this.escapeAttemptCount = 0;
+      this.loopStateTracker.resetEscapeCount();
 
       // v9.4.0: 파일 트랜잭션 시작 (롤백 지원)
       const fileTransactionManager = FileTransactionManager.getInstance();
@@ -513,11 +318,26 @@ export class ConversationManager implements IConversationHandler {
         );
       }
 
-      // 3. 의도 파악 (Hot Load 항목 포함하여 LLM이 의미론적 매칭)
-      const intent = await this.detectIntent(userQuery, { hotLoadItems });
+      // Skill Registry 사전 로드 (IntentDetector가 skill descriptions를 참조하기 위해)
+      try {
+        await PromptComposer.ensureServerSettingsSynced();
+        PromptComposer.loadAgentRulesWithKeys(); // skill registry 채움
+        PromptComposer.loadServerPromptTemplates(new Set()); // 서버 skill도 registry에 등록
+      } catch {
+        /* registry 로드 실패해도 intent 진행 */
+      }
+
+      // 3. 의도 파악 (Hot Load 항목 포함하여 LLM이 의미론적 매칭, main: contextGatherer 경유)
+      const intent = await this.contextGatherer.detectIntent(
+        userQuery,
+        hotLoadItems,
+      );
 
       // 4. 컨텍스트 수집
-      const context = await this.gatherContext(optionsWithAbort, intent);
+      const context = await this.contextGatherer.gatherContext(
+        optionsWithAbort,
+        intent,
+      );
 
       // 5. 시스템 프롬프트 생성
       // Hot Load 프롬프트: 매칭된 경우 인자 추출 프롬프트, 아니면 전체 목록
@@ -526,8 +346,10 @@ export class ConversationManager implements IConversationHandler {
         const hotLoadManager = HotLoadManager.getInstance();
         if (intent.hotLoadMatch) {
           // 매칭됨 → 인자 추출 가이드 포함 프롬프트
+          // (IntentDetectionResult.hotLoadMatch 는 HotLoadItemForIntent; HotLoadManager
+          //  의 HotLoadItem 과 구조 호환이나 명목 타입이 달라 캐스트 — 1476행과 동일 패턴)
           hotLoadPrompt = hotLoadManager.getMatchedPromptSection(
-            intent.hotLoadMatch,
+            intent.hotLoadMatch as any,
             userQuery,
           );
           console.log(
@@ -549,8 +371,16 @@ export class ConversationManager implements IConversationHandler {
         );
       }
 
+      // 영속적 메모리 컨텍스트 로드
+      let memoryContext = "";
+      try {
+        memoryContext = await MemoryManager.getInstance().loadForPrompt();
+      } catch {
+        /* 메모리 로드 실패 시 무시 */
+      }
+
       // MCP 커스텀 프롬프트 수집
-      const mcpCustomPrompts = this.collectMcpCustomPrompts();
+      const mcpCustomPrompts = this.contextGatherer.collectMcpCustomPrompts();
 
       // URL 자동 감지 + fetch (HotLoad 전용 짧은 메시지는 제외)
       const autoFetchedUrlContents = await this.extractAndFetchUrls(
@@ -559,22 +389,148 @@ export class ConversationManager implements IConversationHandler {
         hotLoadPrompt,
       );
 
+      // 서버 설정 동기화 완료 대기 (시작 직후 sync 미완료 방지)
+      try {
+        const settingsManager = SettingsManager.getInstance();
+        await settingsManager.waitForSync();
+      } catch {
+        /* 초기화 전이면 무시 */
+      }
+
+      // 네이티브 모드 여부 (시스템 프롬프트 형식 결정)
+      let isNativeMode = false;
+      try {
+        const isNativeEnabled = optionsWithAbort.extensionContext
+          ? await SettingsManager.getInstance(
+              optionsWithAbort.extensionContext,
+            ).isNativeToolCallingEnabled()
+          : false;
+        if (
+          isNativeEnabled &&
+          optionsWithAbort.currentModelType === AiModelType.ADMIN
+        ) {
+          const adminConfig = this.llmManager.getAdminModelConfig();
+          isNativeMode =
+            adminConfig?.nativeToolCallingSupported === true ||
+            String(adminConfig?.nativeToolCallingSupported) === "true";
+        }
+      } catch {
+        /* 설정 읽기 실패 시 기본값 사용 */
+      }
+
       const promptOptions: PromptBuilderOptions = {
         userOS: optionsWithAbort.userOS || process.platform,
         modelType: optionsWithAbort.currentModelType || AiModelType.OLLAMA,
         promptType: optionsWithAbort.promptType,
         hotLoadPrompt, // Hot Load 프롬프트 추가
+        memoryContext, // 영속적 메모리 컨텍스트 추가
         mcpCustomPrompts, // MCP 커스텀 프롬프트 추가
+        activeSkillKeys: intent.requiredSkillKeys, // IntentDetector가 선택한 스킬
+        nativeMode: isNativeMode, // 네이티브 Function Call 모드
         ...context,
       };
       const systemPrompt =
         this.promptBuilder.generateSystemPrompt(promptOptions);
 
+      // ASK/PLAN에서도 Rule/Skill 참조를 수집 (composeSystemPrompt가 아닌 경로용)
+      if (
+        optionsWithAbort.promptType === PromptType.GENERAL_ASK ||
+        optionsWithAbort.promptType === PromptType.PLAN
+      ) {
+        // loadServerPromptTemplates가 이미 호출되었으므로 Rule 참조 수집
+        const ruleRefs = PromptComposer.getLastIncludedServerRuleKeys().map(
+          (r: { key: string; title: string }) => ({
+            type: "server_rule" as const,
+            name: r.title,
+            source: "server" as const,
+          }),
+        );
+        const skillRefs = (intent.requiredSkillKeys || []).map(
+          (key: string) => ({
+            type: "server_skill" as const,
+            name: key,
+            source: "server" as const,
+          }),
+        );
+        if (ruleRefs.length > 0 || skillRefs.length > 0) {
+          const prevRefs = PromptComposer.getLastReferences();
+          const newRefs = [...ruleRefs, ...skillRefs];
+          for (const ref of newRefs) {
+            if (
+              !prevRefs.some((r) => r.type === ref.type && r.name === ref.name)
+            ) {
+              prevRefs.push(ref);
+            }
+          }
+          // @ts-ignore - _lastReferences 직접 설정
+          PromptComposer["_lastReferences"] = prevRefs;
+        }
+      }
+
+      // 컨텍스트 참조 채팅 알림 (RAG 알림과 동일 패턴)
+      if (webviewToRespond) {
+        // Rules
+        const includedRules = PromptComposer.getLastIncludedServerRuleKeys();
+        if (includedRules.length > 0) {
+          const ruleNames = includedRules.map((r) => r.title).slice(0, 5);
+          WebviewBridge.receiveMessage(
+            webviewToRespond,
+            "System",
+            `📋 [Rules] ${ruleNames.join(", ")}`,
+          );
+        }
+        // Skills
+        const skillRegistry = PromptComposer.getSkillRegistry();
+        const activeSkills = (intent.requiredSkillKeys || []).filter(
+          (k: string) => skillRegistry.has(k),
+        );
+        if (activeSkills.length > 0) {
+          WebviewBridge.receiveMessage(
+            webviewToRespond,
+            "System",
+            `🧩 [Skills] ${activeSkills.join(", ")}`,
+          );
+        }
+        // MCP 라벨은 dispatch 단계에서 emit 하지 않음 — 등록만 되고 실제 호출
+        // 안 된 경우에도 매번 표시되는 노이즈를 방지. 실제 MCP tool 이 성공
+        // 실행되는 시점에 MCPToolHandler.execute() 가 라벨을 송출함.
+      }
+
       // 5. 작업 타입에 따른 실행 분기
-      console.log(`[ConversationManager] promptType check: ${optionsWithAbort.promptType}, CODE_GENERATION=${PromptType.CODE_GENERATION}`);
-      if (optionsWithAbort.promptType === PromptType.CODE_GENERATION) {
-        // v9.5.0: AGENT 모드에서도 이전 대화 히스토리 포함 (대화 연속성 유지)
-        console.log(`[ConversationManager] Using buildUserPartsWithUrlsAndHistory for AGENT mode`);
+      if (optionsWithAbort.promptType === PromptType.AGENT) {
+        // AGENT 모드: AgentLoopManager로 디스패치 (FSM 없는 순수 자율 루프)
+        const userParts = await this.buildUserPartsWithUrlsAndHistory(
+          userQuery,
+          autoFetchedUrlContents,
+          optionsWithAbort,
+        );
+        this._isAgentMode = true;
+        resetAgentTaskManager();
+        resetWorkPlan();
+
+        // AGENT mode: LLM 자율 탐색 (Claude Code 스타일)
+        // ProjectDetector 결과를 주입하지 않음 — LLM이 직접 파일을 읽고 프로젝트 구조를 파악
+        // 워크스페이스 루트 경로만 제공
+        const wsRoot = options.extensionContext
+          ? (await import("vscode")).workspace.workspaceFolders?.[0]?.uri
+              .fsPath || ""
+          : "";
+        if (wsRoot) {
+          userParts.push({
+            text: `[System] 워크스페이스: ${wsRoot}\n프로젝트 구조를 파악하려면 list_files, glob_search, read_file을 사용하세요. 필요한 파일만 선택적으로 탐색하세요.`,
+          });
+        }
+
+        const agentLoop = new AgentLoopManager(this.llmManager);
+        await agentLoop.execute(optionsWithAbort, systemPrompt, userParts);
+        return;
+      }
+
+      if (
+        optionsWithAbort.promptType === PromptType.CODE_GENERATION ||
+        optionsWithAbort.promptType === PromptType.PLAN
+      ) {
+        // CODE/PLAN 모드: 기존 FSM 기반 에이전트 루프
         const userParts = await this.buildUserPartsWithUrlsAndHistory(
           userQuery,
           autoFetchedUrlContents,
@@ -606,6 +562,10 @@ export class ConversationManager implements IConversationHandler {
     } catch (error: unknown) {
       this.handleError(error, webviewToRespond);
     } finally {
+      // AGENT 모드: 스트리밍 커서가 남아있을 수 있으므로 확실히 닫기
+      if (this._isAgentMode) {
+        WebviewBridge.endStreamingMessage(webviewToRespond);
+      }
       WebviewBridge.hideLoading(webviewToRespond);
     }
   }
@@ -726,7 +686,10 @@ export class ConversationManager implements IConversationHandler {
           fetched.push(result.value);
         } else {
           // 실패한 URL 추적
-          const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+          const reason =
+            result.reason instanceof Error
+              ? result.reason.message
+              : String(result.reason);
           failed.push(reason);
         }
       }
@@ -739,7 +702,10 @@ export class ConversationManager implements IConversationHandler {
 
       // 실패한 URL이 있으면 사용자에게 알림
       if (failed.length > 0) {
-        console.warn(`[ConversationManager] URL ${failed.length}개 가져오기 실패:`, failed);
+        console.warn(
+          `[ConversationManager] URL ${failed.length}개 가져오기 실패:`,
+          failed,
+        );
         WebviewBridge.receiveMessage(
           webview,
           "System",
@@ -774,15 +740,30 @@ export class ConversationManager implements IConversationHandler {
         );
         const currentSession = sessionManager.getCurrentSession();
 
-        console.log(`[ConversationManager] Loading history for AGENT mode: session=${currentSession?.id}, historyCount=${currentSession?.conversationHistory?.length || 0}`);
-
         if (currentSession && currentSession.conversationHistory.length > 0) {
+          // Cross-session continuation: inject compacted summary from previous sessions
+          if (
+            currentSession.compactedSummaries &&
+            currentSession.compactedSummaries.length > 0
+          ) {
+            const lastSummary =
+              currentSession.compactedSummaries[
+                currentSession.compactedSummaries.length - 1
+              ];
+            if (lastSummary && lastSummary.summary) {
+              userParts.push({
+                text: `[Previous session context]\n${lastSummary.summary}\n[End of previous context]`,
+              });
+              console.log(
+                "[ConversationManager] Injected previous session summary for continuation",
+              );
+            }
+          }
+
           // 최근 대화 히스토리 (구조화된 메타데이터)
           const history = currentSession.conversationHistory.slice(
             -AgentConfig.MAX_HISTORY_ENTRIES,
           );
-
-          console.log(`[ConversationManager] Including ${history.length} previous conversations in context`);
 
           // 이전 대화를 간결한 컨텍스트로 추가
           for (const entry of history) {
@@ -790,22 +771,28 @@ export class ConversationManager implements IConversationHandler {
               entry.actions && entry.actions.length > 0
                 ? ` [Actions: ${entry.actions.map((a) => `${a.type}${a.file ? ":" + a.file : ""}`).join(", ")}]`
                 : "";
-            const response = entry.assistantResponse
-              ? entry.assistantResponse.slice(
-                  0,
-                  AgentConfig.MAX_HISTORY_ACTION_PREVIEW_LENGTH,
-                )
-              : entry.filesCreated || entry.filesModified
-                ? "파일 변경 완료"
-                : "작업 완료";
-            const historyText = `[Previous] User: ${entry.userRequest}${actions}\nAssistant: ${response}`;
-            console.log(`[ConversationManager] History entry: ${historyText.substring(0, 100)}...`);
+            // 에러/실패가 포함된 응답은 간략화 (LLM이 이전 실패를 현재 작업으로 오해하는 것 방지)
+            let response: string;
+            const hasError =
+              entry.assistantResponse &&
+              /오류|에러|실패|error|fail/i.test(entry.assistantResponse);
+            if (hasError) {
+              response = `(이전 작업 - 완료)`;
+            } else {
+              response = entry.assistantResponse
+                ? entry.assistantResponse.slice(
+                    0,
+                    AgentConfig.MAX_HISTORY_ACTION_PREVIEW_LENGTH,
+                  )
+                : entry.filesCreated || entry.filesModified
+                  ? "파일 변경 완료"
+                  : "작업 완료";
+            }
+            const historyText = `[Previous conversation - reference only] User: ${entry.userRequest}${actions}\nAssistant: ${response}`;
             userParts.push({
               text: historyText,
             });
           }
-        } else {
-          console.log(`[ConversationManager] No conversation history found for AGENT mode`);
         }
       } catch (error) {
         console.warn(
@@ -814,11 +801,15 @@ export class ConversationManager implements IConversationHandler {
         );
       }
     } else {
-      console.warn("[ConversationManager] extensionContext not available, cannot load history");
+      console.warn(
+        "[ConversationManager] extensionContext not available, cannot load history",
+      );
     }
 
-    // 현재 질문 추가
-    userParts.push({ text: userQuery });
+    // 현재 질문 추가 (이전 히스토리와 명확히 구분)
+    userParts.push({
+      text: `[CURRENT REQUEST - This is what the user is asking NOW. Focus ONLY on this request, NOT on previous conversations above.]\n${userQuery}`,
+    });
 
     // URL 내용 추가
     if (autoFetchedUrlContents.length > 0) {
@@ -831,160 +822,6 @@ export class ConversationManager implements IConversationHandler {
     return userParts;
   }
 
-  /**
-   * UI 초기 상태 설정
-   */
-  private prepareUI(webview: vscode.Webview): void {
-    WebviewBridge.sendProcessingStep(webview, "intent");
-    WebviewBridge.sendProcessingStatus(
-      webview,
-      "intent",
-      "사용자 요청 분석 중...",
-    );
-
-    // 새로운 요청이 시작되면 기존 작업 큐 초기화 및 UI 숨김
-    const taskManager = TaskManager.getInstance();
-    taskManager.clearPlanQueue();
-    WebviewBridge.clearTaskQueue(webview);
-  }
-
-  /**
-   * 활성화된 MCP 서버의 커스텀 프롬프트를 수집하여 결합
-   */
-  private collectMcpCustomPrompts(): string {
-    try {
-      const mcpManager = MCPManager.getInstance();
-      const mcpServers = mcpManager.getServers();
-      const mcpPromptParts = mcpServers
-        .filter((s) => s.enabled && s.customPrompt?.trim())
-        .map((s) => `**[MCP: ${s.name}]**\n${s.customPrompt!.trim()}`);
-      if (mcpPromptParts.length > 0) {
-        return `## MCP 도구 사용 지침\n\n${mcpPromptParts.join("\n\n")}`;
-      }
-    } catch (error) {
-      console.warn(
-        "[ConversationManager] Failed to collect MCP custom prompts:",
-        error,
-      );
-    }
-    return "";
-  }
-
-  /**
-   * 사용자 의도 및 작업 타입 감지
-   * Intent 모델이 설정된 경우 해당 모델 사용, 미설정 시 메인 모델 사용
-   */
-  private async detectIntent(query: string, options?: { hotLoadItems?: any[] }): Promise<any> {
-    const detector = new IntentDetector(this.llmManager);
-
-    // StateManager가 있으면 Intent 모델 라우팅 설정
-    if (this.stateManager) {
-      detector.setStateManager(this.stateManager);
-    }
-
-    const intent = await detector.detectIntent(query, { hotLoadItems: options?.hotLoadItems });
-
-    console.log(
-      `[ConversationManager] Intent detected: ${intent.category}/${intent.subtype} (confidence: ${intent.confidence})`,
-    );
-    if (intent.hotLoadMatch) {
-      console.log(
-        `[ConversationManager] Hot Load matched: ${intent.hotLoadMatch.keywords} → ${intent.hotLoadMatch.command}`,
-      );
-    }
-    return intent;
-  }
-
-  /**
-   * 필요한 컨텍스트 수집
-   */
-  private async gatherContext(
-    options: ConversationOptions,
-    intent: IntentDetectionResult,
-  ): Promise<GatheredContext> {
-    WebviewBridge.sendProcessingStep(options.webviewToRespond, "assembling");
-    WebviewBridge.sendProcessingStatus(
-      options.webviewToRespond,
-      "assembling",
-      "컨텍스트 수집 중...",
-    );
-
-    const contextData = await this.contextManager.collectContext({});
-
-    // selectedFiles에서 파일 내용 읽기
-    let selectedFilesContent = "";
-    console.log("[ConversationManager] Selected files:", options.selectedFiles);
-    if (options.selectedFiles && options.selectedFiles.length > 0) {
-      console.log(
-        `[ConversationManager] Reading ${options.selectedFiles.length} selected files...`,
-      );
-      const fileContents: string[] = [];
-      for (const filePath of options.selectedFiles) {
-        try {
-          const uri = vscode.Uri.file(filePath);
-          const document = await vscode.workspace.openTextDocument(uri);
-          const content = document.getText();
-          const fileName = filePath.split(/[/\\]/).pop() || filePath;
-          fileContents.push(`=== ${fileName} (${filePath}) ===\n${content}\n`);
-        } catch (error) {
-          console.warn(
-            `[ConversationManager] Failed to read file ${filePath}:`,
-            error,
-          );
-        }
-      }
-      selectedFilesContent = fileContents.join("\n\n");
-      console.log(
-        `[ConversationManager] Selected files content length: ${selectedFilesContent.length} chars`,
-      );
-    }
-
-    // 터미널 컨텍스트 (사용자가 @terminal로 선택한 터미널 히스토리)
-    const terminalContextContent = options.terminalContext || "";
-    if (terminalContextContent) {
-      console.log(
-        "[ConversationManager] Terminal context included in system prompt",
-      );
-    }
-
-    // Diagnostics 컨텍스트 (사용자가 @diagnostics로 선택한 에러/경고)
-    const diagnosticsContextContent = options.diagnosticsContext || "";
-    if (diagnosticsContextContent) {
-      console.log(
-        "[ConversationManager] Diagnostics context included in system prompt",
-      );
-    }
-
-    // v9.2.1: 프레임워크 세부 스택 규칙 생성
-    let frameworkRulesPrompt = "";
-    try {
-      frameworkRulesPrompt =
-        await this.contextManager.getFrameworkRulesPrompt();
-      if (frameworkRulesPrompt) {
-        console.log("[ConversationManager] Framework rules prompt generated");
-      }
-    } catch (error) {
-      console.warn(
-        "[ConversationManager] Failed to generate framework rules:",
-        error,
-      );
-    }
-
-    // ContextData의 속성들을 PromptBuilderOptions 형식에 맞게 변환
-    return {
-      codebaseContext: contextData.file?.content,
-      realTimeInfo: contextData.terminal?.lastOutput,
-      profileContext: contextData.project?.structure,
-      intentContext: JSON.stringify(intent),
-      gitContext: "",
-      languageInstruction: "반드시 한국어로 답변하세요.",
-      selectedFilesContent: selectedFilesContent,
-      terminalContextContent: terminalContextContent,
-      diagnosticsContextContent: diagnosticsContextContent,
-      frameworkRulesPrompt: frameworkRulesPrompt, // v9.2.1: 동적 프레임워크 규칙
-    };
-  }
-
   private async executeAgentLoop(
     systemPrompt: string,
     userParts: UserPart[],
@@ -992,27 +829,47 @@ export class ConversationManager implements IConversationHandler {
     intent: IntentDetectionResult,
     gatheredContext?: GatheredContext,
   ): Promise<void> {
-    // 🔥 참고: executionIntent는 더 이상 INVESTIGATION→EXECUTION 전환에 사용되지 않음
+    // 참고: executionIntent는 더 이상 INVESTIGATION→EXECUTION 전환에 사용되지 않음
     // 실행 도구 자체가 실행 의도의 증거이므로 조건 없이 전환됨
     const { webviewToRespond, abortSignal, userQuery } = options;
+    // AGENT mode uses AgentLoopManager and never reaches executeAgentLoop
     const maxTurns = AgentConfig.MAX_TURNS;
     let turnCount = 0;
+    let nativeToolCallingNoticeShown = false; // 네이티브 툴 콜링 미지원 안내 한 번만 표시
+    // thinking 레벨 설정 (세션 시작 시 1회 로드)
+    const thinkingLevel = options.extensionContext
+      ? await SettingsManager.getInstance(
+          options.extensionContext,
+        ).getThinkingLevel()
+      : "medium";
+    let conversationTurnId = crypto.randomUUID(); // 턴 단위 변경 그룹화용
+    let lastExecutionTurnId = conversationTurnId; // 마지막 tool 실행 시의 turnId (review 메시지에 사용)
     let accumulatedUserParts = [...userParts];
     let testFixAttempts = 0; // 테스트 실패 시 자동 수정 시도 횟수
     let pendingRetryPrompt = false; // retry 프롬프트가 LLM에 전달 대기 중인지
     let pendingMCPResultInterpretation = false; // MCP 도구 결과가 LLM 해석 대기 중인지
     const retryCoordinator = new RetryCoordinator();
-    // 설정에서 최대 시도 횟수 가져오기 (기본값 3)
-    let maxTestFixAttempts = 3;
-    let isAutoTestRetryEnabled = false;
+    // 설정에서 최대 시도 횟수 가져오기 (기본값: retry ON, 5회)
+    let maxTestFixAttempts = 5;
+    let isAutoTestRetryEnabled = true;
     try {
-      maxTestFixAttempts = await SettingsManager.getInstance().getTestRetryCount() ?? 3;
-      isAutoTestRetryEnabled = await SettingsManager.getInstance().isAutoTestRetryEnabled() ?? false;
+      maxTestFixAttempts =
+        (await SettingsManager.getInstance().getTestRetryCount()) ?? 5;
+      isAutoTestRetryEnabled =
+        (await SettingsManager.getInstance().isAutoTestRetryEnabled()) ?? true;
     } catch (settingsError) {
-      console.warn("[ConversationManager] Failed to load test retry settings, using defaults:", settingsError);
+      console.warn(
+        "[ConversationManager] Failed to load test retry settings, using defaults:",
+        settingsError,
+      );
     }
     let executionNoToolRetryCount = 0; // EXECUTION phase에서 도구 호출 없이 응답 시 재시도 횟수
     const maxExecutionNoToolRetries = 2; // 최대 재시도 횟수
+    let consecutiveEmptyResponses = 0; // thinking-only 등 빈 응답 연속 횟수
+    const maxConsecutiveEmptyResponses = 3; // 빈 응답 최대 재시도
+    // 같은 명령 반복 실패 추적 (run_command 무한 루프 방지)
+    const commandFailureCounts = new Map<string, number>();
+    const MAX_SAME_COMMAND_FAILURES = 3;
     let extractedFunctionName: string | null = null; // 사용자 쿼리에서 추출한 함수명 저장
 
     // 📝 구조화된 메타데이터 수집 (세션 히스토리용)
@@ -1029,13 +886,13 @@ export class ConversationManager implements IConversationHandler {
     }> = [];
     let lastAssistantResponse = "";
 
-    // 🔥 문제 1 해결: npm install 등 명령어 중복 실행 방지 (전역 추적)
+    // 문제 1 해결: npm install 등 명령어 중복 실행 방지 (전역 추적)
     const recentlyExecutedCommands = new Set<string>(); // 최근 실행된 명령어 추적
 
-    // 🔥 자연어 응답 재시도 카운터 리셋
+    // 자연어 응답 재시도 카운터 리셋
     (this as any).naturalLanguageRetry = 0;
 
-    // 🔥 Solution 1: 이전 턴에서 도구가 성공적으로 실행됐는지 추적
+    // Solution 1: 이전 턴에서 도구가 성공적으로 실행됐는지 추적
     // 도구 성공 후 자연어 응답이 오면 "완료"로 처리 (retry 방지)
     let lastTurnHadSuccessfulToolExecution = false;
 
@@ -1048,7 +905,7 @@ export class ConversationManager implements IConversationHandler {
     const usageMetrics = UsageMetricsManager.getInstance(); // v9.7.0: 사용량 메트릭
 
     // ✅ Phase 기준 CODEPILOT 텍스트 송신 제어 함수
-    // 🔥 v8.9.8: EXECUTION 단계에서도 스트리밍 (CODE 블록 → 마크다운 변환)
+    // v8.9.8: EXECUTION 단계에서도 스트리밍 (CODE 블록 → 마크다운 변환)
     const shouldSendCodePilotText = (phase: AgentPhase): boolean => {
       // EXECUTION, REVIEW, DONE phase에서 사용자에게 텍스트를 보여줌
       return (
@@ -1128,6 +985,7 @@ export class ConversationManager implements IConversationHandler {
           }
         };
 
+        const _llmStartGreeting = Date.now();
         greetingResponse =
           await this.llmManager.sendMessageWithSystemPromptStreaming(
             greetingSystemPrompt,
@@ -1135,14 +993,24 @@ export class ConversationManager implements IConversationHandler {
             onGreetingChunk,
             { signal: abortSignal },
           );
-
-        console.log(`[ConversationManager] Greeting streaming completed.`);
+        {
+          const _t = Date.now() - _llmStartGreeting;
+          const _tok = estimateTokens(greetingResponse);
+          usageMetrics.recordLLMCall(
+            _t,
+            _tok,
+            true,
+            await this.llmManager.getCurrentModelName().catch(() => "unknown"),
+          );
+        }
 
         // 인사말 응답도 세션에 저장
         if (options.extensionContext) {
           try {
             const { SessionManager } = await import("../state/SessionManager");
-            const sessionManager = SessionManager.getInstance(options.extensionContext);
+            const sessionManager = SessionManager.getInstance(
+              options.extensionContext,
+            );
             const currentSession = sessionManager.getCurrentSession();
             if (currentSession) {
               await sessionManager.addConversationEntry(currentSession.id, {
@@ -1156,7 +1024,10 @@ export class ConversationManager implements IConversationHandler {
               });
             }
           } catch (e) {
-            console.warn("[ConversationManager] Failed to save greeting to session:", e);
+            console.warn(
+              "[ConversationManager] Failed to save greeting to session:",
+              e,
+            );
           }
         }
 
@@ -1164,11 +1035,22 @@ export class ConversationManager implements IConversationHandler {
       }
 
       // 비스트리밍 모드: 인사 응답용 시스템 프롬프트 사용
+      const _llmStartGreetingNS = Date.now();
       greetingResponse = await this.llmManager.sendMessageWithSystemPrompt(
         greetingSystemPrompt,
         accumulatedUserParts,
         { signal: abortSignal },
       );
+      {
+        const _t = Date.now() - _llmStartGreetingNS;
+        const _tok = estimateTokens(greetingResponse);
+        usageMetrics.recordLLMCall(
+          _t,
+          _tok,
+          true,
+          await this.llmManager.getCurrentModelName().catch(() => "unknown"),
+        );
+      }
 
       // 응답 정제: extractResponseText 사용하여 일관된 정제
       let cleanGreetingResponse =
@@ -1206,24 +1088,20 @@ export class ConversationManager implements IConversationHandler {
       // 최종 정제: 앞뒤 공백 제거
       cleanGreetingResponse = cleanGreetingResponse.trim();
 
-      console.log(
-        `[ConversationManager] Sending greeting response to webview (length: ${cleanGreetingResponse.length}): ${cleanGreetingResponse.substring(0, 100)}...`,
-      );
-      console.log(`[ConversationManager] Webview valid: ${!!webviewToRespond}`);
-
-      // CODEPILOT 타입으로 전송 (🔥 스트리밍 효과)
+      // CODEPILOT 타입으로 전송 (스트리밍 효과)
       await WebviewBridge.streamText(
         webviewToRespond,
         "CODEPILOT",
         cleanGreetingResponse,
       );
-      console.log(`[ConversationManager] Greeting message sent to webview.`);
 
       // 인사말 응답도 세션에 저장
       if (options.extensionContext) {
         try {
           const { SessionManager } = await import("../state/SessionManager");
-          const sessionManager = SessionManager.getInstance(options.extensionContext);
+          const sessionManager = SessionManager.getInstance(
+            options.extensionContext,
+          );
           const currentSession = sessionManager.getCurrentSession();
           if (currentSession) {
             await sessionManager.addConversationEntry(currentSession.id, {
@@ -1237,7 +1115,10 @@ export class ConversationManager implements IConversationHandler {
             });
           }
         } catch (e) {
-          console.warn("[ConversationManager] Failed to save greeting to session:", e);
+          console.warn(
+            "[ConversationManager] Failed to save greeting to session:",
+            e,
+          );
         }
       }
 
@@ -1283,18 +1164,24 @@ export class ConversationManager implements IConversationHandler {
     // requiresPlan이 false인 경우:
     // - analysis/documentation 카테고리: INVESTIGATION (조사 후 바로 답변, plan 없이)
     // - execution 카테고리: EXECUTION (바로 명령어 실행)
+    // - code 카테고리: EXECUTION (LLM이 plan 불필요로 판단한 단순 코드 수정)
     const isSimpleTask = intent?.requiresPlan === false;
     const isDirectResponseTask =
       isSimpleTask &&
       (intent?.category === "analysis" || intent?.category === "documentation");
     const isDirectExecutionTask =
-      isSimpleTask && intent?.category === "execution";
+      isSimpleTask &&
+      (intent?.category === "execution" || intent?.category === "code");
 
-    const initialState = hasActivePlan
-      ? AgentPhase.EXECUTION
-      : isDirectExecutionTask || (isExecutionFirstTask && !hasExistingProject)
+    const isPlanMode = options.promptType === PromptType.PLAN;
+
+    const initialState = isPlanMode
+      ? AgentPhase.INVESTIGATION // PLAN mode always starts with investigation
+      : hasActivePlan
         ? AgentPhase.EXECUTION
-        : AgentPhase.INVESTIGATION;
+        : isDirectExecutionTask || (isExecutionFirstTask && !hasExistingProject)
+          ? AgentPhase.EXECUTION
+          : AgentPhase.INVESTIGATION;
     const stateManager = new AgentStateManager(initialState);
 
     if (isDirectResponseTask) {
@@ -1303,7 +1190,7 @@ export class ConversationManager implements IConversationHandler {
       );
     } else if (isDirectExecutionTask) {
       console.log(
-        `[ConversationManager] Simple execution task detected (requiresPlan: false). Starting directly in EXECUTION phase.`,
+        `[ConversationManager] Simple task detected (requiresPlan: false, ${intent?.category}). Starting directly in EXECUTION phase.`,
       );
     } else if (isExecutionFirstTask) {
       if (hasExistingProject) {
@@ -1344,16 +1231,22 @@ export class ConversationManager implements IConversationHandler {
     let toolCallsFromPlanCreation: ToolUse[] = [];
     let hasInvestigationHistory = false; // 조사 이력 추적
     const preloadedFiles = new Set<string>(); // Pre-load된 파일 목록 추적 (중복 읽기 방지)
+    const alreadyStattedFiles = new Set<string>(); // 턴 간 중복 stat_file 방지
+    // isPlanMode is declared earlier (before initialState) for phase decision
+    let planTextResponse = ""; // PLAN 모드 응답 원문 (세션 히스토리 저장용)
 
     // 파일 변경 추적 (요약 검증용)
     const createdFiles: string[] = [];
     const modifiedFiles: string[] = [];
+    const executedCommands: string[] = []; // run_command 실행 이력 추적
+    this.deletedFiles = [];
+    this._pendingImportCleanupMsg = null;
 
-    // 🔥 대화 시작 시 reviewProcessed 플래그 초기화 (이전 대화에서 남은 값 제거)
+    // 대화 시작 시 reviewProcessed 플래그 초기화 (이전 대화에서 남은 값 제거)
     (this as any).reviewProcessed = null;
 
     // v9.4.0: 무한 루프 감지 상태 초기화
-    const loopState = this.initializeLoopState();
+    const loopState = this.loopStateTracker.initializeLoopState();
     loopState.lastPhase = initialState;
 
     while (turnCount < maxTurns) {
@@ -1361,8 +1254,17 @@ export class ConversationManager implements IConversationHandler {
         break;
       }
 
+      // 각 턴마다 새로운 conversationTurnId 생성 (턴 단위 변경 그룹화)
+      conversationTurnId = crypto.randomUUID();
+
       // 🔒 메모리 누수 방지: accumulatedUserParts 정리
       accumulatedUserParts = this.trimAccumulatedParts(accumulatedUserParts);
+
+      // 파일 삭제 후 import 정리 메시지 주입
+      if (this._pendingImportCleanupMsg) {
+        accumulatedUserParts.push({ text: this._pendingImportCleanupMsg });
+        this._pendingImportCleanupMsg = null;
+      }
 
       // 🔄 컨텍스트 자동 압축 체크 (토큰 임계값 초과 시 트리거)
       try {
@@ -1379,6 +1281,33 @@ export class ConversationManager implements IConversationHandler {
           MODEL_TOKEN_LIMITS[AiModelType.OLLAMA];
         const maxTokens = modelLimits?.maxInputTokens || 128000;
 
+        // Tier 1: 도구 결과 경량 트림 (LLM 호출 없이 오래된 도구 결과 축약)
+        const trimResult = compactor.trimToolResults(
+          accumulatedUserParts,
+          systemPrompt,
+          maxTokens,
+        );
+        if (trimResult.trimmed) {
+          accumulatedUserParts = trimResult.parts;
+          console.log(
+            `[ConversationManager] Tier1 tool result trim: saved ${trimResult.savedTokens} tokens`,
+          );
+        }
+
+        // Tier 1.5: Microcompact — 도구 결과를 1줄 요약으로 축약 (LLM 호출 없음, 70% 초과 시)
+        const microResult = compactor.microcompact(
+          accumulatedUserParts,
+          systemPrompt,
+          maxTokens,
+        );
+        if (microResult.compacted) {
+          accumulatedUserParts = microResult.parts;
+          console.log(
+            `[ConversationManager] Microcompact: saved ${microResult.savedTokens} tokens`,
+          );
+        }
+
+        // Tier 2: LLM 요약 (Microcompact 후에도 threshold 초과 시)
         if (
           compactor.needsCompaction(
             accumulatedUserParts,
@@ -1447,14 +1376,25 @@ export class ConversationManager implements IConversationHandler {
         // 압축 실패해도 계속 진행
       }
 
-      // [수정] 루프 시작 시점에 현재 계획 상태를 UI에 즉시 동기화
+      // [수정] 루프 시작 시점에 현재 계획 상태를 UI에 즉시 동기화 (PLAN 모드에서는 숨김)
       const allItems = taskManager.listPlanItems();
-      if (allItems.length > 0) {
+      if (allItems.length > 0 && !isPlanMode) {
         WebviewBridge.updateTaskQueue(webviewToRespond, allItems);
       }
 
       // 현재 활성 계획 아이템 확인
       const currentPlanItem = taskManager.getNextPendingItem();
+
+      // 실행 시작 시 in_progress로 전환 (UI에 파란색 표시, PLAN 모드 제외)
+      if (currentPlanItem && currentPlanItem.status === "pending") {
+        taskManager.updatePlanItemStatus(currentPlanItem.id, "in_progress");
+        if (!isPlanMode) {
+          WebviewBridge.updateTaskQueue(
+            webviewToRespond,
+            taskManager.listPlanItems(),
+          );
+        }
+      }
 
       // FSM에서 현재 상태 가져오기
       const currentPhase = stateManager.getCurrentState();
@@ -1477,6 +1417,9 @@ export class ConversationManager implements IConversationHandler {
           userQuery,
           collectedActions,
           collectedUIMessages,
+          lastExecutionTurnId,
+          executedCommands,
+          retryCoordinator,
         );
         if (reviewResult.action === "break") {
           break;
@@ -1490,8 +1433,6 @@ export class ConversationManager implements IConversationHandler {
         break; // 이미 완료 상태이므로 루프 종료
       }
 
-      const phaseLabel =
-        currentPhase === AgentPhase.INVESTIGATION ? "[조사]" : "[실행]";
       const actionText =
         currentPhase === AgentPhase.INVESTIGATION
           ? "조사 및 분석"
@@ -1500,12 +1441,20 @@ export class ConversationManager implements IConversationHandler {
       WebviewBridge.sendProcessingStatus(
         webviewToRespond,
         "thinking",
-        `${phaseLabel}[생각 ${turnCount + 1}] ${statusPrefix}${actionText} 중...`,
+        `${statusPrefix}${actionText} 중...`,
       );
 
       // 페이즈별 프롬프트 보정 및 도구 제한
       let activeSystemPrompt = systemPrompt;
       let allowedTools: Tool[] | undefined = undefined;
+      let nativeToolsForCall: any[] | undefined = undefined; // 네이티브 툴 콜링용 (나중에 설정됨)
+
+      // CODE 모드: AGENT 전용 도구(work_plan, spawn_agent, stop_agent) 제외
+      if (!this._isAgentMode) {
+        allowedTools = (Object.values(Tool) as Tool[]).filter(
+          (t) => !AGENT_ONLY_TOOLS.has(t),
+        );
+      }
 
       if (currentPhase === AgentPhase.INVESTIGATION) {
         const investigationPrompt = investigationManager.getInvestigationPrompt(
@@ -1515,7 +1464,7 @@ export class ConversationManager implements IConversationHandler {
         allowedTools = investigationManager.getInvestigationTools();
 
         // 조사 단계에서는 PromptBuilder를 다시 사용하여 도구 설명 섹션만 교체
-        // 🔥 핵심 수정: gatheredContext의 첨부 컨텍스트(selectedFilesContent 등)를 포함해야 함
+        // 핵심 수정: gatheredContext의 첨부 컨텍스트(selectedFilesContent 등)를 포함해야 함
         // Hot Load 프롬프트 로드 (매칭된 경우 인자 추출 프롬프트 우선)
         let hotLoadPromptForInvestigation = "";
         try {
@@ -1535,14 +1484,47 @@ export class ConversationManager implements IConversationHandler {
         }
 
         // MCP 커스텀 프롬프트 수집
-        const mcpCustomPromptsForInvestigation = this.collectMcpCustomPrompts();
+        const mcpCustomPromptsForInvestigation =
+          this.contextGatherer.collectMcpCustomPrompts();
+
+        // 영속적 메모리 컨텍스트 로드
+        let memoryContextForInvestigation = "";
+        try {
+          memoryContextForInvestigation =
+            await MemoryManager.getInstance().loadForPrompt();
+        } catch {
+          /* 메모리 로드 실패 시 무시 */
+        }
+
+        // 네이티브 모드 여부 (조사 단계 프롬프트 형식 결정)
+        let isNativeModeForInvestigation = false;
+        try {
+          const isNativeEnabled = options.extensionContext
+            ? await SettingsManager.getInstance(
+                options.extensionContext,
+              ).isNativeToolCallingEnabled()
+            : false;
+          if (
+            isNativeEnabled &&
+            options.currentModelType === AiModelType.ADMIN
+          ) {
+            const adminConfig = this.llmManager.getAdminModelConfig();
+            isNativeModeForInvestigation =
+              adminConfig?.nativeToolCallingSupported === true ||
+              String(adminConfig?.nativeToolCallingSupported) === "true";
+          }
+        } catch {
+          /* 설정 읽기 실패 시 기본값 사용 */
+        }
 
         const promptOptions: PromptBuilderOptions = {
           userOS: options.userOS || process.platform,
           modelType: options.currentModelType || AiModelType.OLLAMA,
           promptType: options.promptType,
           allowedTools, // 도구 제한 전달
+          nativeMode: isNativeModeForInvestigation, // 네이티브 Function Call 모드
           hotLoadPrompt: hotLoadPromptForInvestigation, // Hot Load 프롬프트 추가
+          memoryContext: memoryContextForInvestigation, // 영속적 메모리 컨텍스트 추가
           mcpCustomPrompts: mcpCustomPromptsForInvestigation, // MCP 커스텀 프롬프트 추가
           // 사용자가 첨부한 컨텍스트 포함 (gatheredContext에서 가져옴)
           selectedFilesContent: gatheredContext?.selectedFilesContent,
@@ -1550,13 +1532,15 @@ export class ConversationManager implements IConversationHandler {
           diagnosticsContextContent: gatheredContext?.diagnosticsContextContent,
           codebaseContext: gatheredContext?.codebaseContext,
           frameworkRulesPrompt: gatheredContext?.frameworkRulesPrompt, // v9.2.1
+          ragContext: gatheredContext?.ragContext, // RAG 컨텍스트 포함
+          subProjectStructure: gatheredContext?.subProjectStructure, // 서브프로젝트 구조
         };
         activeSystemPrompt =
           investigationPrompt +
           "\n\n" +
           this.promptBuilder.generateSystemPrompt(promptOptions);
 
-        // 🔥 핵심 수정: analysis/documentation 인텐트에서는 plan JSON 대신 자연어 응답 유도
+        // 핵심 수정: analysis/documentation 인텐트에서는 plan JSON 대신 자연어 응답 유도
         if (
           intent &&
           (intent.category === "analysis" ||
@@ -1571,18 +1555,20 @@ export class ConversationManager implements IConversationHandler {
 1. 필요한 파일을 읽기 위해 조사 도구(read_file, ripgrep_search 등)를 호출하세요.
 2. 충분한 정보를 수집한 후, **직접 한국어로 답변/요약을 작성하세요.**
 3. plan JSON을 출력하지 마세요. 바로 자연어 답변을 출력하세요.
+4. **"읽어줘", "보여줘" 요청 시**: read_file로 파일을 읽은 후, 반드시 파일 내용을 코드 블록(\`\`\`)으로 사용자에게 보여주세요. investigation_done만 보내지 마세요.
 
 **절대 금지:**
 - ❌ plan JSON 출력 (${intentTypeKr} 요청에는 plan이 필요하지 않습니다)
 - ❌ 실행 도구 호출 (create_file, update_file, run_command 등)
 - ❌ 코드 수정 제안 (${intentTypeKr}만 요청받았습니다)
+- ❌ 파일 내용을 읽고도 텍스트 응답 없이 종료 (사용자에게 결과를 보여줘야 합니다)
 
 **올바른 흐름:**
-조사 도구로 정보 수집 → 자연어로 직접 답변/요약 출력
+조사 도구로 정보 수집 → 자연어로 직접 답변/요약 출력 (파일 내용 포함)
 `;
         }
 
-        // 🔥 문제 해결: execution-first 작업일 때 investigation item 금지
+        // 문제 해결: execution-first 작업일 때 investigation item 금지
         // 공통 함수 사용으로 일관된 판단
         if (
           this.isExecutionFirstTask(
@@ -1594,14 +1580,21 @@ export class ConversationManager implements IConversationHandler {
           activeSystemPrompt += getExecutionFirstRulePrompt();
         }
       } else if (currentPhase === AgentPhase.EXECUTION) {
-        // ⚠️ EXECUTION 단계에서는 설명 금지, 도구 호출만 허용
-        // 🔥 핵심: LLM을 "DSL 컴파일러"처럼 사용 - Planning/Reasoning 금지, Execution만 허용
-        activeSystemPrompt += getExecutionPhasePrompt();
+        if (isPlanMode) {
+          // PLAN 모드: execution phase prompt 금지 (planPrompt 지시와 충돌)
+          // 탐색 완료 후 텍스트로 계획 출력하도록 remind
+          activeSystemPrompt += `\n\n⚠️ **PLAN 모드**: 탐색이 완료되었습니다. 지금 즉시 구현 계획 Markdown을 텍스트로 출력하세요. 도구 호출 금지.`;
+        } else {
+          // ⚠️ EXECUTION 단계에서는 설명 금지, 도구 호출만 허용
+          // 핵심: LLM을 "DSL 컴파일러"처럼 사용 - Planning/Reasoning 금지, Execution만 허용
+          activeSystemPrompt += getExecutionPhasePrompt();
+        }
       }
 
-      // 🔥 최적화: 도구 실행이 성공했고 남은 plan item이 없으면 LLM 호출 없이 바로 REVIEW로 전환
+      // 최적화: 도구 실행이 성공했고 plan의 모든 item이 완료되면 LLM 호출 없이 바로 REVIEW로 전환
       // "완료 확인" 호출 제거 - 불필요한 LLM 호출 방지
-      // ⚠️ 단, retry 프롬프트 또는 MCP 결과 해석이 대기 중이면 스킵하지 않음
+      // ⚠️ plan이 한 번도 생성되지 않은 경우(no-plan 실행): 조기 종료 금지, 다음 턴으로 계속
+      // ⚠️ retry 프롬프트 또는 MCP 결과 해석이 대기 중이면 스킵하지 않음
       const currentPhaseForExecution = stateManager.getCurrentState();
       if (
         currentPhaseForExecution === AgentPhase.EXECUTION &&
@@ -1610,15 +1603,18 @@ export class ConversationManager implements IConversationHandler {
         !pendingMCPResultInterpretation
       ) {
         const remainingPlanItems = taskManager.getNextPendingItem();
-        const hasFileChanges =
-          createdFiles.length > 0 || modifiedFiles.length > 0;
+        const planExists = taskManager.listPlanItems().length > 0;
 
-        if (!remainingPlanItems) {
+        if (planExists && !remainingPlanItems) {
+          // Case A: plan 기반 플로우 — 모든 plan item 완료 → 테스트 후 REVIEW 전환
           console.log(
-            `[ConversationManager] EXECUTION phase: Tool execution succeeded, no remaining plan items. Running tests and transitioning.`,
+            `[ConversationManager] EXECUTION phase: All plan items completed. Running tests and transitioning.`,
           );
           lastTurnHadSuccessfulToolExecution = false; // 리셋
 
+          if (abortSignal?.aborted) {
+            break;
+          }
           const testTransition = await this.runTestsAndTransition(
             webviewToRespond,
             stateManager,
@@ -1630,6 +1626,7 @@ export class ConversationManager implements IConversationHandler {
             isAutoTestRetryEnabled,
             accumulatedUserParts,
             turnCount,
+            true, // allPlanItemsDone
           );
           testFixAttempts = testTransition.testFixAttempts;
           pendingRetryPrompt =
@@ -1638,6 +1635,13 @@ export class ConversationManager implements IConversationHandler {
             turnCount++;
             continue;
           }
+        } else if (!planExists) {
+          // Case C: no-plan 실행 — plan이 한 번도 생성되지 않음
+          // 도구 성공만으로 완료 판정 불가, LLM에게 다음 턴을 줘서 계속 작업하게 함
+          console.log(
+            `[ConversationManager] EXECUTION phase: Tool succeeded but no plan exists. Continuing to let LLM work.`,
+          );
+          lastTurnHadSuccessfulToolExecution = false;
         }
         // remainingPlanItems가 있으면 계속 진행 (다음 plan item 실행)
       }
@@ -1658,15 +1662,17 @@ export class ConversationManager implements IConversationHandler {
           WebviewBridge.sendProcessingStatus(
             webviewToRespond,
             "executing",
-            `${phaseLabel}도구 실행 중...`,
+            `도구 실행 중...`,
           );
 
           const {
             toolResults,
             hasSuccessfulExecution: hasSuccessfulPlanExecution,
+            hasWriteToolExecution: hasWritePlanExecution,
             hasBlockedByValidator,
             blockedMessages,
             hasUserSkipped,
+            inlineDiagnosticErrors: inlineDiagErrors1,
           } = await this.executeToolsWithUI(
             toolExecutor,
             toolCallsFromPlanCreation,
@@ -1676,27 +1682,39 @@ export class ConversationManager implements IConversationHandler {
             terminalManager,
             collectedUIMessages,
             preloadedFiles,
+            alreadyStattedFiles,
             createdFiles,
             modifiedFiles,
+            true, // includeWebviewInContext — ask_question 등 webview 필요 도구 지원
+            conversationTurnId,
+            executedCommands,
+            isPlanMode,
           );
-          if (hasSuccessfulPlanExecution) {
+          if (hasSuccessfulPlanExecution && hasWritePlanExecution) {
             lastTurnHadSuccessfulToolExecution = true;
+            lastExecutionTurnId = conversationTurnId; // review 메시지에 사용할 turnId 저장
             console.log(
               `[ConversationManager] Plan-based tool execution succeeded.`,
             );
           }
 
-          // 🔥 PreToolUseValidator에 의해 차단된 경우 즉시 종료 (재시도 없음)
-          // UI에 이미 [Failed] 메시지가 표시되므로 추가 메시지 불필요
-          if (hasBlockedByValidator && blockedMessages.length > 0) {
-            console.log(
-              `[ConversationManager] Tool blocked by PreToolUseValidator: ${blockedMessages.join(", ")}`,
-            );
-            stateManager.transitionTo(AgentPhase.REVIEW);
-            break;
+          // v1.0.24: EXECUTION 중 LSP 에러 즉시 피드백
+          if (inlineDiagErrors1) {
+            accumulatedUserParts.push({ text: inlineDiagErrors1 });
           }
 
-          // 🔥 사용자가 스킵한 경우에도 플랜 아이템 완료 처리 (무한 루프 방지)
+          // PreToolUseValidator에 의해 차단된 경우
+          const blockResult = this.handleBlockedTools(
+            hasBlockedByValidator,
+            blockedMessages,
+            hasSuccessfulPlanExecution,
+            stateManager,
+            accumulatedUserParts,
+            webviewToRespond,
+          );
+          if (blockResult === "break") break;
+
+          // 사용자가 스킵한 경우에도 플랜 아이템 완료 처리 (무한 루프 방지)
           if (hasUserSkipped && currentPlanItem) {
             console.log(
               `[ConversationManager] User skipped tool execution, marking plan item as done.`,
@@ -1732,6 +1750,9 @@ export class ConversationManager implements IConversationHandler {
             continue;
           } else {
             // 모든 plan item 완료 → 자동 테스트 후 REVIEW 전환
+            if (abortSignal?.aborted) {
+              break;
+            }
             const testTransition = await this.runTestsAndTransition(
               webviewToRespond,
               stateManager,
@@ -1743,6 +1764,7 @@ export class ConversationManager implements IConversationHandler {
               isAutoTestRetryEnabled,
               accumulatedUserParts,
               turnCount,
+              true, // allPlanItemsDone
             );
             testFixAttempts = testTransition.testFixAttempts;
             if (testTransition.pendingRetryPrompt) {
@@ -1753,9 +1775,6 @@ export class ConversationManager implements IConversationHandler {
           }
         } else {
           // plan에 실행 도구가 없을 때: plan item을 기반으로 LLM을 1회 호출하여 tool call 생성
-          // 단, 이미 파일이 생성된 경우는 제외 (설명용 호출 방지)
-          const hasAnyFileChange =
-            createdFiles.length > 0 || modifiedFiles.length > 0;
 
           // ⚠️ 핵심 수정: investigation item 체크를 LLM 호출 전에 먼저 수행
           // Plan item이 조사 작업인지 확인 (kind 기반, 자동 완료 처리)
@@ -1792,6 +1811,9 @@ export class ConversationManager implements IConversationHandler {
                 continue;
               } else {
                 // 모든 plan item 완료 → 자동 테스트 후 REVIEW 전환
+                if (abortSignal?.aborted) {
+                  break;
+                }
                 const testTransition = await this.runTestsAndTransition(
                   webviewToRespond,
                   stateManager,
@@ -1803,6 +1825,7 @@ export class ConversationManager implements IConversationHandler {
                   isAutoTestRetryEnabled,
                   accumulatedUserParts,
                   turnCount,
+                  true, // allPlanItemsDone
                 );
                 testFixAttempts = testTransition.testFixAttempts;
                 if (testTransition.pendingRetryPrompt) {
@@ -1816,11 +1839,7 @@ export class ConversationManager implements IConversationHandler {
 
           // ⚠️ 핵심 수정: investigation item이 아닌 execution item에 대해서만 LLM 호출
           // investigation item은 위에서 이미 처리되었으므로 여기서는 execution item만 처리
-          if (
-            !hasAnyFileChange &&
-            currentPlanItem &&
-            currentPlanItem.kind !== "investigation"
-          ) {
+          if (currentPlanItem && currentPlanItem.kind !== "investigation") {
             // ⚠️ 자동 완료 로직 제거: 파일 존재만으로는 작업 완료를 보장할 수 없음
             // LLM이 작업 상태를 가장 정확히 알고 있으므로, LLM이 항상 판단하도록 함
             // 파일이 생성/수정되었다고 해서 Plan Item의 목표가 달성되었다고 보장할 수 없음
@@ -1932,10 +1951,42 @@ export class ConversationManager implements IConversationHandler {
               currentTaskDetail: currentPlanItem.detail,
               projectInventoryContext,
               preloadedFilesContext: preloadedFilesContextForExecution,
+              ragContext: gatheredContext?.ragContext, // RAG 컨텍스트 재주입
             });
 
             // execution 의도일 때 Command 모델 사용
+            // 네이티브 툴 콜링 설정 (메인 루프 진입 전이므로 여기서 직접 확인)
+            let nativeToolsForPlanItem: any[] | undefined = undefined;
+            {
+              const isNativeEnabled = options.extensionContext
+                ? await SettingsManager.getInstance(
+                    options.extensionContext,
+                  ).isNativeToolCallingEnabled()
+                : false;
+              if (isNativeEnabled) {
+                const adminConfig = this.llmManager.getAdminModelConfig();
+                const nativeSupported =
+                  adminConfig?.nativeToolCallingSupported === true ||
+                  String(adminConfig?.nativeToolCallingSupported) === "true";
+                if (nativeSupported) {
+                  nativeToolsForPlanItem =
+                    ToolSpecBuilder.buildOpenAIToolsConfig(allowedTools);
+                  console.log(
+                    `[ConversationManager] EXECUTION plan item: Native tool calling enabled for ${adminConfig?.model}`,
+                  );
+                }
+              }
+            }
+
+            // 스트리밍 설정 확인
+            const isStreamingForPlanItem = options.extensionContext
+              ? await SettingsManager.getInstance(
+                  options.extensionContext,
+                ).isStreamingEnabled()
+              : false;
+
             let llmResponseForExecution: string;
+            const _llmStartPlanItem = Date.now();
             if (
               intent &&
               intent.category === "execution" &&
@@ -1951,15 +2002,102 @@ export class ConversationManager implements IConversationHandler {
                   this.stateManager,
                   { signal: abortSignal },
                 );
+            } else if (isStreamingForPlanItem) {
+              console.log(
+                `[ConversationManager] EXECUTION plan item: Streaming mode enabled`,
+              );
+              let planItemStreamBuffer = "";
+              let planItemLastTool = "";
+              const planItemOnChunk = (chunk: string) => {
+                planItemStreamBuffer += chunk;
+
+                // 툴 패턴 감지 (JSON 기반)
+                const toolLabels: Record<string, string> = {
+                  create_file: "파일 생성 중",
+                  update_file: "파일 수정 중",
+                  read_file: "파일 읽는 중",
+                  delete_file: "파일 삭제 중",
+                  run_command: "명령 준비 중",
+                  glob_search: "파일 검색 중",
+                  list_files: "파일 목록 중",
+                };
+                const jsonPattern =
+                  /"tool"\s*:\s*"(\w+)"[^}]*"(?:path|filePath)"\s*:\s*"([^"]+)"/g;
+                let tm: RegExpExecArray | null;
+                let lastToolMatch: { tool: string; file: string } | null = null;
+                while ((tm = jsonPattern.exec(planItemStreamBuffer)) !== null) {
+                  lastToolMatch = { tool: tm[1], file: tm[2] };
+                }
+                if (lastToolMatch && toolLabels[lastToolMatch.tool]) {
+                  if (isPlanMode) {
+                    // PLAN mode: don't show file creation status, show plan writing status instead
+                    if (planItemLastTool !== "계획 작성 중...") {
+                      planItemLastTool = "계획 작성 중...";
+                      WebviewBridge.sendProcessingStatus(
+                        webviewToRespond,
+                        "thinking",
+                        "계획 작성 중...",
+                      );
+                    }
+                    return;
+                  }
+                  const fileName =
+                    lastToolMatch.file.split("/").pop() || lastToolMatch.file;
+                  const status = `${toolLabels[lastToolMatch.tool]}: ${fileName}...`;
+                  if (status !== planItemLastTool) {
+                    planItemLastTool = status;
+                    WebviewBridge.sendProcessingStatus(
+                      webviewToRespond,
+                      "executing",
+                      status,
+                    );
+                  }
+                  return;
+                }
+                // 토큰 카운트 표시 (500자마다 업데이트)
+                if (
+                  !planItemLastTool &&
+                  planItemStreamBuffer.length % 500 < chunk.length
+                ) {
+                  const tokens = estimateTokens(planItemStreamBuffer);
+                  WebviewBridge.sendProcessingStatus(
+                    webviewToRespond,
+                    isPlanMode ? "thinking" : "executing",
+                    `${isPlanMode ? "계획 작성 중" : "응답 생성 중"} (${tokens.toLocaleString()} 토큰...)`,
+                  );
+                }
+              };
+              llmResponseForExecution =
+                await this.llmManager.sendMessageWithSystemPromptStreaming(
+                  activeSystemPrompt + planContextForExecution,
+                  accumulatedUserParts,
+                  planItemOnChunk,
+                  { signal: abortSignal, nativeTools: nativeToolsForPlanItem },
+                );
             } else {
               llmResponseForExecution =
                 await this.llmManager.sendMessageWithSystemPrompt(
                   activeSystemPrompt + planContextForExecution,
                   accumulatedUserParts,
-                  { signal: abortSignal },
+                  { signal: abortSignal, nativeTools: nativeToolsForPlanItem },
                 );
             }
+            {
+              const _t = Date.now() - _llmStartPlanItem;
+              const _tok = estimateTokens(llmResponseForExecution);
+              usageMetrics.recordLLMCall(
+                _t,
+                _tok,
+                true,
+                await this.llmManager
+                  .getCurrentModelName()
+                  .catch(() => "unknown"),
+              );
+            }
 
+            if (abortSignal?.aborted) {
+              break;
+            }
             const cleanExecutionResponse = llmResponseForExecution
               .replace(/<think>[\s\S]*?<\/think>/gi, "")
               .trim();
@@ -1967,50 +2105,121 @@ export class ConversationManager implements IConversationHandler {
               cleanExecutionResponse,
             );
 
-            if (toolCallsFromExecution.length > 0) {
+            // __done__은 SubAgentLoop 전용 — ConversationManager plan item 실행 시
+            // ToolExecutor에 넘기면 "Unknown tool: __done__" 에러로 패널에 ❌ 표시됨
+            // 여기서 필터링하여 ToolExecutor로 전달하지 않음
+            const filteredExecutionCalls = toolCallsFromExecution.filter(
+              (c) => c.name !== "__done__",
+            );
+            if (
+              toolCallsFromExecution.length !== filteredExecutionCalls.length
+            ) {
+              console.log(
+                `[ConversationManager] __done__ intercepted in plan item execution (plan item: "${currentPlanItem?.title}")`,
+              );
+            }
+
+            // 같은 명령 반복 실패 방지: MAX_SAME_COMMAND_FAILURES 초과 시 스킵
+            const skippedByFailureLimit: string[] = [];
+            const allowedExecutionCalls = filteredExecutionCalls.filter(
+              (call) => {
+                if (call.name === "run_command" && call.params.command) {
+                  const cmd = call.params.command;
+                  const failCount = commandFailureCounts.get(cmd) || 0;
+                  if (failCount >= MAX_SAME_COMMAND_FAILURES) {
+                    console.warn(
+                      `[ConversationManager] Skipping run_command — ${failCount} failures exceeded limit: ${cmd.substring(0, 80)}`,
+                    );
+                    skippedByFailureLimit.push(cmd);
+                    return false;
+                  }
+                }
+                return true;
+              },
+            );
+            if (skippedByFailureLimit.length > 0) {
+              accumulatedUserParts.push({
+                text: `[시스템 알림] 다음 명령어는 ${MAX_SAME_COMMAND_FAILURES}회 연속 실패하여 실행이 중단되었습니다: ${skippedByFailureLimit.join(", ")}. 다른 방법을 시도하거나 이 단계를 건너뛰세요.`,
+              });
+            }
+
+            if (
+              allowedExecutionCalls.length === 0 &&
+              skippedByFailureLimit.length > 0
+            ) {
+              // 모든 도구가 반복 실패로 스킵됨 → plan item 완료 처리
+              console.log(
+                `[ConversationManager] All tools skipped due to repeated failures, moving to next plan item`,
+              );
+              if (currentPlanItem) {
+                this.completePlanItem(
+                  taskManager,
+                  webviewToRespond,
+                  currentPlanItem.id,
+                );
+              }
+              turnCount++;
+              continue;
+            }
+
+            if (allowedExecutionCalls.length > 0) {
               WebviewBridge.sendProcessingStep(webviewToRespond, "executing");
               WebviewBridge.sendProcessingStatus(
                 webviewToRespond,
                 "executing",
-                `${phaseLabel}도구 실행 중...`,
+                `도구 실행 중...`,
               );
 
               const {
                 toolResults,
                 hasSuccessfulExecution: hasSuccessfulToolExecution,
+                hasWriteToolExecution: hasWriteToolExecution2,
                 hasBlockedByValidator: hasBlockedByValidator2,
                 blockedMessages: blockedMessages2,
                 hasUserSkipped: hasUserSkipped2,
+                inlineDiagnosticErrors: inlineDiagErrors2,
               } = await this.executeToolsWithUI(
                 toolExecutor,
-                toolCallsFromExecution,
+                allowedExecutionCalls,
                 webviewToRespond,
                 actionManager,
                 executionManager,
                 terminalManager,
                 collectedUIMessages,
                 preloadedFiles,
+                alreadyStattedFiles,
                 createdFiles,
                 modifiedFiles,
+                true, // includeWebviewInContext — ask_question 등 webview 필요 도구 지원
+                conversationTurnId,
+                executedCommands,
+                isPlanMode,
               );
-              if (hasSuccessfulToolExecution) {
+              if (hasSuccessfulToolExecution && hasWriteToolExecution2) {
                 lastTurnHadSuccessfulToolExecution = true;
+                lastExecutionTurnId = conversationTurnId; // review 메시지에 사용할 turnId 저장
                 console.log(
                   `[ConversationManager] Tool execution (from LLM) succeeded.`,
                 );
               }
 
-              // 🔥 PreToolUseValidator에 의해 차단된 경우 즉시 종료 (재시도 없음)
-              // UI에 이미 [Failed] 메시지가 표시되므로 추가 메시지 불필요
-              if (hasBlockedByValidator2 && blockedMessages2.length > 0) {
-                console.log(
-                  `[ConversationManager] Tool blocked by PreToolUseValidator: ${blockedMessages2.join(", ")}`,
-                );
-                stateManager.transitionTo(AgentPhase.REVIEW);
-                break;
+              // v1.0.24: EXECUTION 중 LSP 에러 즉시 피드백
+              if (inlineDiagErrors2) {
+                accumulatedUserParts.push({ text: inlineDiagErrors2 });
               }
 
-              // 🔥 사용자가 스킵한 경우에도 플랜 아이템 완료 처리 (무한 루프 방지)
+              // PreToolUseValidator에 의해 차단된 경우
+              const blockResult2 = this.handleBlockedTools(
+                hasBlockedByValidator2,
+                blockedMessages2,
+                hasSuccessfulToolExecution,
+                stateManager,
+                accumulatedUserParts,
+                webviewToRespond,
+              );
+              if (blockResult2 === "break") break;
+
+              // 사용자가 스킵한 경우에도 플랜 아이템 완료 처리 (무한 루프 방지)
               if (hasUserSkipped2 && currentPlanItem) {
                 console.log(
                   `[ConversationManager] User skipped tool execution, marking plan item as done.`,
@@ -2022,16 +2231,40 @@ export class ConversationManager implements IConversationHandler {
                 );
               }
 
+              // run_command 실패 카운트 추적
+              for (let ri = 0; ri < allowedExecutionCalls.length; ri++) {
+                const call = allowedExecutionCalls[ri];
+                if (
+                  call.name === "run_command" &&
+                  call.params.command &&
+                  toolResults[ri] &&
+                  !toolResults[ri].success
+                ) {
+                  const cmd = call.params.command;
+                  const prev = commandFailureCounts.get(cmd) || 0;
+                  commandFailureCounts.set(cmd, prev + 1);
+                  console.warn(
+                    `[ConversationManager] run_command failed (${prev + 1}/${MAX_SAME_COMMAND_FAILURES}): ${cmd.substring(0, 80)}`,
+                  );
+                } else if (
+                  call.name === "run_command" &&
+                  call.params.command &&
+                  toolResults[ri]?.success
+                ) {
+                  commandFailureCounts.delete(call.params.command); // 성공하면 리셋
+                }
+              }
+
               const resultSummary =
                 ToolExecutionCoordinator.createToolResultSummary(
                   turnCount,
-                  toolCallsFromExecution,
+                  allowedExecutionCalls,
                   toolResults,
                 );
 
               if (
                 ToolExecutionCoordinator.hasSideEffects(
-                  toolCallsFromExecution,
+                  allowedExecutionCalls,
                   toolResults,
                 ) &&
                 currentPlanItem
@@ -2040,6 +2273,22 @@ export class ConversationManager implements IConversationHandler {
                   taskManager,
                   webviewToRespond,
                   currentPlanItem.id,
+                );
+              }
+
+              // create_file 하드 가드 차단 감지 → glob_search 강제 유도
+              const blockedByReadFailPlan = toolResults.filter(
+                (r: any) => r.error?.code === "CREATE_BLOCKED_AFTER_READ_FAIL",
+              );
+              if (blockedByReadFailPlan.length > 0) {
+                const blockedPathsPlan = blockedByReadFailPlan
+                  .map((r: any) => r.message || "")
+                  .join(", ");
+                accumulatedUserParts.push({
+                  text: `\n[System] ⚠️ 파일 경로 확인이 필요합니다.\n\n다음 경로의 파일이 존재하지 않습니다: ${blockedPathsPlan}\n**반드시 glob_search 도구로 파일의 실제 위치를 검색하세요.**\n예: { "tool": "glob_search", "pattern": "**/{파일명}" }\nglob_search 결과에서 파일이 발견되면 올바른 경로를 사용하세요.\n파일이 프로젝트에 없으면 사용자에게 알려주세요.`,
+                });
+                console.log(
+                  `[ConversationManager] CREATE_BLOCKED_AFTER_READ_FAIL detected (plan mode), injecting glob_search guidance for: ${blockedPathsPlan}`,
                 );
               }
 
@@ -2052,6 +2301,9 @@ export class ConversationManager implements IConversationHandler {
                 continue;
               } else {
                 // 모든 plan item 완료 → 자동 테스트 후 REVIEW 전환
+                if (abortSignal?.aborted) {
+                  break;
+                }
                 const testTransition = await this.runTestsAndTransition(
                   webviewToRespond,
                   stateManager,
@@ -2063,6 +2315,7 @@ export class ConversationManager implements IConversationHandler {
                   isAutoTestRetryEnabled,
                   accumulatedUserParts,
                   turnCount,
+                  true, // allPlanItemsDone
                 );
                 testFixAttempts = testTransition.testFixAttempts;
                 if (testTransition.pendingRetryPrompt) {
@@ -2081,12 +2334,13 @@ export class ConversationManager implements IConversationHandler {
                 (options.selectedFiles && options.selectedFiles.length > 0) ||
                 options.diagnosticsContext;
 
-              // 🔥 핵심 수정: 파일 변경이 없고 재시도 횟수가 남아있으면 도구 호출 강제
+              // 핵심 수정: 파일 변경이 없고 재시도 횟수가 남아있으면 도구 호출 강제
               const hasFileChanges =
                 createdFiles.length > 0 || modifiedFiles.length > 0;
 
               if (
                 !hasFileChanges &&
+                !isPlanMode &&
                 executionNoToolRetryCount < maxExecutionNoToolRetries
               ) {
                 // 파일 변경 없이 도구 호출도 없음 → LLM에게 도구 호출 강제 프롬프트 추가 후 재시도
@@ -2104,12 +2358,94 @@ export class ConversationManager implements IConversationHandler {
                 continue;
               }
 
-              // 첨부 컨텍스트가 있을 때는 분석 응답이므로 사용자에게 표시
+              // 첨부 컨텍스트 또는 PLAN 모드일 때는 텍스트 응답을 사용자에게 표시
               if (textResponse && textResponse.trim().length > 0) {
-                if (hasAttachedContext) {
+                if (hasAttachedContext || isPlanMode) {
                   console.log(
-                    `[ConversationManager] EXECUTION phase: Text response with attached context (length: ${textResponse.length}). Displaying to user.`,
+                    `[ConversationManager] EXECUTION phase: Text response displayed (length: ${textResponse.length}). isPlanMode=${isPlanMode}`,
                   );
+                  if (isPlanMode) {
+                    planTextResponse = textResponse;
+                    await WebviewBridge.streamText(
+                      webviewToRespond,
+                      "CODEPILOT",
+                      textResponse,
+                    );
+                    // Show approval dialog
+                    const vscodeModule = require("vscode");
+                    const approval =
+                      await vscodeModule.window.showInformationMessage(
+                        "구현 계획이 작성되었습니다. 승인하시겠습니까?",
+                        { modal: true },
+                        "승인",
+                        "거절",
+                      );
+                    if (approval === "승인") {
+                      console.log(
+                        "[ConversationManager] PLAN approved — auto-executing in CODE mode",
+                      );
+                      WebviewBridge.receiveMessage(
+                        webviewToRespond,
+                        "System",
+                        "✓ 계획이 승인되었습니다.",
+                      );
+                      // Save plan to globalStorage
+                      try {
+                        const globalStoragePath =
+                          options.extensionContext?.globalStorageUri?.fsPath;
+                        if (globalStoragePath && planTextResponse) {
+                          const plansDir = path.join(
+                            globalStoragePath,
+                            "plans",
+                          );
+                          if (!fsSync.existsSync(plansDir)) {
+                            fsSync.mkdirSync(plansDir, { recursive: true });
+                          }
+                          const sessionId = options.extensionContext
+                            ? (
+                                await import("../state/SessionManager")
+                              ).SessionManager.getInstance(
+                                options.extensionContext,
+                              ).getCurrentSession()?.id
+                            : undefined;
+                          const planFileName = sessionId
+                            ? `plan_${sessionId}.md`
+                            : `plan_${Date.now()}.md`;
+                          const planFilePath = path.join(
+                            plansDir,
+                            planFileName,
+                          );
+                          fsSync.writeFileSync(
+                            planFilePath,
+                            planTextResponse,
+                            "utf-8",
+                          );
+                          console.log(
+                            `[ConversationManager] Plan saved: ${planFilePath}`,
+                          );
+                        }
+                      } catch (planSaveError) {
+                        console.warn(
+                          "[ConversationManager] Failed to save plan file:",
+                          planSaveError,
+                        );
+                      }
+                      setTimeout(() => {
+                        webviewToRespond.postMessage({
+                          command: "autoPlanExecute",
+                          text: "위 계획대로 진행해줘",
+                        });
+                      }, 500);
+                    } else {
+                      WebviewBridge.receiveMessage(
+                        webviewToRespond,
+                        "System",
+                        "✗ 계획이 거절되었습니다.",
+                      );
+                    }
+                    stateManager.transitionTo(AgentPhase.REVIEW);
+                    break;
+                  }
                   await WebviewBridge.streamText(
                     webviewToRespond,
                     "CODEPILOT",
@@ -2145,6 +2481,9 @@ export class ConversationManager implements IConversationHandler {
                 continue;
               } else {
                 // 모든 plan item 완료 → 자동 테스트 후 REVIEW 전환
+                if (abortSignal?.aborted) {
+                  break;
+                }
                 const testTransition = await this.runTestsAndTransition(
                   webviewToRespond,
                   stateManager,
@@ -2156,6 +2495,7 @@ export class ConversationManager implements IConversationHandler {
                   isAutoTestRetryEnabled,
                   accumulatedUserParts,
                   turnCount,
+                  true, // allPlanItemsDone
                 );
                 testFixAttempts = testTransition.testFixAttempts;
                 if (testTransition.pendingRetryPrompt) {
@@ -2166,9 +2506,9 @@ export class ConversationManager implements IConversationHandler {
               }
             }
           } else {
-            // 이미 파일이 생성된 경우: LLM 호출 없이 plan item 완료 처리
+            // currentPlanItem이 없거나 investigation kind인 경우: LLM 호출 없이 완료 처리
             console.log(
-              "[ConversationManager] EXECUTION phase: plan item has no executable tool calls and files already exist. Marking as done without additional LLM call.",
+              "[ConversationManager] EXECUTION phase: no actionable plan item. Marking as done without additional LLM call.",
             );
 
             if (currentPlanItem) {
@@ -2186,6 +2526,9 @@ export class ConversationManager implements IConversationHandler {
               continue;
             } else {
               // 모든 plan item 완료 → 자동 테스트 후 REVIEW 전환
+              if (abortSignal?.aborted) {
+                break;
+              }
               const testTransition = await this.runTestsAndTransition(
                 webviewToRespond,
                 stateManager,
@@ -2197,6 +2540,7 @@ export class ConversationManager implements IConversationHandler {
                 isAutoTestRetryEnabled,
                 accumulatedUserParts,
                 turnCount,
+                true, // allPlanItemsDone
               );
               testFixAttempts = testTransition.testFixAttempts;
               if (testTransition.pendingRetryPrompt) {
@@ -2229,8 +2573,10 @@ export class ConversationManager implements IConversationHandler {
         `[ConversationManager] Calling LLM for Turn ${turnCount + 1} (Phase: ${currentPhase})`,
       );
       pendingRetryPrompt = false; // LLM에 전달되었으므로 리셋
+      const useErrorFallbackModel =
+        retryCoordinator.consumePendingFallbackModel();
 
-      // 🔥 LLM 호출 전 UI 상태 업데이트
+      // LLM 호출 전 UI 상태 업데이트
       WebviewBridge.sendProcessingStep(webviewToRespond, "thinking");
       WebviewBridge.sendProcessingStatus(
         webviewToRespond,
@@ -2245,8 +2591,82 @@ export class ConversationManager implements IConversationHandler {
           ).isStreamingEnabled()
         : false;
 
+      // 네이티브 툴 콜링 설정 확인 (INVESTIGATION/EXECUTION 단계에서만 tools 배열 전달)
+      const isToolCallingPhase =
+        (currentPhase as AgentPhase) === AgentPhase.INVESTIGATION ||
+        (currentPhase as AgentPhase) === AgentPhase.EXECUTION;
+      if (isToolCallingPhase) {
+        const isNativeToolCallingEnabled = options.extensionContext
+          ? await SettingsManager.getInstance(
+              options.extensionContext,
+            ).isNativeToolCallingEnabled()
+          : false;
+        if (isNativeToolCallingEnabled) {
+          const modelType = this.llmManager.getCurrentModel();
+          if (modelType === AiModelType.ADMIN) {
+            const adminConfig = this.llmManager.getAdminModelConfig();
+            const nativeSupported =
+              adminConfig?.nativeToolCallingSupported === true ||
+              String(adminConfig?.nativeToolCallingSupported) === "true";
+            console.log(
+              `[ConversationManager] nativeToolCallingSupported=${adminConfig?.nativeToolCallingSupported} (resolved=${nativeSupported}) model=${adminConfig?.model}`,
+            );
+            if (nativeSupported) {
+              nativeToolsForCall =
+                ToolSpecBuilder.buildOpenAIToolsConfig(allowedTools);
+              console.log(
+                `[ConversationManager] Native tool calling enabled for admin model: ${adminConfig?.model}`,
+              );
+            } else if (adminConfig && !nativeToolCallingNoticeShown) {
+              // admin 모델이지만 native tool calling 미지원 → 1회 안내
+              nativeToolCallingNoticeShown = true;
+              WebviewBridge.receiveMessage(
+                webviewToRespond,
+                "SYSTEM_INFO",
+                `ℹ️ 현재 모델(${adminConfig.model})은 네이티브 툴 콜링을 지원하지 않습니다. 설정에서 [네이티브 툴 콜링]을 OFF 하세요. (텍스트 기반 파싱으로 동작 중)`,
+              );
+            }
+          }
+          // Ollama 로컬 모델: 설정 ON이면 네이티브 툴 콜링 활성화
+          if (modelType === AiModelType.OLLAMA) {
+            nativeToolsForCall =
+              ToolSpecBuilder.buildOpenAIToolsConfig(allowedTools);
+            console.log(
+              `[ConversationManager] Native tool calling enabled for Ollama local model`,
+            );
+          }
+        }
+      }
+
       let llmResponse: string;
       const llmStartTime = Date.now(); // v9.7.0: LLM 호출 시간 측정
+
+      // REVIEW/DONE 단계에서만 실제 스트리밍 출력, EXECUTION은 제외 ([] 깜빡거림 방지)
+      // 단, pendingMCPResultInterpretation=true면 INVESTIGATION에서도 MCP 결과 해석을 스트리밍
+      // PLAN 모드는 EXECUTION 단계에서 계획 텍스트를 직접 출력하므로 스트리밍 허용
+      // 스코프 밖(removeLastMessage 가드 등)에서도 접근해야 하므로 블록 밖에 선언
+      // AGENT 모드: 스트리밍 중 UI 표시 안 함 (도구 JSON과 텍스트 구분 불가)
+      // 대신 스트리밍 완료 후 텍스트만 streamText로 표시
+      // PLAN 모드: INVESTIGATION 단계에서는 스트리밍 표시 안 함 (JSON plan이 채팅에 노출되는 문제 방지)
+      const isPlanInvestigation =
+        isPlanMode && (currentPhase as AgentPhase) === AgentPhase.INVESTIGATION;
+      const shouldStreamToUI =
+        (currentPhase as AgentPhase) === AgentPhase.REVIEW ||
+        (currentPhase as AgentPhase) === AgentPhase.DONE ||
+        pendingMCPResultInterpretation ||
+        (isPlanMode && !isPlanInvestigation);
+
+      // 스트리밍 즉시 파일 생성 설정 (onChunk 동기 핸들러에서 사용)
+      const isAutoToolForStreaming =
+        await SettingsManager.getInstance().isAutoToolExecutionEnabled();
+      const isAutoUpdateForStreaming =
+        await SettingsManager.getInstance().isAutoUpdateEnabled();
+
+      // Fix: 스트리밍 중 완성된 create_file/update_file 즉시 실행 추적 (턴별 리셋)
+      const streamingCreatedPaths = new Set<string>();
+      const streamingUpdatedPaths = new Set<string>();
+      // 스트리밍 중 pending 처리된 경로 (승인 여부 무관 — post-stream 중복 방지용)
+      const streamingHandledPaths = new Set<string>();
 
       if (isStreamingEnabled) {
         // 스트리밍 모드: 실시간으로 웹뷰에 청크 전송
@@ -2254,10 +2674,7 @@ export class ConversationManager implements IConversationHandler {
           `[ConversationManager] Streaming mode enabled for Turn ${turnCount + 1}`,
         );
 
-        // REVIEW/DONE 단계에서만 실제 스트리밍 출력, 그 외에는 조용히 수집
-        const shouldStreamToUI = shouldSendCodePilotText(currentPhase);
-
-        // 🔥 채팅 패널 타이핑 효과 (자연어 텍스트만, 코드 블록은 ToolExecutor가 처리)
+        // 채팅 패널 타이핑 효과 (자연어 텍스트만, 코드 블록은 ToolExecutor가 처리)
         let textStreamer: StreamingCodeApplier | null = null;
 
         if (shouldStreamToUI) {
@@ -2269,16 +2686,233 @@ export class ConversationManager implements IConversationHandler {
         }
 
         if (shouldStreamToUI) {
-          // 스트리밍 시작 알림
-          WebviewBridge.startStreamingMessage(webviewToRespond, "assistant");
+          // 스트리밍 시작 알림 (AGENT 모드는 shouldStreamToUI=false이므로 여기 안 탐)
+          WebviewBridge.startStreamingMessage(
+            webviewToRespond,
+            "assistant",
+            conversationTurnId ? { conversationTurnId } : undefined,
+          );
         }
 
         let accumulatedResponse = "";
-        // 🔥 onChunk는 SYNC여야 함 (LLM API가 await 안 함)
+        let streamingCreatePromise: Promise<void> = Promise.resolve();
+        let streamLastFileContentPos = 0;
+        const FILE_END_MARKER = "</file_content>";
+
+        // 스트리밍 즉시 파일 생성/수정 공통 실행 함수 (FILE_END_MARKER + onNativeToolComplete 공용)
+        // needsApproval=true: 실행 전 사용자 승인 모달 표시
+        const executeStreamingFileOp = (
+          path: string,
+          capturedCall: ToolUse,
+          needsApproval: boolean = false,
+        ) => {
+          const isCreate = capturedCall.name === "create_file";
+          const trackingSet = isCreate
+            ? streamingCreatedPaths
+            : streamingUpdatedPaths;
+          const actionLabel = isCreate ? "생성" : "수정";
+
+          if (needsApproval) {
+            streamingHandledPaths.add(`${capturedCall.name}:${path}`);
+          }
+          streamingCreatePromise = streamingCreatePromise.then(async () => {
+            if (abortSignal?.aborted) {
+              return;
+            }
+            if (needsApproval) {
+              const detailDisplay = `: ${path.substring(0, 50)}${path.length > 50 ? "..." : ""}`;
+              WebviewBridge.receiveMessage(
+                webviewToRespond,
+                "System",
+                `⏳ [Pending] 파일 ${actionLabel}${detailDisplay} - 사용자 승인 필요`,
+              );
+              const result = await vscode.window.showInformationMessage(
+                `파일 ${actionLabel}: ${path}`,
+                { modal: true },
+                "실행",
+                "건너뛰기",
+              );
+              if (result !== "실행") {
+                return;
+              }
+            }
+            const streamRoot =
+              ProjectManager.getInstance().getCurrentProject()?.root || "";
+            const streamCtx: ToolExecutionContext = {
+              projectRoot: streamRoot,
+              workspaceRoot: streamRoot,
+              actionManager,
+              executionManager,
+              terminalManager,
+              contextManager: this.contextManager,
+            };
+            const fileName = path.split("/").pop() || path;
+            WebviewBridge.sendProcessingStatus(
+              webviewToRespond,
+              "executing",
+              `파일 ${actionLabel} 중: ${fileName}...`,
+            );
+            const streamResults = await toolExecutor.executeTools(
+              [capturedCall],
+              streamCtx,
+              undefined,
+              undefined,
+              abortSignal,
+            );
+            if (streamResults[0]?.success && capturedCall.params.path) {
+              const p = capturedCall.params.path as string;
+              trackingSet.add(p);
+              if (isCreate) {
+                if (!createdFiles.includes(p) && !modifiedFiles.includes(p)) {
+                  createdFiles.push(p);
+                }
+              } else {
+                if (!modifiedFiles.includes(p) && !createdFiles.includes(p)) {
+                  modifiedFiles.push(p);
+                }
+              }
+              if (streamResults[0]) {
+                ToolExecutionCoordinator.sendSingleToolResultToUI(
+                  webviewToRespond,
+                  capturedCall,
+                  streamResults[0],
+                );
+              }
+            } else if (streamResults[0] && !streamResults[0].success) {
+              // 실패 시 채팅에 메시지 표시 + 메인 실행에서 중복 실행 방지
+              const reason =
+                streamResults[0].message ||
+                streamResults[0].error?.message ||
+                "실행 실패";
+              const isSecurityBlock =
+                streamResults[0].error?.code === "BLOCKED_BY_VALIDATOR";
+              const icon = isSecurityBlock ? "🚫 [차단]" : "❌ [Failed]";
+              WebviewBridge.receiveMessage(
+                webviewToRespond,
+                "System",
+                `${icon} ${reason}`,
+              );
+              // 실패한 도구도 handled로 추가 — 스트리밍 중 같은 파일 반복 실행 방지
+              streamingHandledPaths.add(`${capturedCall.name}:${path}`);
+            }
+          });
+        };
+
+        // 네이티브 tool_call 완성 시 콜백
+        // ON+ON: 즉시 실행 / ON+파일OFF 또는 도구OFF: 즉시 pending
+        const onNativeToolComplete = (
+          toolName: string,
+          args: Record<string, any>,
+        ) => {
+          if (
+            (toolName !== "create_file" && toolName !== "update_file") ||
+            !args.path
+          ) {
+            return;
+          }
+          const p = args.path as string;
+          const trackingSet =
+            toolName === "create_file"
+              ? streamingCreatedPaths
+              : streamingUpdatedPaths;
+          const handledKey = `${toolName}:${p}`;
+          if (trackingSet.has(p) || streamingHandledPaths.has(handledKey)) {
+            return;
+          }
+          const capturedCall: ToolUse = { name: toolName, params: { ...args } };
+          const needsApproval =
+            !isAutoToolForStreaming || !isAutoUpdateForStreaming;
+          executeStreamingFileOp(p, capturedCall, needsApproval);
+        };
+
+        // onChunk는 SYNC여야 함 (LLM API가 await 안 함)
         const onChunk = (chunk: string, done: boolean) => {
           accumulatedResponse += chunk;
 
-          // 🔥 채팅 타이핑 효과: textStreamer가 도구 호출 제외하고 텍스트만 출력
+          if (
+            isAutoToolForStreaming &&
+            isAutoUpdateForStreaming &&
+            !isPlanMode
+          ) {
+            // ON+ON: </file_content> 감지 즉시 실행 (PLAN 모드에서는 비활성)
+            let endIdx = accumulatedResponse.indexOf(
+              FILE_END_MARKER,
+              streamLastFileContentPos,
+            );
+            while (endIdx !== -1) {
+              const segmentEnd = endIdx + FILE_END_MARKER.length;
+              const segment = accumulatedResponse.substring(0, segmentEnd);
+              streamLastFileContentPos = segmentEnd;
+              const segCalls = ToolParser.parseCodeBlockFormat(segment, []);
+              for (const call of segCalls) {
+                if (
+                  call.name === "create_file" &&
+                  call.params.path &&
+                  !streamingCreatedPaths.has(call.params.path as string)
+                ) {
+                  executeStreamingFileOp(
+                    call.params.path as string,
+                    call,
+                    false,
+                  );
+                }
+                if (
+                  call.name === "update_file" &&
+                  call.params.path &&
+                  !streamingUpdatedPaths.has(call.params.path as string)
+                ) {
+                  executeStreamingFileOp(
+                    call.params.path as string,
+                    call,
+                    false,
+                  );
+                }
+              }
+              endIdx = accumulatedResponse.indexOf(
+                FILE_END_MARKER,
+                streamLastFileContentPos,
+              );
+            }
+          } else if (!isPlanMode) {
+            // 도구OFF 또는 파일OFF: </file_content> 감지 즉시 pending 처리 (PLAN 모드에서는 비활성)
+            let endIdx = accumulatedResponse.indexOf(
+              FILE_END_MARKER,
+              streamLastFileContentPos,
+            );
+            while (endIdx !== -1) {
+              const segmentEnd = endIdx + FILE_END_MARKER.length;
+              const segment = accumulatedResponse
+                .substring(0, segmentEnd)
+                .replace(/<think>[\s\S]*?<\/think>/g, "");
+              streamLastFileContentPos = segmentEnd;
+              const segCalls = ToolParser.parseCodeBlockFormat(segment, []);
+              for (const call of segCalls) {
+                const p = call.params.path as string;
+                if (
+                  call.name === "create_file" &&
+                  p &&
+                  !streamingCreatedPaths.has(p) &&
+                  !streamingHandledPaths.has(`create_file:${p}`)
+                ) {
+                  executeStreamingFileOp(p, call, true);
+                }
+                if (
+                  call.name === "update_file" &&
+                  p &&
+                  !streamingUpdatedPaths.has(p) &&
+                  !streamingHandledPaths.has(`update_file:${p}`)
+                ) {
+                  executeStreamingFileOp(p, call, true);
+                }
+              }
+              endIdx = accumulatedResponse.indexOf(
+                FILE_END_MARKER,
+                streamLastFileContentPos,
+              );
+            }
+          }
+
+          // 채팅 타이핑 효과: textStreamer가 도구 호출 제외하고 텍스트만 출력
           if (textStreamer) {
             textStreamer.processChunk(chunk);
           }
@@ -2299,8 +2933,23 @@ export class ConversationManager implements IConversationHandler {
           }
         };
 
-        // execution 의도일 때 Command 모델 사용 (스트리밍)
-        if (intent && intent.category === "execution" && this.stateManager) {
+        // 에러 폴백 모델 우선 적용 (동일 에러 3회 반복 시)
+        if (useErrorFallbackModel && this.stateManager) {
+          console.log(
+            "[ConversationManager] Error fallback model triggered (streaming)",
+          );
+          llmResponse = await this.llmManager.sendMessageWithErrorFallbackModel(
+            activeSystemPrompt + planContext,
+            accumulatedUserParts,
+            this.stateManager,
+            { signal: abortSignal },
+          );
+        } else if (
+          intent &&
+          intent.category === "execution" &&
+          this.stateManager
+        ) {
+          // execution 의도일 때 Command 모델 사용 (스트리밍)
           console.log(
             "[ConversationManager] Execution intent detected, using Command model (streaming)",
           );
@@ -2318,13 +2967,47 @@ export class ConversationManager implements IConversationHandler {
               activeSystemPrompt + planContext,
               accumulatedUserParts,
               onChunk,
-              { signal: abortSignal },
+              {
+                signal: abortSignal,
+                nativeTools: nativeToolsForCall,
+                onNativeToolComplete,
+                thinkingLevel,
+                onRetryNotify: (attempt, message) => {
+                  WebviewBridge.sendProcessingStatus(
+                    webviewToRespond,
+                    "retrying",
+                    message,
+                  );
+                },
+              },
             );
         }
+        // 스트리밍 중 시작된 create_file 모두 완료 대기
+        await streamingCreatePromise;
       } else {
         // 비스트리밍 모드: 기존 방식
-        // execution 의도일 때 Command 모델 사용
-        if (intent && intent.category === "execution" && this.stateManager) {
+        const retryNotify = (attempt: number, message: string) => {
+          WebviewBridge.sendProcessingStatus(
+            webviewToRespond,
+            "retrying",
+            message,
+          );
+        };
+        // 에러 폴백 모델 우선 적용 (동일 에러 3회 반복 시)
+        if (useErrorFallbackModel && this.stateManager) {
+          console.log("[ConversationManager] Error fallback model triggered");
+          llmResponse = await this.llmManager.sendMessageWithErrorFallbackModel(
+            activeSystemPrompt + planContext,
+            accumulatedUserParts,
+            this.stateManager,
+            { signal: abortSignal, thinkingLevel, onRetryNotify: retryNotify },
+          );
+        } else if (
+          intent &&
+          intent.category === "execution" &&
+          this.stateManager
+        ) {
+          // execution 의도일 때 Command 모델 사용
           console.log(
             "[ConversationManager] Execution intent detected, using Command model",
           );
@@ -2332,45 +3015,73 @@ export class ConversationManager implements IConversationHandler {
             activeSystemPrompt + planContext,
             accumulatedUserParts,
             this.stateManager,
-            { signal: abortSignal },
+            { signal: abortSignal, thinkingLevel, onRetryNotify: retryNotify },
           );
         } else {
           llmResponse = await this.llmManager.sendMessageWithSystemPrompt(
             activeSystemPrompt + planContext,
             accumulatedUserParts,
-            { signal: abortSignal },
+            {
+              signal: abortSignal,
+              nativeTools: nativeToolsForCall,
+              thinkingLevel,
+              onRetryNotify: retryNotify,
+            },
           );
         }
       }
 
+      if (abortSignal?.aborted) {
+        break;
+      }
+
       // v9.7.0: LLM 호출 메트릭 기록
       const llmResponseTime = Date.now() - llmStartTime;
-      const estimatedTokenCount = Math.ceil(llmResponse.length / 4); // 대략적인 토큰 추정
-      usageMetrics.recordLLMCall(llmResponseTime, estimatedTokenCount, true);
+      const estimatedTokenCount = estimateTokens(llmResponse);
+      let actualModelName: string | undefined;
+      try {
+        actualModelName = await this.llmManager.getCurrentModelName();
+      } catch {}
+      usageMetrics.recordLLMCall(
+        llmResponseTime,
+        estimatedTokenCount,
+        true,
+        actualModelName,
+      );
       usageMetrics.incrementTurnCount();
 
+      // CODE 모드 토큰 누적 (REVIEW 요약 메시지 렌더링 후 전송)
+      this._pendingTokenInfo = {
+        tokens: (this._pendingTokenInfo?.tokens || 0) + estimatedTokenCount,
+        model: actualModelName,
+      };
+
       console.log(
-        `[ConversationManager] LLM Raw Response (Turn ${turnCount + 1}):`,
-        llmResponse.length > AgentConfig.MAX_LOG_PREVIEW_LENGTH
-          ? llmResponse.substring(0, AgentConfig.MAX_LOG_PREVIEW_LENGTH) + "..."
-          : llmResponse,
+        `[ConversationManager] LLM Raw Response (Turn ${turnCount + 1}): (${llmResponse.length} chars)`,
       );
 
-      // 1. 응답 정제 (<think> 태그 및 JSON 래핑 처리)
-      // ⚠️ 핵심 수정: LLM response에서 thinking 노출 차단 강화
-      // StringUtils를 사용하여 모든 패턴 제거
-      // 🔥 수정: INVESTIGATION 단계에서는 자연어 제거 안함 (텍스트 응답 감지 필요)
+      // 0.5. thinking 내용을 UI processing-steps 영역에 표시
+      const thinkingMatch = llmResponse.match(/<think>([\s\S]*?)<\/think>/);
+      if (thinkingMatch) {
+        const thinkingText = thinkingMatch[1].trim();
+        if (thinkingText) {
+          WebviewBridge.sendThinkingContent(webviewToRespond, thinkingText);
+        }
+      }
+
+      // 1. 응답 정제 (<think> 태그 및 JSON thinking 제거)
+      // 자연어는 모든 단계에서 유지 (마크다운 구조 보존)
       let cleanResponse = StringUtils.cleanText(llmResponse, {
         removeThinking: true,
-        removeNaturalLanguage: currentPhase !== AgentPhase.INVESTIGATION, // INVESTIGATION에서는 자연어 유지 (텍스트 응답 감지용)
-        removeSystemMessages: false, // 이 컨텍스트에서는 시스템 메시지 제거하지 않음
-        removeToolTags: false, // 도구 태그는 유지
+        removeNaturalLanguage: false,
+        removeSystemMessages: false,
+        removeToolTags: false,
         removeJsonThinking: true,
         extractJson: false,
       });
 
       // 도구 호출만 남기고 자연어 텍스트 제거 (EXECUTION phase에서 특히 중요)
-      // 🔥 핵심: EXECUTION phase에서는 "생각", "설명" → 전부 무시, tool call만 추출
+      // 핵심: EXECUTION phase에서는 "생각", "설명" → 전부 무시, tool call만 추출
       if (currentPhase === AgentPhase.EXECUTION) {
         // 새 형식: { "tool": "..." } 패턴 확인
         // ⚠️ llmResponse (원본)에서 체크 - cleanResponse는 자연어 필터링으로 JSON이 손상될 수 있음
@@ -2383,13 +3094,18 @@ export class ConversationManager implements IConversationHandler {
           console.log(
             `[ConversationManager] EXECUTION phase: Tool call detected`,
           );
+          // 스트리밍 모드에서 tool call JSON이 chat에 빈 버블로 남지 않도록 제거
+          // shouldStreamToUI=false(EXECUTION)면 버블이 없으므로 제거하지 않음 → 이전 코드블록 삭제 방지
+          if (isStreamingEnabled && shouldStreamToUI) {
+            WebviewBridge.removeLastMessage(webviewToRespond);
+          }
         } else {
           // 도구 호출이 없으면 자연어 응답으로 간주
           console.warn(
             `[ConversationManager] EXECUTION phase: No tool calls found. LLM provided natural language instead of tool calls.`,
           );
 
-          // ⚠️ MCP 도구 결과 해석 대기 중이면 → REVIEW로 보내지 않고 텍스트를 사용자에게 표시
+          // ⚠️ MCP 도구 결과 해석 대기 중이면 → 텍스트를 사용자에게 표시 후 종료
           if (pendingMCPResultInterpretation) {
             console.log(
               `[ConversationManager] EXECUTION phase: pendingMCPResultInterpretation=true. Displaying LLM text response to user.`,
@@ -2398,67 +3114,252 @@ export class ConversationManager implements IConversationHandler {
             lastTurnHadSuccessfulToolExecution = false;
             (this as any).naturalLanguageRetry = 0;
 
-            // LLM 텍스트 응답 정제 및 사용자에게 출력
-            let cleanMCPResponse = StringUtils.cleanText(llmResponse, {
-              removeThinking: true,
-              removeNaturalLanguage: false, // MCP 결과 해석은 자연어 허용
-              removeSystemMessages: false,
-              removeToolTags: false,
-              removeJsonThinking: true,
-              extractJson: false,
-            });
+            // v9.7.4: JSON plan 응답이 raw로 노출되는 문제 수정
+            // LLM이 tool call 대신 JSON plan을 반환한 경우 → 스트리밍된 raw JSON 제거 후 정리된 텍스트로 대체
+            const isJsonPlanResponse = /\{\s*"plan"\s*:/.test(llmResponse);
 
-            if (cleanMCPResponse && cleanMCPResponse.trim()) {
-              await WebviewBridge.streamText(
-                webviewToRespond,
-                "CODEPILOT",
-                cleanMCPResponse,
+            if (isStreamingEnabled && isJsonPlanResponse) {
+              // 스트리밍으로 이미 표시된 raw JSON 제거
+              WebviewBridge.removeLastMessage(webviewToRespond);
+              console.log(
+                `[ConversationManager] ${isPlanMode ? "PLAN" : "EXECUTION"} phase: Removed streamed JSON plan from UI`,
               );
+
+              if (isPlanMode) {
+                // PLAN mode: don't show plan items in chat — wait for markdown plan text
+                console.log(
+                  `[ConversationManager] PLAN mode: JSON plan suppressed from chat UI`,
+                );
+              }
+
+              // plan items에서 사용자 친화적 요약 추출 (CODE mode only)
+              const planItems = ToolParser.parsePlanItems(llmResponse);
+              if (planItems.length > 0 && !isPlanMode) {
+                const summary = planItems
+                  .map(
+                    (item) =>
+                      `- ${item.title}${item.detail ? `: ${item.detail}` : ""}`,
+                  )
+                  .join("\n");
+                await WebviewBridge.streamText(
+                  webviewToRespond,
+                  "CODEPILOT",
+                  summary,
+                );
+              }
+            } else if (!isStreamingEnabled) {
+              // 스트리밍 비활성화 시 별도 출력
+              let cleanMCPResponse = StringUtils.cleanText(llmResponse, {
+                removeThinking: true,
+                removeNaturalLanguage: false,
+                removeSystemMessages: false,
+                removeToolTags: false,
+                removeJsonThinking: true,
+                extractJson: false,
+              });
+
+              // JSON plan이면 사용자 친화적 텍스트로 변환
+              if (isJsonPlanResponse) {
+                const planItems = ToolParser.parsePlanItems(llmResponse);
+                if (planItems.length > 0) {
+                  cleanMCPResponse = planItems
+                    .map(
+                      (item) =>
+                        `- ${item.title}${item.detail ? `: ${item.detail}` : ""}`,
+                    )
+                    .join("\n");
+                }
+              }
+
+              if (cleanMCPResponse && cleanMCPResponse.trim()) {
+                await WebviewBridge.streamText(
+                  webviewToRespond,
+                  "CODEPILOT",
+                  cleanMCPResponse,
+                );
+              }
             }
 
+            // EXECUTION → REVIEW → DONE (상태 머신 규칙 준수)
+            stateManager.transitionTo(AgentPhase.REVIEW);
             stateManager.transitionTo(AgentPhase.DONE, {});
             break;
           }
 
-          // 🔥 최적화: 이전 턴에서 도구가 성공적으로 실행됐고 남은 plan item이 없으면
+          // 최적화: 이전 턴에서 도구가 성공적으로 실행됐고 plan의 모든 item이 완료되면
           // "완료 확인" 호출 없이 바로 REVIEW로 전환 (불필요한 LLM 호출 제거)
+          // ⚠️ plan이 한 번도 생성되지 않은 경우: 조기 종료 금지, 다음 턴으로 계속
           const remainingPlanItems = taskManager.getNextPendingItem();
-          if (lastTurnHadSuccessfulToolExecution && !remainingPlanItems) {
+          const planExistsForReview = taskManager.listPlanItems().length > 0;
+          if (
+            lastTurnHadSuccessfulToolExecution &&
+            planExistsForReview &&
+            !remainingPlanItems
+          ) {
+            // Case A: plan 기반 플로우 — 모든 plan item 완료
             console.log(
-              `[ConversationManager] EXECUTION phase: Previous turn had successful tool execution and no remaining plan items. Skipping completion confirmation and transitioning to REVIEW.`,
+              `[ConversationManager] EXECUTION phase: All plan items completed. Skipping completion confirmation and transitioning to REVIEW.`,
             );
+            // 스트리밍 모드에서 이미 UI에 표시된 자연어 응답을 제거 (버블이 있을 때만)
+            if (isStreamingEnabled && shouldStreamToUI) {
+              WebviewBridge.removeLastMessage(webviewToRespond);
+            }
             // "완료 확인" 호출 없이 바로 REVIEW로 전환
             stateManager.transitionTo(AgentPhase.REVIEW);
             lastTurnHadSuccessfulToolExecution = false; // 리셋
             (this as any).naturalLanguageRetry = 0; // 리셋
             cleanResponse = ""; // 자연어 응답은 무시 (불필요한 "완료했습니다" 메시지)
+          } else if (
+            lastTurnHadSuccessfulToolExecution &&
+            !planExistsForReview
+          ) {
+            // Case C: no-plan 실행 — plan이 한 번도 생성되지 않음
+            // 도구 성공만으로 완료 판정 불가, LLM에게 다음 턴을 줘서 계속 작업하게 함
+            console.log(
+              `[ConversationManager] EXECUTION phase: Tool succeeded but no plan exists. Continuing to let LLM work.`,
+            );
+            lastTurnHadSuccessfulToolExecution = false;
+            (this as any).naturalLanguageRetry = 0;
           } else if (lastTurnHadSuccessfulToolExecution && remainingPlanItems) {
             // 남은 plan item이 있으면 계속 진행 (다음 plan item 실행)
             console.log(
               `[ConversationManager] EXECUTION phase: Previous turn had successful tool execution but remaining plan items exist. Continuing to next item.`,
             );
+            // 스트리밍 모드에서 이미 UI에 표시된 자연어 응답을 제거 (버블이 있을 때만)
+            if (isStreamingEnabled && shouldStreamToUI) {
+              WebviewBridge.removeLastMessage(webviewToRespond);
+            }
             lastTurnHadSuccessfulToolExecution = false; // 리셋
             (this as any).naturalLanguageRetry = 0; // 리셋
             // cleanResponse는 유지하지 않음 (자연어 응답 무시하고 다음 plan item으로)
             cleanResponse = "";
           } else {
-            // 🔥 자연어 응답 시 즉시 재요청 (최대 3회)
-            const naturalLanguageRetryKey = "naturalLanguageRetry";
-            const currentRetryCount =
-              (this as any)[naturalLanguageRetryKey] || 0;
-            if (currentRetryCount < 3) {
-              (this as any)[naturalLanguageRetryKey] = currentRetryCount + 1;
+            // 자연어 응답 (도구 호출 없음) — write tool 이력 기반 종료 판정
+            const hasWriteHistory =
+              createdFiles.length > 0 || modifiedFiles.length > 0;
+
+            if (hasWriteHistory) {
+              // write tool 이력 있음 → 작업 완료 후 마무리 응답으로 판단 → done
               console.log(
-                `[ConversationManager] EXECUTION phase: Natural language response detected. Requesting tool call (attempt ${currentRetryCount + 1}/3)`,
+                `[ConversationManager] EXECUTION phase: Natural language response with write history. Treating as done.`,
               );
-              accumulatedUserParts.push({ text: getExecutionNudgePrompt() });
-              turnCount++;
-              continue; // 즉시 재요청
+              (this as any).naturalLanguageRetry = 0;
             } else {
-              console.warn(
-                `[ConversationManager] EXECUTION phase: Max retries (3) reached for natural language responses. Proceeding with empty response.`,
-              );
-              (this as any)[naturalLanguageRetryKey] = 0; // 리셋
+              // write tool 이력 없음 → thinking만 보낸 케이스 가능 → nudge 1회
+              // PLAN 모드는 텍스트 계획 출력이 목적 → nudge 금지
+              if (isPlanMode) {
+                if (cleanResponse.trim()) {
+                  console.log(
+                    `[ConversationManager] PLAN mode: Natural language response accepted as plan output. Done.`,
+                  );
+                  // Show approval dialog (VS Code modal)
+                  planTextResponse = cleanResponse.trim();
+                  const vscodeModule = require("vscode");
+                  const approval =
+                    await vscodeModule.window.showInformationMessage(
+                      "구현 계획이 작성되었습니다. 승인하시겠습니까?",
+                      { modal: true },
+                      "승인",
+                      "거절",
+                    );
+                  if (approval === "승인") {
+                    console.log(
+                      "[ConversationManager] PLAN approved — auto-executing in CODE mode",
+                    );
+                    // Auto-execute: send plan as CODE mode message
+                    WebviewBridge.receiveMessage(
+                      webviewToRespond,
+                      "System",
+                      "✓ 계획이 승인되었습니다.",
+                    );
+                    // Save plan to globalStorage
+                    try {
+                      const globalStoragePath =
+                        options.extensionContext?.globalStorageUri?.fsPath;
+                      if (globalStoragePath && planTextResponse) {
+                        const plansDir = path.join(globalStoragePath, "plans");
+                        if (!fsSync.existsSync(plansDir)) {
+                          fsSync.mkdirSync(plansDir, { recursive: true });
+                        }
+                        const sessionId = options.extensionContext
+                          ? (
+                              await import("../state/SessionManager")
+                            ).SessionManager.getInstance(
+                              options.extensionContext,
+                            ).getCurrentSession()?.id
+                          : undefined;
+                        const planFileName = sessionId
+                          ? `plan_${sessionId}.md`
+                          : `plan_${Date.now()}.md`;
+                        const planFilePath = path.join(plansDir, planFileName);
+                        fsSync.writeFileSync(
+                          planFilePath,
+                          planTextResponse,
+                          "utf-8",
+                        );
+                        console.log(
+                          `[ConversationManager] Plan saved: ${planFilePath}`,
+                        );
+                      }
+                    } catch (planSaveError) {
+                      console.warn(
+                        "[ConversationManager] Failed to save plan file:",
+                        planSaveError,
+                      );
+                    }
+                    // Queue a CODE mode execution with the plan context
+                    setTimeout(() => {
+                      webviewToRespond.postMessage({
+                        command: "autoPlanExecute",
+                        text: "위 계획대로 진행해줘",
+                      });
+                    }, 500);
+                  } else {
+                    WebviewBridge.receiveMessage(
+                      webviewToRespond,
+                      "System",
+                      "✗ 계획이 거절되었습니다. 새로 질의하거나 수정 사항을 알려주세요.",
+                    );
+                  }
+                  break; // 계획 출력 완료 → 루프 종료
+                } else {
+                  // think 태그만 있고 실제 계획 텍스트 없음 → 한 번 더 요청
+                  console.log(
+                    `[ConversationManager] PLAN mode: No visible plan text (only thinking). Requesting plan output.`,
+                  );
+                  accumulatedUserParts.push({
+                    text: "지금 바로 구현 계획을 Markdown 텍스트로 출력해주세요. 도구 호출 없이 텍스트만 출력하세요.",
+                  });
+                  turnCount++;
+                  continue;
+                }
+              } else {
+                const naturalLanguageRetryKey = "naturalLanguageRetry";
+                const currentRetryCount =
+                  (this as any)[naturalLanguageRetryKey] || 0;
+                if (currentRetryCount < 1) {
+                  (this as any)[naturalLanguageRetryKey] =
+                    currentRetryCount + 1;
+                  console.log(
+                    `[ConversationManager] EXECUTION phase: Natural language response with no write history. Nudging once (attempt ${currentRetryCount + 1}/1)`,
+                  );
+                  // 스트리밍 모드에서 이미 UI에 표시된 자연어 응답을 제거 (버블이 있을 때만)
+                  if (isStreamingEnabled && shouldStreamToUI) {
+                    WebviewBridge.removeLastMessage(webviewToRespond);
+                  }
+                  accumulatedUserParts.push({
+                    text: getExecutionNudgePrompt(),
+                  });
+                  turnCount++;
+                  continue; // 즉시 재요청
+                } else {
+                  // nudge 1회 후에도 텍스트만 → LLM 판단 존중, done
+                  console.log(
+                    `[ConversationManager] EXECUTION phase: Nudge exhausted (1/1). Respecting LLM decision.`,
+                  );
+                  (this as any)[naturalLanguageRetryKey] = 0;
+                }
+              }
             }
             cleanResponse = "";
           }
@@ -2466,7 +3367,7 @@ export class ConversationManager implements IConversationHandler {
       }
 
       // 1-1. INVESTIGATION 단계 Output Contract 검증: plan과 실행 도구가 함께 나오면
-      // 🔥 개선: 재요청 대신 실행 도구만 처리하고 plan은 무시 (턴 낭비 방지)
+      // 개선: 재요청 대신 실행 도구만 처리하고 plan은 무시 (턴 낭비 방지)
       // ⚠️ ripgrep_search는 허용 (조사 행위, 부작용 없음)
       // ⚠️ JSON Function Calling도 지원
       if (currentPhase === AgentPhase.INVESTIGATION) {
@@ -2489,14 +3390,14 @@ export class ConversationManager implements IConversationHandler {
           executionTools.includes(call.name as Tool),
         );
 
-        // 🔥 개선: plan과 실행 도구가 함께 있으면 plan을 무시하고 실행 도구만 처리
+        // 개선: plan과 실행 도구가 함께 있으면 plan을 무시하고 실행 도구만 처리
         // 이전: 즉시 재요청 → 불필요한 턴 발생, 429 에러 유발
         // 현재: 실행 도구 처리 후 EXECUTION 단계로 전환
         if (hasPlan && hasExecutionTool) {
           console.log(
-            "[ConversationManager] INVESTIGATION: plan과 실행 도구가 함께 제공됨. plan을 무시하고 실행 도구만 처리합니다.",
+            "[ConversationManager] INVESTIGATION: plan과 실행 도구가 함께 제공됨. read-only 도구만 실행하고 write 도구는 다음 턴으로 미룹니다.",
           );
-          // plan JSON 부분 제거 (실행 도구만 남김)
+          // plan JSON 부분 제거
           cleanResponse = cleanResponse
             .replace(
               /```json[\s\S]*?\{\s*"plan"\s*:[\s\S]*?\}[\s\S]*?```/gi,
@@ -2504,7 +3405,33 @@ export class ConversationManager implements IConversationHandler {
             )
             .replace(/\{\s*"plan"\s*:\s*\[[\s\S]*?\]\s*\}/g, "")
             .trim();
-          // 실행 도구가 있으므로 EXECUTION 단계로 전환 (stateManager 사용)
+          // Filter out write tools from the response — only keep read-only tools
+          // Write tools will be re-generated by LLM in the next turn with actual file content
+          const writeToolNames = [
+            Tool.CREATE_FILE,
+            Tool.UPDATE_FILE,
+            Tool.REMOVE_FILE,
+            Tool.RUN_COMMAND,
+          ];
+          for (const wt of writeToolNames) {
+            // Remove JSON tool call blocks for write tools
+            const wtRegex = new RegExp(
+              `\\{\\s*"tool"\\s*:\\s*"${wt}"[\\s\\S]*?\\}(?:\\s*<file_content>[\\s\\S]*?</file_content>)?`,
+              "g",
+            );
+            cleanResponse = cleanResponse.replace(wtRegex, "").trim();
+          }
+          const remainingTools = ToolParser.parseCodeBlockFormat(cleanResponse);
+          if (remainingTools.length > 0) {
+            console.log(
+              `[ConversationManager] INVESTIGATION: ${remainingTools.length} read-only tool(s) kept, write tools filtered out`,
+            );
+          } else {
+            console.log(
+              `[ConversationManager] INVESTIGATION: All tools were write tools, keeping plan for next turn`,
+            );
+          }
+          // Transition to EXECUTION after read-only tools are processed
           stateManager.transitionTo(AgentPhase.EXECUTION);
           console.log(
             "[ConversationManager] Transitioning to EXECUTION phase (tool found with plan)",
@@ -2529,8 +3456,13 @@ export class ConversationManager implements IConversationHandler {
         .replace(/\{\s*["']investigation_done["']\s*:\s*true\s*\}/gi, "")
         .trim();
 
-      // 🔥 EXECUTION phase에서 텍스트만 나오면 즉시 재요청 (핵심 개선)
-      if (currentPhase === AgentPhase.EXECUTION && llmResponse.trim()) {
+      // EXECUTION phase에서 텍스트만 나오면 즉시 재요청 (핵심 개선)
+      // PLAN 모드는 텍스트 계획 출력이 목적이므로 도구 호출 강제 금지
+      if (
+        currentPhase === AgentPhase.EXECUTION &&
+        !isPlanMode &&
+        llmResponse.trim()
+      ) {
         // 도구 호출이 있는지 확인 (새 형식: { "tool": "..." })
         // ⚠️ llmResponse (원본)에서 체크 - cleanResponse는 자연어 필터링으로 JSON이 손상될 수 있음
         const hasToolCallInExecution = /\{\s*["']tool["']\s*:\s*["']/.test(
@@ -2550,9 +3482,50 @@ export class ConversationManager implements IConversationHandler {
         }
       }
 
-      // 🔥 중복 실행 방지: 전체 llmResponse에서 모든 tool call을 한 번만 파싱
+      // 중복 실행 방지: 전체 llmResponse에서 모든 tool call을 한 번만 파싱
       // ⚠️ llmResponse (원본)에서 파싱 - cleanResponse는 자연어 필터링으로 JSON이 손상될 수 있음
-      const allToolCallsFromResponse = ToolParser.parseToolCalls(llmResponse);
+      const allToolCallsParseWarnings: string[] = [];
+      const allToolCallsFromResponse = ToolParser.parseToolCalls(
+        llmResponse,
+        allToolCallsParseWarnings,
+      );
+
+      // ⚡ 알 수 없는 도구 이름 감지 → 즉시 재프롬프트 (루프 종료 방지)
+      const unknownToolWarnings = allToolCallsParseWarnings.filter((w) =>
+        w.startsWith("알 수 없는 도구:"),
+      );
+      if (
+        unknownToolWarnings.length > 0 &&
+        allToolCallsFromResponse.length === 0
+      ) {
+        const unknownNames = unknownToolWarnings
+          .map((w) => w.replace("알 수 없는 도구: ", ""))
+          .join(", ");
+        const availableTools = [
+          "read_file",
+          "update_file",
+          "create_file",
+          "remove_file",
+          "run_command",
+          "ripgrep_search",
+          "list_files",
+          "glob_search",
+          "list_imports",
+          "stat_file",
+          "fetch_url",
+          "lsp",
+        ].join(", ");
+        console.warn(
+          `[ConversationManager] Unknown tool names detected: ${unknownNames}. Re-prompting.`,
+        );
+        accumulatedUserParts.push({ text: llmResponse });
+        accumulatedUserParts.push({
+          text: `[시스템] 알 수 없는 도구를 호출했습니다: ${unknownNames}. 이 도구들은 존재하지 않습니다. 반드시 다음 도구 목록만 사용하세요: ${availableTools}. 도구 호출 형식: {"tool": "도구이름", ...파라미터}`,
+        });
+        turnCount++;
+        continue;
+      }
+
       const parsedToolCallsMap = new Map<string, any>();
       allToolCallsFromResponse.forEach((call) => {
         const key = `${call.name}:${JSON.stringify(call.params)}`;
@@ -2568,19 +3541,26 @@ export class ConversationManager implements IConversationHandler {
       // 툴 파싱 경고 수집 (예: create_file content 누락)
       const toolParseWarnings: string[] = [];
 
-      // 🔥 도구 호출 처리 (새 형식: { "tool": "..." })
+      // 도구 호출 처리 (새 형식: { "tool": "..." })
       // ⚠️ 핵심 수정: llmResponse (원본)에서 체크 - cleanResponse는 자연어 필터링으로 JSON이 손상될 수 있음
       const hasToolCall = /\{\s*["']tool["']\s*:\s*["']/.test(llmResponse);
+      // ⚠️ Plan 감지: <think> 블록 제거 후 체크 — thinking 안의 plan JSON이 오탐되는 문제 방지
+      const responseWithoutThinking = llmResponse
+        .replace(/<think>[\s\S]*?<\/think>/g, "")
+        .trim();
       const hasJsonPlanInResponse =
-        /\{\s*"plan"\s*:/.test(llmResponse) ||
+        /\{\s*"plan"\s*:/.test(responseWithoutThinking) ||
         /```json[\s\S]*?\{[\s\S]*?"plan"[\s\S]*?\}[\s\S]*?```/i.test(
-          llmResponse,
+          responseWithoutThinking,
         );
 
       // JSON Plan 처리 (도구 호출 없이 plan만 있는 경우)
-      // 🔥 핵심 수정: analysis/documentation 인텐트에서는 JSON plan을 무시하고 자연어 응답으로 처리
-      // 🔥 v9.2.1: MCP 도구가 포함된 플랜은 intent와 무관하게 실행 (외부 도구 호출은 텍스트 응답이 아님)
+      // 핵심 수정: analysis/documentation 인텐트에서는 JSON plan을 무시하고 자연어 응답으로 처리
+      // v9.2.1: MCP 도구가 포함된 플랜은 intent와 무관하게 실행 (외부 도구 호출은 텍스트 응답이 아님)
+      // CODE 모드에서는 documentation이라도 파일 생성이 필요하므로 plan 허용
+      const isCodeMode = options.promptType === PromptType.CODE_GENERATION;
       const isTextOnlyIntent =
+        !isCodeMode &&
         intent &&
         (intent.category === "analysis" || intent.category === "documentation");
       // MCP 도구 포함 여부: ToolRegistry에 등록된 MCP 도구가 응답에 포함되어 있는지 확인
@@ -2590,7 +3570,11 @@ export class ConversationManager implements IConversationHandler {
         registeredMCPTools.some((handler) =>
           llmResponse.includes(handler.name),
         );
-      if (hasJsonPlanInResponse && (!isTextOnlyIntent || hasMCPToolInPlan)) {
+      if (
+        hasJsonPlanInResponse &&
+        (!isTextOnlyIntent || hasMCPToolInPlan) &&
+        !isPlanMode
+      ) {
         if (hasMCPToolInPlan && isTextOnlyIntent) {
           console.log(
             `[ConversationManager] JSON plan contains MCP tools - overriding ${intent?.category} intent to execute plan`,
@@ -2598,8 +3582,8 @@ export class ConversationManager implements IConversationHandler {
         } else {
           console.log(`[ConversationManager] JSON plan detected`);
         }
-        // ⚠️ 핵심 수정: llmResponse (원본)에서 파싱 - cleanResponse는 자연어 필터링으로 JSON이 손상될 수 있음
-        const planItems = ToolParser.parsePlanItems(llmResponse);
+        // ⚠️ 핵심 수정: thinking 제거된 응답에서 파싱 - thinking 안의 plan JSON 오탐 방지
+        const planItems = ToolParser.parsePlanItems(responseWithoutThinking);
         if (planItems.length > 0) {
           WebviewBridge.sendProcessingStep(webviewToRespond, "plan");
           WebviewBridge.sendProcessingStatus(
@@ -2615,7 +3599,7 @@ export class ConversationManager implements IConversationHandler {
             taskManager.listPlanItems(),
           );
 
-          // 🔥 핵심 수정: Plan이 수립되면 INVESTIGATION → EXECUTION 전환
+          // 핵심 수정: Plan이 수립되면 INVESTIGATION → EXECUTION 전환
           if (currentPhase === AgentPhase.INVESTIGATION) {
             console.log(
               "[ConversationManager] Plan received in INVESTIGATION phase. Transitioning to EXECUTION.",
@@ -2625,6 +3609,87 @@ export class ConversationManager implements IConversationHandler {
               toolCallsInTurn: [],
               hasInvestigationHistory: true,
             });
+          }
+        } else {
+          // v9.7.4: 빈/불완전 플랜 처리
+          // tool call이 같이 있으면 플랜은 무시하고 tool call 처리 계속 진행
+          const hasToolCallInResponse = /\{\s*["']tool["']\s*:\s*["']/.test(
+            llmResponse,
+          );
+          if (hasToolCallInResponse) {
+            console.log(
+              "[ConversationManager] Empty/malformed plan but tool calls found. Ignoring plan, continuing to tool execution.",
+            );
+            // 스트리밍으로 이미 표시된 JSON plan 텍스트 제거
+            if (isStreamingEnabled) {
+              WebviewBridge.removeLastMessage(webviewToRespond);
+            }
+          } else {
+            // tool call도 없고 플랜도 비어있음
+            // v9.7.5: INVESTIGATION phase에서 코드 인텐트면 빈 플랜이라도 재시도
+            const isCodeIntent =
+              intent &&
+              (intent.category === "code" || intent.taskType === "code_work");
+            if (
+              currentPhase === AgentPhase.INVESTIGATION &&
+              isCodeIntent &&
+              turnCount < maxTurns - 1
+            ) {
+              console.log(
+                "[ConversationManager] Empty plan in INVESTIGATION phase with code intent. Nudging LLM to create proper plan.",
+              );
+              if (isStreamingEnabled) {
+                WebviewBridge.removeLastMessage(webviewToRespond);
+              }
+              accumulatedUserParts.push({
+                text: "[시스템 알림] 빈 플랜이 반환되었습니다. 사용자가 요청한 작업(에러 수정, 코드 변경 등)을 수행하기 위한 구체적인 실행 계획을 JSON 형식으로 다시 생성하세요. 반드시 plan 배열 안에 kind: 'execution' 항목을 포함해야 합니다.",
+              });
+              turnCount++;
+              continue;
+            }
+
+            console.log(
+              "[ConversationManager] Empty plan and no tool calls. LLM determined nothing to do.",
+            );
+
+            // 스트리밍으로 이미 표시된 JSON 제거
+            if (isStreamingEnabled) {
+              WebviewBridge.removeLastMessage(webviewToRespond);
+            }
+
+            // LLM 응답에서 JSON을 제외한 텍스트 설명 추출
+            let emptyPlanExplanation = StringUtils.cleanText(
+              llmResponse || "",
+              {
+                removeThinking: true,
+                removeNaturalLanguage: false,
+                removeSystemMessages: false,
+                removeToolTags: false,
+                removeJsonThinking: true,
+                extractJson: false,
+              },
+            );
+            // JSON 블록 제거
+            emptyPlanExplanation = emptyPlanExplanation
+              .replace(/```json[\s\S]*?```/gi, "")
+              .replace(/\{[\s\S]*?"plan"\s*:\s*\[[\s\S]*?\][\s\S]*?\}/g, "")
+              .trim();
+
+            if (!emptyPlanExplanation || emptyPlanExplanation.length < 10) {
+              emptyPlanExplanation =
+                "요청하신 작업은 이미 완료되어 있거나, 현재 상태에서 추가로 수행할 작업이 없습니다.";
+            }
+
+            await WebviewBridge.streamText(
+              webviewToRespond,
+              "CODEPILOT",
+              emptyPlanExplanation,
+            );
+            stateManager.transitionTo(AgentPhase.DONE, {});
+            console.log(
+              "[ConversationManager] Empty plan — responded to user and transitioned to DONE.",
+            );
+            break;
           }
         }
       } else if (hasJsonPlanInResponse && isTextOnlyIntent) {
@@ -2663,7 +3728,43 @@ export class ConversationManager implements IConversationHandler {
             }
           });
 
-          const toolCalls = Array.from(toolCallsMap.values());
+          const toolCalls = Array.from(toolCallsMap.values()).filter((call) => {
+            if (call.name === "create_file" && call.params.path) {
+              const p = call.params.path as string;
+              if (streamingCreatedPaths.has(p)) {
+                console.log(
+                  `[ConversationManager] Streaming-pre-executed create_file skipped: ${p}`,
+                );
+                turnResultsSummary += `\n[도구 결과] create_file(${p}): 성공 (스트리밍 중 즉시 생성됨)`;
+                return false;
+              }
+              if (streamingHandledPaths.has(`create_file:${p}`)) {
+                console.log(
+                  `[ConversationManager] Streaming-rejected create_file skipped: ${p}`,
+                );
+                turnResultsSummary += `\n[도구 결과] create_file(${p}): 건너뜀 (스트리밍 중 사용자가 거부)`;
+                return false;
+              }
+            }
+            if (call.name === "update_file" && call.params.path) {
+              const p = call.params.path as string;
+              if (streamingUpdatedPaths.has(p)) {
+                console.log(
+                  `[ConversationManager] Streaming-pre-executed update_file skipped: ${p}`,
+                );
+                turnResultsSummary += `\n[도구 결과] update_file(${p}): 성공 (스트리밍 중 즉시 수정됨)`;
+                return false;
+              }
+              if (streamingHandledPaths.has(`update_file:${p}`)) {
+                console.log(
+                  `[ConversationManager] Streaming-rejected update_file skipped: ${p}`,
+                );
+                turnResultsSummary += `\n[도구 결과] update_file(${p}): 건너뜀 (스트리밍 중 사용자가 거부)`;
+                return false;
+              }
+            }
+            return true;
+          });
 
           if (toolCalls.length > 0) {
             // FSM을 사용한 도구 허용 여부 검증
@@ -2672,7 +3773,7 @@ export class ConversationManager implements IConversationHandler {
             );
 
             // INVESTIGATION 단계에서 EXECUTION 도구가 있으면 EXECUTION으로 전환
-            // 🔥 개선: 실행 도구 자체가 "실행 의도"의 명확한 증거이므로 조건 완화
+            // 개선: 실행 도구 자체가 "실행 의도"의 명확한 증거이므로 조건 완화
             // - 이전: hasExecutionIntentInHistory || executionIntent 조건 필요
             // - 현재: 실행 도구가 나오면 무조건 EXECUTION으로 전환 (불필요한 재요청 방지)
             if (
@@ -2708,11 +3809,10 @@ export class ConversationManager implements IConversationHandler {
 
             // blockedCalls가 없거나 비워졌으면 도구 실행
             if (blockedCalls.length === 0) {
-              // 🔥 EXECUTION 단계에서 조사 도구만 호출하는 경우 경고 및 수정 도구 강제
+              // EXECUTION 단계에서 조사 도구만 호출하는 경우 경고 및 수정 도구 강제
               const investigationTools = [
                 Tool.READ_FILE,
                 Tool.LIST_FILES,
-                Tool.SEARCH_FILES,
                 Tool.RIPGREP_SEARCH,
               ];
               const onlyInvestigationTools = toolCalls.every((call) =>
@@ -2723,25 +3823,25 @@ export class ConversationManager implements IConversationHandler {
                 currentPhase === AgentPhase.EXECUTION &&
                 onlyInvestigationTools
               ) {
-                console.warn(
-                  `[ConversationManager] EXECUTION phase: Only investigation tools detected (${toolCalls.map((c) => c.name).join(", ")}). LLM should use update_file/create_file instead.`,
+                // 읽기 도구만 호출: 파일을 읽어야 정확한 SEARCH/REPLACE 가능하므로 실행 허용
+                // 단, 연속 2턴 이상 읽기만 하면 경고 (수정 도구 사용 유도)
+                console.log(
+                  `[ConversationManager] EXECUTION phase: Investigation tools detected (${toolCalls.map((c) => c.name).join(", ")}). Allowing read before edit.`,
                 );
-                // 테스트 실패 후 재시도 중인 경우, 조사 도구 실행 대신 수정 도구 사용 강제
-                if (testFixAttempts > 0) {
-                  console.log(
-                    `[ConversationManager] Test fix attempt ${testFixAttempts}: Blocking investigation tools, requesting modification tools.`,
+                executionNoToolRetryCount++;
+                if (executionNoToolRetryCount > 2) {
+                  console.warn(
+                    `[ConversationManager] EXECUTION phase: ${executionNoToolRetryCount} consecutive read-only turns. Nudging for modification tools.`,
                   );
                   accumulatedUserParts.push({
                     text:
-                      `\n[System] ⚠️ **조사 도구 사용 금지**\n\n` +
-                      `현재 EXECUTION 단계에서 테스트 오류를 수정 중입니다.\n` +
-                      `${toolCalls.map((c) => c.name).join(", ")} 도구는 조사용이며, 이 단계에서는 사용할 수 없습니다.\n\n` +
-                      `**즉시 update_file 도구로 오류를 수정하세요.**\n` +
-                      `파일을 다시 읽지 마세요. 이미 충분한 정보가 있습니다.`,
+                      `\n[System] 파일 읽기를 여러 턴 연속 수행했습니다. 이제 update_file 또는 create_file로 수정을 진행하세요.\n` +
+                      `파일을 완전히 재작성해야 한다면 create_file을 사용하세요.`,
                   });
-                  turnCount++;
-                  continue; // 도구 실행 건너뛰고 재요청
                 }
+              } else if (!onlyInvestigationTools) {
+                // 수정 도구가 포함되어 있으면 카운터 리셋
+                executionNoToolRetryCount = 0;
               }
 
               // 중복 방지를 위해 executedInTurn에 추가
@@ -2757,20 +3857,20 @@ export class ConversationManager implements IConversationHandler {
 
               // 도구 실행
               WebviewBridge.sendProcessingStep(webviewToRespond, "executing");
-              const phaseLabelExec =
-                currentPhase === AgentPhase.INVESTIGATION ? "[조사]" : "[실행]";
               WebviewBridge.sendProcessingStatus(
                 webviewToRespond,
                 "executing",
-                `${phaseLabelExec}[단계 ${turnCount + 1}] ${ToolExecutionCoordinator.getToolLabel(toolCalls[0].name)} 실행 중...`,
+                `${ToolExecutionCoordinator.getToolLabel(toolCalls[0].name)} 실행 중...`,
               );
 
               const {
                 toolResults,
                 hasSuccessfulExecution,
+                hasWriteToolExecution: hasWriteToolExecution3,
                 hasBlockedByValidator: hasBlockedByValidator3,
                 blockedMessages: blockedMessages3,
                 hasUserSkipped: hasUserSkipped3,
+                inlineDiagnosticErrors: inlineDiagErrors3,
               } = await this.executeToolsWithUI(
                 toolExecutor,
                 toolCalls,
@@ -2780,26 +3880,37 @@ export class ConversationManager implements IConversationHandler {
                 terminalManager,
                 collectedUIMessages,
                 preloadedFiles,
+                alreadyStattedFiles,
                 createdFiles,
                 modifiedFiles,
                 true, // includeWebviewInContext
+                conversationTurnId,
+                executedCommands,
+                isPlanMode,
               );
-              if (hasSuccessfulExecution) {
+              if (hasSuccessfulExecution && hasWriteToolExecution3) {
                 lastTurnHadSuccessfulToolExecution = true;
+                lastExecutionTurnId = conversationTurnId; // review 메시지에 사용할 turnId 저장
                 console.log(`[ConversationManager] Tool execution succeeded.`);
               }
 
-              // 🔥 PreToolUseValidator에 의해 차단된 경우 즉시 종료 (재시도 없음)
-              // UI에 이미 [Failed] 메시지가 표시되므로 추가 메시지 불필요
-              if (hasBlockedByValidator3 && blockedMessages3.length > 0) {
-                console.log(
-                  `[ConversationManager] Tool blocked by PreToolUseValidator: ${blockedMessages3.join(", ")}`,
-                );
-                stateManager.transitionTo(AgentPhase.REVIEW);
-                break;
+              // v1.0.24: EXECUTION 중 LSP 에러 즉시 피드백
+              if (inlineDiagErrors3) {
+                accumulatedUserParts.push({ text: inlineDiagErrors3 });
               }
 
-              // 🔥 사용자가 스킵한 경우에도 REVIEW로 전환 (무한 루프 방지)
+              // PreToolUseValidator에 의해 차단된 경우
+              const blockResult3 = this.handleBlockedTools(
+                hasBlockedByValidator3,
+                blockedMessages3,
+                hasSuccessfulExecution,
+                stateManager,
+                accumulatedUserParts,
+                webviewToRespond,
+              );
+              if (blockResult3 === "break") break;
+
+              // 사용자가 스킵한 경우에도 REVIEW로 전환 (무한 루프 방지)
               if (hasUserSkipped3) {
                 console.log(
                   `[ConversationManager] User skipped tool execution, transitioning to REVIEW.`,
@@ -2817,6 +3928,22 @@ export class ConversationManager implements IConversationHandler {
                 );
               turnResultsSummary += resultSummary;
               turnHasSideEffects = true;
+
+              // create_file 하드 가드 차단 감지 → glob_search 강제 유도
+              const blockedByReadFail = toolResults.filter(
+                (r: any) => r.error?.code === "CREATE_BLOCKED_AFTER_READ_FAIL",
+              );
+              if (blockedByReadFail.length > 0) {
+                const blockedPaths = blockedByReadFail
+                  .map((r: any) => r.message || "")
+                  .join(", ");
+                accumulatedUserParts.push({
+                  text: `\n[System] ⚠️ 파일 경로 확인이 필요합니다.\n\n다음 경로의 파일이 존재하지 않습니다: ${blockedPaths}\n**반드시 glob_search 도구로 파일의 실제 위치를 검색하세요.**\n예: { "tool": "glob_search", "pattern": "**/{파일명}" }\nglob_search 결과에서 파일이 발견되면 올바른 경로를 사용하세요.\n파일이 프로젝트에 없으면 사용자에게 알려주세요.`,
+                });
+                console.log(
+                  `[ConversationManager] CREATE_BLOCKED_AFTER_READ_FAIL detected, injecting glob_search guidance for: ${blockedPaths}`,
+                );
+              }
             } else {
               console.log(
                 `[ConversationManager] JSON: ${blockedCalls.length} tool(s) blocked in ${currentPhase} phase`,
@@ -2837,6 +3964,11 @@ export class ConversationManager implements IConversationHandler {
       );
       const totalResponseText =
         this.responseProcessor.extractResponseText(llmResponse);
+
+      // 유효한 응답이 있으면 빈 응답 카운터 리셋
+      if (totalResponseText && totalResponseText.trim()) {
+        consecutiveEmptyResponses = 0;
+      }
 
       // create_file content 누락 등 툴 파싱 경고를 사용자 컨텍스트에 추가
       if (toolParseWarnings.length > 0) {
@@ -2885,7 +4017,7 @@ export class ConversationManager implements IConversationHandler {
       const toolCallSignatures = totalToolCalls.map(
         (tc: ToolUse) => `${tc.name}:${JSON.stringify(tc.params || {})}`,
       );
-      const loopCheck = this.updateAndCheckLoopState(
+      const loopCheck = this.loopStateTracker.updateAndCheckLoopState(
         loopState,
         currentPhase,
         currentPlanItem?.id || null,
@@ -2895,7 +4027,7 @@ export class ConversationManager implements IConversationHandler {
       );
 
       if (loopCheck.isLoop) {
-        const escapeResult = this.handleInfiniteLoopEscape(
+        const escapeResult = this.loopStateTracker.handleInfiniteLoopEscape(
           loopCheck.reason!,
           loopState,
           stateManager,
@@ -2917,6 +4049,45 @@ export class ConversationManager implements IConversationHandler {
       }
 
       if (postToolResult.turnAction.action === "continue") {
+        // memory-only INVESTIGATION 턴: memory_save/memory_delete만 실행된 경우
+        // Turn 1 텍스트를 사용자에게 표시하고 DONE으로 전환 (불필요한 Turn 2 방지)
+        // 단, 에러 수정/코드 작업 등 실제 작업이 필요한 intent면 건너뜀 (수정 없이 끝나는 버그 방지)
+        const MEMORY_TOOLS: string[] = [Tool.MEMORY_SAVE, Tool.MEMORY_DELETE];
+        const isMemoryOnlyTurn =
+          currentPhase === AgentPhase.INVESTIGATION &&
+          totalToolCalls.length > 0 &&
+          totalToolCalls.every((tc) => MEMORY_TOOLS.includes(tc.name));
+
+        const isActionRequiredIntent =
+          intent &&
+          (intent.taskType === "terminal" || intent.taskType === "code_work");
+
+        if (isMemoryOnlyTurn && !isActionRequiredIntent) {
+          // tool call JSON 블록 제거 후 자연어 텍스트만 추출
+          let memoryTurnText = cleanResponse
+            .replace(
+              /\{\s*["']tool["']\s*:\s*["']memory_(?:save|delete)["'][\s\S]*?\}/g,
+              "",
+            )
+            .trim();
+
+          if (memoryTurnText && memoryTurnText.trim()) {
+            console.log(
+              "[ConversationManager] Memory-only INVESTIGATION turn: displaying accompanying text to user.",
+            );
+            await WebviewBridge.streamText(
+              webviewToRespond,
+              "CODEPILOT",
+              memoryTurnText,
+            );
+          }
+          stateManager.transitionTo(AgentPhase.DONE, {});
+          console.log(
+            "[ConversationManager] Memory-only INVESTIGATION turn: transitioning to DONE.",
+          );
+          break;
+        }
+
         turnCount++;
         continue;
       }
@@ -2924,10 +4095,109 @@ export class ConversationManager implements IConversationHandler {
         break;
       }
 
+      // 핵심 수정: INVESTIGATION 단계에서도 MCP 결과 해석 턴 처리
+      // pendingMCPResultInterpretation=true이면 LLM의 텍스트 응답을 사용자에게 표시
+      if (
+        pendingMCPResultInterpretation &&
+        currentPhase === AgentPhase.INVESTIGATION &&
+        totalResponseText.trim()
+      ) {
+        console.log(
+          "[ConversationManager] INVESTIGATION phase: pendingMCPResultInterpretation=true. Displaying MCP result interpretation to user.",
+        );
+        pendingMCPResultInterpretation = false;
+
+        let cleanMCPResponse = StringUtils.cleanText(totalResponseText, {
+          removeThinking: true,
+          removeNaturalLanguage: false,
+          removeSystemMessages: false,
+          removeToolTags: false,
+          removeJsonThinking: true,
+          extractJson: false,
+        });
+        // JSON plan이 포함되어 있으면 제거 (MCP 결과 해석 텍스트만 필요)
+        // investigation_done 토큰 정제 — quote 종류·marker 위치 무관하게 강제 제거.
+        // (이전엔 ASCII quote 만 매치해서 LLM 이 smart quote `"` `"` 로 출력하면
+        //  strip 실패 → 사용자 화면에 그대로 노출되던 회귀 수정.)
+        cleanMCPResponse = cleanMCPResponse
+          .replace(/```json[\s\S]*?\{\s*"plan"\s*:[\s\S]*?\}[\s\S]*?```/gi, "")
+          .replace(/\{\s*"plan"\s*:\s*\[[\s\S]*?\]\s*\}/g, "")
+          // <investigation_done/> XML 태그
+          .replace(/<investigation_done\s*\/>/gi, "")
+          // markdown 코드블록 안에 감싸진 investigation_done JSON
+          .replace(
+            /```(?:json|JSON)?\s*\{[^{}]*investigation_done[^{}]*\}\s*```/gi,
+            "",
+          )
+          // 일반 JSON {{ ... investigation_done ... }} — quote 종류 무관 (ASCII / smart quote 둘 다)
+          .replace(/\{[^{}]*investigation_done[^{}]*\}/gi, "")
+          // 미닫힘 ```TEXT 같은 빈 코드 펜스 (LLM 이 종료 신호로 잘못 emit 한 경우)
+          .replace(/```(?:[A-Za-z]+)?\s*$/g, "")
+          .trim();
+
+        if (cleanMCPResponse && cleanMCPResponse.trim()) {
+          // 근본 fix — 스트리밍 / 비스트리밍 무관하게 동일 처리:
+          //   1) 진행 중이던 stream 명시적 종료 (cursor 닫기)
+          //   2) 오염된 마지막 메시지 제거 (investigation_done JSON 토큰 / 미닫힘
+          //      코드블록 잔재가 흘러간 chunks 포함)
+          //   3) receiveMessage 로 한 번에 정제 텍스트 출력 (새 cursor 안 생김)
+          // 이렇게 해야 cursor 가 깜박이지 않고 사용자에게 깨끗한 응답만 보임.
+          // 이중 endStream — webview state(streamingMessageElement) 가 끊어진
+          // 참조를 가진 채로 남으면 cursor 가 살아있는 것처럼 보일 수 있음.
+          // remove 전과 후 모두 endStream 호출하여 양쪽 모두 cleanup.
+          try {
+            WebviewBridge.endStreamingMessage(webviewToRespond);
+          } catch {
+            /* webview disposed */
+          }
+          try {
+            WebviewBridge.removeLastMessage(webviewToRespond);
+          } catch {
+            /* webview disposed */
+          }
+          try {
+            WebviewBridge.endStreamingMessage(webviewToRespond);
+          } catch {
+            /* webview disposed */
+          }
+          try {
+            WebviewBridge.receiveMessage(
+              webviewToRespond,
+              "CODEPILOT",
+              cleanMCPResponse,
+            );
+          } catch {
+            /* webview disposed */
+          }
+        }
+
+        stateManager.transitionTo(AgentPhase.DONE, {});
+
+        // 종료 시그널 명시적 송출 — break 후엔 메인 루프가 끝나지만 webview
+        // 측에는 endStream/hideLoading/done 이벤트가 안 가서 스피너가 계속
+        // 깜박이던 회귀를 수정.
+        try {
+          WebviewBridge.endStreamingMessage(webviewToRespond);
+        } catch {
+          /* webview disposed */
+        }
+        try {
+          WebviewBridge.sendProcessingStep(webviewToRespond, "done");
+        } catch {
+          /* webview disposed */
+        }
+        try {
+          WebviewBridge.hideLoading(webviewToRespond);
+        } catch {
+          /* webview disposed */
+        }
+        break;
+      }
+
       // INVESTIGATION 단계에서 도구 호출도 없고 plan도 없으면 텍스트 출력 차단
       // 단, 의도가 없거나 단순 인사인 경우는 허용
       // ⚠️ 핵심 수정: analysis intent이고 조사가 완료된 경우, 자연어 답변 허용
-      // 🔥 최적화: investigation_done 토큰이 있고 ripgrep_search 결과가 있으면 텍스트 차단을 건너뛰고 바로 자동 답변 생성
+      // 최적화: investigation_done 토큰이 있고 ripgrep_search 결과가 있으면 텍스트 차단을 건너뛰고 바로 자동 답변 생성
       if (
         currentPhase === AgentPhase.INVESTIGATION &&
         totalToolCalls.length === 0 &&
@@ -2965,7 +4235,7 @@ export class ConversationManager implements IConversationHandler {
           console.log(
             "[ConversationManager] INVESTIGATION phase: No intent detected, allowing text-only response and terminating.",
           );
-          // ✅ Phase gate: hasNoIntent인 경우는 DONE으로 전환 후 텍스트 전송 (🔥 스트리밍)
+          // ✅ Phase gate: hasNoIntent인 경우는 DONE으로 전환 후 텍스트 전송 (스트리밍)
           stateManager.transitionTo(AgentPhase.DONE);
           if (shouldSendCodePilotText(AgentPhase.DONE)) {
             await WebviewBridge.streamText(
@@ -2978,9 +4248,9 @@ export class ConversationManager implements IConversationHandler {
         }
 
         // ⚠️ 핵심 수정: analysis/documentation intent이고 조사가 완료된 경우, 자연어 답변 허용
-        // 🔥 중복 방지: investigation_done 토큰이 있으면 위의 블록에서 이미 처리되므로 여기서는 처리하지 않음
-        // 🔥 추가 중복 방지: ripgrep_search 결과가 있으면 자동 답변 생성 로직에서 처리되므로 여기서는 처리하지 않음
-        // 🔥 수정: JSON plan이 있는 경우는 텍스트 응답으로 처리하지 않음
+        // 중복 방지: investigation_done 토큰이 있으면 위의 블록에서 이미 처리되므로 여기서는 처리하지 않음
+        // 추가 중복 방지: ripgrep_search 결과가 있으면 자동 답변 생성 로직에서 처리되므로 여기서는 처리하지 않음
+        // 수정: JSON plan이 있는 경우는 텍스트 응답으로 처리하지 않음
         const isTextAllowedIntentForHistory =
           intent &&
           (intent.category === "analysis" ||
@@ -3015,10 +4285,10 @@ export class ConversationManager implements IConversationHandler {
             console.log(
               "[ConversationManager] INVESTIGATION phase: Analysis intent with completed investigation. Allowing text-only response.",
             );
-            // 응답 정제: thinking 태그 제거
+            // 응답 정제: thinking 태그 제거 (자연어/마크다운은 유지)
             let cleanResponse = StringUtils.cleanText(totalResponseText, {
               removeThinking: true,
-              removeNaturalLanguage: true, // thinking 노출 방지
+              removeNaturalLanguage: false,
               removeSystemMessages: false,
               removeToolTags: false,
               removeJsonThinking: true,
@@ -3029,7 +4299,7 @@ export class ConversationManager implements IConversationHandler {
               cleanResponse &&
               cleanResponse.length > AgentConfig.MIN_RESPONSE_LENGTH
             ) {
-              // 🔥 스트리밍 효과로 전송 ('Assistant' → 'CODEPILOT')
+              // 스트리밍 효과로 전송 ('Assistant' → 'CODEPILOT')
               await WebviewBridge.streamText(
                 webviewToRespond,
                 "CODEPILOT",
@@ -3045,34 +4315,33 @@ export class ConversationManager implements IConversationHandler {
           }
         }
 
-        // 🔥 핵심 수정: 파일이 이미 생성/수정되었다면 완료로 간주하고 REVIEW 전환
+        // 핵심 수정: 파일이 이미 생성/수정되었다면 완료로 간주하고 REVIEW 전환
         if (createdFiles.length > 0 || modifiedFiles.length > 0) {
           console.log(
             `[ConversationManager] INVESTIGATION phase: Files already modified (created: ${createdFiles.length}, modified: ${modifiedFiles.length}). Transitioning to REVIEW.`,
           );
           stateManager.transitionTo(AgentPhase.REVIEW);
-          // 다음 턴에서 REVIEW 로직 실행
-          turnCount++;
+          // 다음 턴에서 REVIEW 로직 실행 (REVIEW handler가 turnCount++ 처리)
           continue;
         }
 
-        // 🔥 핵심 수정: analysis/documentation 의도(질문, 설명, 요약 요청)일 때는 텍스트 응답 허용
+        // 핵심 수정: analysis/documentation 의도(질문, 설명, 요약 요청)일 때는 텍스트 응답 허용
         // 예: "터미널 내용 알려줘", "파일 내용 설명해줘", "@Terminal 뭐라고 나왔어?", "읽고 요약해줘"
         // 길이 체크 제거 - 응답 존재 여부만 확인 (다른 코드 어시스턴트처럼)
-        // 🔥 수정: JSON plan이 있는 경우는 텍스트 응답으로 처리하지 않음
+        // 수정: JSON plan이 있는 경우는 텍스트 응답으로 처리하지 않음
         const isTextAllowedIntent =
           intent &&
           (intent.category === "analysis" ||
             intent.category === "documentation");
 
-        // 🔥 v9.4.1: 파일 미존재 응답 패턴 감지 - 사용자에게 확인 질문은 허용
-        const isFileNotExistResponse = totalResponseText && (
-          /파일이?\s*(존재하지\s*않|없)/i.test(totalResponseText) ||
-          /존재하지\s*않습니다/i.test(totalResponseText) ||
-          /새로\s*생성.*\?/i.test(totalResponseText) ||
-          /file.*not.*exist/i.test(totalResponseText) ||
-          /does.*not.*exist/i.test(totalResponseText)
-        );
+        // v9.4.1: 파일 미존재 응답 패턴 감지 - 사용자에게 확인 질문은 허용
+        const isFileNotExistResponse =
+          totalResponseText &&
+          (/파일이?\s*(존재하지\s*않|없)/i.test(totalResponseText) ||
+            /존재하지\s*않습니다/i.test(totalResponseText) ||
+            /새로\s*생성.*\?/i.test(totalResponseText) ||
+            /file.*not.*exist/i.test(totalResponseText) ||
+            /does.*not.*exist/i.test(totalResponseText));
 
         if (
           (isTextAllowedIntent || isFileNotExistResponse) &&
@@ -3082,7 +4351,7 @@ export class ConversationManager implements IConversationHandler {
           !hasJsonPlanInResponse
         ) {
           console.log(
-            `[ConversationManager] INVESTIGATION phase: ${isFileNotExistResponse ? 'file-not-exist response' : intent?.category + ' intent'} detected, allowing text response.`,
+            `[ConversationManager] INVESTIGATION phase: ${isFileNotExistResponse ? "file-not-exist response" : intent?.category + " intent"} detected, allowing text response.`,
           );
           // 응답 정제: thinking 태그 및 시스템 토큰 제거
           let cleanResponse = StringUtils.cleanText(totalResponseText, {
@@ -3100,17 +4369,27 @@ export class ConversationManager implements IConversationHandler {
             .replace(/\{\s*["']investigation_done["']\s*:\s*true\s*\}/gi, "")
             .trim();
 
-          if (cleanResponse && cleanResponse.trim()) {
+          // investigation_done 토큰만 있고 cleanResponse가 비어있는 경우 (memory_save 등 완료 후) → 바로 DONE
+          if (!cleanResponse || !cleanResponse.trim()) {
+            if (investigationDoneToken) {
+              stateManager.transitionTo(AgentPhase.DONE, {});
+              console.log(
+                "[ConversationManager] investigation_done with empty response. Transitioning to DONE.",
+              );
+              break;
+            }
+          } else {
             await WebviewBridge.streamText(
               webviewToRespond,
               "CODEPILOT",
               cleanResponse,
             );
 
-            // 🔥 v9.5.0: 파일 미존재 응답도 세션에 저장 (대화 연속성 유지)
+            // v9.5.0: 파일 미존재 응답도 세션에 저장 (대화 연속성 유지)
             if (options.extensionContext) {
               try {
-                const { SessionManager } = await import("../state/SessionManager");
+                const { SessionManager } =
+                  await import("../state/SessionManager");
                 const sessionManager = SessionManager.getInstance(
                   options.extensionContext,
                 );
@@ -3145,6 +4424,145 @@ export class ConversationManager implements IConversationHandler {
           }
         }
 
+        // PLAN 모드: INVESTIGATION에서 텍스트만 와도 plan 텍스트로 수용 → 승인 팝업 표시
+        if (isPlanMode && totalResponseText && totalResponseText.trim()) {
+          const cleanPlanText = StringUtils.cleanText(totalResponseText, {
+            removeThinking: true,
+            removeNaturalLanguage: false,
+            removeSystemMessages: false,
+            removeToolTags: false,
+            removeJsonThinking: true,
+            extractJson: false,
+          })
+            .replace(/<investigation_done\s*\/>/gi, "")
+            .replace(/\{\s*["']investigation_done["']\s*:\s*true\s*\}/gi, "")
+            .trim();
+
+          if (cleanPlanText) {
+            console.log(
+              `[ConversationManager] PLAN mode: Text response in INVESTIGATION accepted as plan output.`,
+            );
+            // JSON plan 감지: JSON이 포함되어 있으면 채팅에 표시하지 않음 (승인 팝업에서만 확인)
+            const hasJsonInPlan = /\{\s*"plan"\s*:|\{\s*"kind"\s*:/.test(
+              cleanPlanText,
+            );
+            if (!hasJsonInPlan) {
+              // 순수 마크다운 텍스트면 채팅에 표시
+              await WebviewBridge.streamText(
+                webviewToRespond,
+                "CODEPILOT",
+                cleanPlanText,
+              );
+              collectedUIMessages.push({
+                sender: "CODEPILOT",
+                text: cleanPlanText,
+                type: "summary",
+              });
+            } else {
+              // JSON 포함 → plan items 파싱해서 요약만 표시
+              const planItems = ToolParser.parsePlanItems(cleanPlanText);
+              if (planItems.length > 0) {
+                const planSummary =
+                  `📋 **구현 계획** (${planItems.length}단계)\n\n` +
+                  planItems
+                    .map(
+                      (item, i) =>
+                        `**${i + 1}. ${item.title}**\n${item.detail || ""}`,
+                    )
+                    .join("\n\n");
+                await WebviewBridge.streamText(
+                  webviewToRespond,
+                  "CODEPILOT",
+                  planSummary,
+                );
+                collectedUIMessages.push({
+                  sender: "CODEPILOT",
+                  text: planSummary,
+                  type: "summary",
+                });
+              } else {
+                // 파싱 실패 시 "계획 작성 완료" 간단 메시지
+                await WebviewBridge.streamText(
+                  webviewToRespond,
+                  "CODEPILOT",
+                  "📋 구현 계획이 작성되었습니다.",
+                );
+                collectedUIMessages.push({
+                  sender: "CODEPILOT",
+                  text: "구현 계획 작성 완료",
+                  type: "summary",
+                });
+              }
+            }
+
+            // 승인 팝업
+            planTextResponse = cleanPlanText;
+            const vscodeModule = require("vscode");
+            const approval = await vscodeModule.window.showInformationMessage(
+              "구현 계획이 작성되었습니다. 승인하시겠습니까?",
+              { modal: true },
+              "승인",
+              "거절",
+            );
+            if (approval === "승인") {
+              console.log(
+                "[ConversationManager] PLAN approved — auto-executing in CODE mode",
+              );
+              WebviewBridge.receiveMessage(
+                webviewToRespond,
+                "System",
+                "✓ 계획이 승인되었습니다.",
+              );
+              try {
+                const globalStoragePath =
+                  options.extensionContext?.globalStorageUri?.fsPath;
+                if (globalStoragePath && planTextResponse) {
+                  const plansDir = path.join(globalStoragePath, "plans");
+                  if (!fsSync.existsSync(plansDir)) {
+                    fsSync.mkdirSync(plansDir, { recursive: true });
+                  }
+                  const sessionId = options.extensionContext
+                    ? (
+                        await import("../state/SessionManager")
+                      ).SessionManager.getInstance(
+                        options.extensionContext,
+                      ).getCurrentSession()?.id
+                    : undefined;
+                  const planFileName = sessionId
+                    ? `plan_${sessionId}.md`
+                    : `plan_${Date.now()}.md`;
+                  fsSync.writeFileSync(
+                    path.join(plansDir, planFileName),
+                    planTextResponse,
+                    "utf-8",
+                  );
+                }
+              } catch (planSaveError) {
+                console.warn(
+                  "[ConversationManager] Failed to save plan file:",
+                  planSaveError,
+                );
+              }
+              setTimeout(() => {
+                webviewToRespond.postMessage({
+                  command: "autoPlanExecute",
+                  text: "위 계획대로 진행해줘",
+                });
+              }, 500);
+            } else {
+              WebviewBridge.receiveMessage(
+                webviewToRespond,
+                "System",
+                "✗ 계획이 거절되었습니다. 새로 질의하거나 수정 사항을 알려주세요.",
+              );
+            }
+            // 스트리밍 커서 종료 + processing step 완료
+            WebviewBridge.endStreamingMessage(webviewToRespond);
+            WebviewBridge.sendProcessingStep(webviewToRespond, "done");
+            break;
+          }
+        }
+
         console.log(
           `[ConversationManager] INVESTIGATION phase: No tools/plan but text received. Blocking text-only output.`,
         );
@@ -3159,7 +4577,7 @@ export class ConversationManager implements IConversationHandler {
 
       // ⚠️ 핵심 수정: analysis intent이고 investigation_done 토큰이 있으면, 빈 응답이어도 analysis 답변 생성 후 종료
       // (analysis 답변 생성 로직은 INVESTIGATION phase 처리 블록에서 실행됨)
-      // 🔥 디버깅: 조건 확인
+      // 디버깅: 조건 확인
       if (investigationDoneToken) {
         console.log(
           `[ConversationManager] Debug: investigationDoneToken=true, intent=${intent?.category}, currentPhase=${currentPhase}`,
@@ -3179,7 +4597,7 @@ export class ConversationManager implements IConversationHandler {
         // 빈 응답 체크를 건너뛰고 계속 진행 (INVESTIGATION phase 블록에서 답변 생성)
       } else if (!totalResponseText || !totalResponseText.trim()) {
         // 도구 호출도 없고 유효한 계획도 없는 경우
-        // 🔥 추가: investigation_done 토큰이 있으면 analysis/documentation 답변 생성 시도
+        // 추가: investigation_done 토큰이 있으면 analysis/documentation 답변 생성 시도
         if (
           investigationDoneToken &&
           isTextAllowedIntentForDone &&
@@ -3197,6 +4615,20 @@ export class ConversationManager implements IConversationHandler {
           );
           // 빈 응답 체크를 건너뛰고 계속 진행
         } else {
+          // thinking-only 응답 감지: LLM이 thinking만 반환하고 실제 출력 없음
+          // 스트리밍에서 thinking 필드만 있거나, 완전히 빈 응답인 경우
+          consecutiveEmptyResponses++;
+          if (consecutiveEmptyResponses < maxConsecutiveEmptyResponses) {
+            console.log(
+              `[ConversationManager] Empty/thinking-only response (${consecutiveEmptyResponses}/${maxConsecutiveEmptyResponses}), retrying...`,
+            );
+            // 다음 턴에서 더 구체적인 프롬프트 제공
+            accumulatedUserParts.push({
+              text: "[시스템] 이전 응답이 비어있습니다. 도구 호출(```json 코드블록) 또는 텍스트 응답을 반드시 출력하세요.",
+            });
+            turnCount++;
+            continue;
+          }
           // 도구 호출도 없고 유효한 계획도 없는 경우 종료 로직
           if (investigationDoneToken) {
             console.log(
@@ -3227,22 +4659,24 @@ export class ConversationManager implements IConversationHandler {
         );
         pendingMCPResultInterpretation = false;
 
-        // 응답 정제: thinking 태그 제거
-        let cleanMCPResponse = StringUtils.cleanText(totalResponseText, {
-          removeThinking: true,
-          removeNaturalLanguage: false, // MCP 결과 해석은 자연어 허용
-          removeSystemMessages: false,
-          removeToolTags: false,
-          removeJsonThinking: true,
-          extractJson: false,
-        });
+        // 스트리밍이 비활성화된 경우에만 별도 출력 (스트리밍 활성화 시 이미 실시간 출력됨)
+        if (!isStreamingEnabled) {
+          let cleanMCPResponse = StringUtils.cleanText(totalResponseText, {
+            removeThinking: true,
+            removeNaturalLanguage: false,
+            removeSystemMessages: false,
+            removeToolTags: false,
+            removeJsonThinking: true,
+            extractJson: false,
+          });
 
-        if (cleanMCPResponse && cleanMCPResponse.trim()) {
-          await WebviewBridge.streamText(
-            webviewToRespond,
-            "CODEPILOT",
-            cleanMCPResponse,
-          );
+          if (cleanMCPResponse && cleanMCPResponse.trim()) {
+            await WebviewBridge.streamText(
+              webviewToRespond,
+              "CODEPILOT",
+              cleanMCPResponse,
+            );
+          }
         }
 
         // LLM이 추가 도구도 호출한 경우 (텍스트 + 도구 혼합) → 계속 진행
@@ -3253,7 +4687,8 @@ export class ConversationManager implements IConversationHandler {
           continue;
         }
 
-        // 텍스트만 → DONE으로 전환
+        // 텍스트만 → REVIEW → DONE으로 전환 (상태 머신 규칙 준수)
+        stateManager.transitionTo(AgentPhase.REVIEW);
         stateManager.transitionTo(AgentPhase.DONE, {});
         break;
       }
@@ -3286,6 +4721,9 @@ export class ConversationManager implements IConversationHandler {
           continue;
         } else {
           // 모든 plan item 완료 → 자동 테스트 후 REVIEW 전환
+          if (abortSignal?.aborted) {
+            break;
+          }
           const testTransition = await this.runTestsAndTransition(
             webviewToRespond,
             stateManager,
@@ -3297,12 +4735,14 @@ export class ConversationManager implements IConversationHandler {
             isAutoTestRetryEnabled,
             accumulatedUserParts,
             turnCount,
+            true, // allPlanItemsDone
           );
           testFixAttempts = testTransition.testFixAttempts;
           if (testTransition.pendingRetryPrompt) {
             pendingRetryPrompt = true;
+            turnCount++; // retry → back to EXECUTION
           }
-          turnCount++;
+          // REVIEW 전환 시 turnCount++ 하지 않음 (REVIEW handler가 처리)
           continue;
         }
       }
@@ -3346,7 +4786,7 @@ export class ConversationManager implements IConversationHandler {
         }
       }
 
-      // 🔥 문제 해결: analysis intent이고 (investigation_done 토큰이 있거나 ripgrep_search 결과가 있으면) 여기서 바로 답변 생성
+      // 문제 해결: analysis intent이고 (investigation_done 토큰이 있거나 ripgrep_search 결과가 있으면) 여기서 바로 답변 생성
       // ripgrep_search 결과 확인
       let hasRipgrepResultsForAutoAnswer = false;
       for (const part of accumulatedUserParts) {
@@ -3374,7 +4814,7 @@ export class ConversationManager implements IConversationHandler {
           );
         }
 
-        // 🔥 최적화: ripgrep_search 결과가 이미 있으면 LLM 호출 없이 직접 답변 생성
+        // 최적화: ripgrep_search 결과가 이미 있으면 LLM 호출 없이 직접 답변 생성
         let hasRipgrepResults = false;
         let ripgrepResults: unknown = null;
         let ripgrepPattern = "";
@@ -3412,7 +4852,7 @@ export class ConversationManager implements IConversationHandler {
         let cleanAnalysisResponse: string;
 
         if (hasRipgrepResults && ripgrepResults) {
-          // 🔥 LLM 호출 없이 검색 결과를 직접 파싱하여 답변 생성
+          // LLM 호출 없이 검색 결과를 직접 파싱하여 답변 생성
           console.log(
             "[ConversationManager] Using existing ripgrep_search results to generate answer without LLM call.",
           );
@@ -3531,7 +4971,11 @@ export class ConversationManager implements IConversationHandler {
             console.log(
               "[ConversationManager] Streaming mode enabled for analysis response",
             );
-            WebviewBridge.startStreamingMessage(webviewToRespond, "assistant");
+            WebviewBridge.startStreamingMessage(
+              webviewToRespond,
+              "assistant",
+              conversationTurnId ? { conversationTurnId } : undefined,
+            );
 
             const onAnalysisChunk = (chunk: string, done: boolean) => {
               if (chunk) {
@@ -3542,6 +4986,7 @@ export class ConversationManager implements IConversationHandler {
               }
             };
 
+            const _llmStartAnalysisS = Date.now();
             analysisResponse =
               await this.llmManager.sendMessageWithSystemPromptStreaming(
                 analysisPrompt,
@@ -3549,6 +4994,18 @@ export class ConversationManager implements IConversationHandler {
                 onAnalysisChunk,
                 { signal: abortSignal },
               );
+            {
+              const _t = Date.now() - _llmStartAnalysisS;
+              const _tok = estimateTokens(analysisResponse);
+              usageMetrics.recordLLMCall(
+                _t,
+                _tok,
+                true,
+                await this.llmManager
+                  .getCurrentModelName()
+                  .catch(() => "unknown"),
+              );
+            }
 
             // 스트리밍 완료 후 바로 종료 (정제 필요 없음 - 이미 출력됨)
             stateManager.transitionTo(AgentPhase.DONE);
@@ -3556,11 +5013,24 @@ export class ConversationManager implements IConversationHandler {
           }
 
           // 비스트리밍 모드
+          const _llmStartAnalysisNS = Date.now();
           analysisResponse = await this.llmManager.sendMessageWithSystemPrompt(
             analysisPrompt,
             accumulatedUserParts,
             { signal: abortSignal },
           );
+          {
+            const _t = Date.now() - _llmStartAnalysisNS;
+            const _tok = estimateTokens(analysisResponse);
+            usageMetrics.recordLLMCall(
+              _t,
+              _tok,
+              true,
+              await this.llmManager
+                .getCurrentModelName()
+                .catch(() => "unknown"),
+            );
+          }
 
           // 응답 정제: thinking 태그 및 JSON 래핑 제거
           cleanAnalysisResponse = StringUtils.cleanText(analysisResponse, {
@@ -3598,7 +5068,7 @@ export class ConversationManager implements IConversationHandler {
         console.log(
           `[ConversationManager] Sending analysis response to webview (length: ${cleanAnalysisResponse.length}): ${cleanAnalysisResponse.substring(0, AgentConfig.MIN_ANALYSIS_RESPONSE_LENGTH)}...`,
         );
-        // 🔥 스트리밍 효과로 전송
+        // 스트리밍 효과로 전송
         await WebviewBridge.streamText(
           webviewToRespond,
           "CODEPILOT",
@@ -3628,21 +5098,39 @@ export class ConversationManager implements IConversationHandler {
           );
         }
 
-        // EXECUTION phase에서 파일이 생성/수정되었으면 REVIEW로 전환
+        // EXECUTION phase에서 파일이 생성/수정되었으면 테스트 후 REVIEW로 전환
         if (
           currentPhase === AgentPhase.EXECUTION &&
           (createdFiles.length > 0 || modifiedFiles.length > 0)
         ) {
           console.log(
-            "[ConversationManager] EXECUTION phase completed with file changes. Transitioning to REVIEW.",
+            "[ConversationManager] EXECUTION phase completed with file changes. Running tests before REVIEW.",
           );
-          stateManager.transitionTo(AgentPhase.REVIEW);
-          turnCount++;
-          continue; // 다음 루프에서 REVIEW 처리
+          const testTransition = await this.runTestsAndTransition(
+            webviewToRespond,
+            stateManager,
+            retryCoordinator,
+            createdFiles,
+            modifiedFiles,
+            testFixAttempts,
+            maxTestFixAttempts,
+            isAutoTestRetryEnabled,
+            accumulatedUserParts,
+            turnCount,
+            false, // allPlanItemsDone
+            lastTurnHadSuccessfulToolExecution,
+          );
+          testFixAttempts = testTransition.testFixAttempts;
+          if (testTransition.pendingRetryPrompt) {
+            pendingRetryPrompt = true;
+            turnCount++; // retry → back to EXECUTION
+          }
+          // REVIEW 전환 시 turnCount++ 하지 않음 (REVIEW handler가 처리)
+          continue;
         }
       }
 
-      // 루프 종료 전 자동 테스트 실행 (파일이 생성/수정된 경우)
+      // 루프 종료 전 자동 테스트 실행 (파일이 생성/수정된 경우, 아직 REVIEW 전환 안 된 경우)
       const hasFileChanges =
         createdFiles.length > 0 || modifiedFiles.length > 0;
       const allPlanItemsCompleted = taskManager.getNextPendingItem() === null;
@@ -3663,18 +5151,45 @@ export class ConversationManager implements IConversationHandler {
           isAutoTestRetryEnabled,
           accumulatedUserParts,
           turnCount,
+          allPlanItemsCompleted, // allPlanItemsDone
+          lastTurnHadSuccessfulToolExecution,
         );
         testFixAttempts = testTransition.testFixAttempts;
         if (testTransition.pendingRetryPrompt) {
           pendingRetryPrompt = true;
-        }
-        if (testTransition.turnAction.action === "continue") {
-          turnCount++;
+          turnCount++; // retry → back to EXECUTION
           continue;
         }
+        // REVIEW 전환 시 turnCount++ 하지 않음 (REVIEW handler가 처리)
+        continue;
       }
 
       break;
+    }
+
+    // Safety net: 루프가 maxTurns로 종료됐지만 REVIEW 상태인 경우 리뷰 실행
+    if (
+      stateManager.getCurrentState() === AgentPhase.REVIEW &&
+      turnCount >= maxTurns
+    ) {
+      console.log(
+        "[ConversationManager] Safety net: Loop exited at maxTurns but REVIEW pending. Running review.",
+      );
+      await this.handleReviewPhase(
+        stateManager,
+        webviewToRespond,
+        createdFiles,
+        modifiedFiles,
+        systemPrompt,
+        accumulatedUserParts,
+        abortSignal,
+        options,
+        userQuery,
+        collectedActions,
+        collectedUIMessages,
+        lastExecutionTurnId,
+        executedCommands,
+      );
     }
 
     // v9.4.0: 파일 트랜잭션 커밋
@@ -3705,43 +5220,166 @@ export class ConversationManager implements IConversationHandler {
           taskManager.listPlanItems(),
         );
       }
-      WebviewBridge.sendProcessingStatus(
-        webviewToRespond,
-        "done",
-        "모든 작업이 완료되었습니다.",
-      );
+      // "작업 완료" processStep 제거: REVIEW 요약이 이미 동일 정보를 표시하므로 중복
+    }
+
+    // 참조 추적 정보 전송 (RAG + 정책/스킬) — 리뷰 밑, 턴 액션 위에 표시
+    const promptReferences = PromptComposer.getLastReferences();
+    const ragReferences = ContextGatherer.getLastRagReferences();
+    const allReferences = [...ragReferences, ...promptReferences];
+    if (allReferences.length > 0) {
+      WebviewBridge.sendReferenceInfo(webviewToRespond, {
+        items: allReferences,
+      });
+    }
+
+    // 턴 액션 삽입 (모든 턴이 완료된 후 한 번만 표시)
+    try {
+      const diffMgr = InlineDiffManager.getInstance();
+      const turnStats = diffMgr.getPendingChangesByTurn();
+      if (turnStats.length > 0) {
+        webviewToRespond.postMessage({
+          command: "showTurnActions",
+          turns: turnStats,
+        });
+      }
+    } catch (e) {
+      console.warn("[ConversationManager] showTurnActions failed:", e);
     }
 
     // 📝 v9.7.0: 루프 종료 후 세션에 저장 (어떤 경로로든 종료 시 보장)
     if (options.extensionContext) {
       try {
         const { SessionManager } = await import("../state/SessionManager");
-        const sessionManager = SessionManager.getInstance(options.extensionContext);
+        const sessionManager = SessionManager.getInstance(
+          options.extensionContext,
+        );
         const currentSession = sessionManager.getCurrentSession();
 
         if (currentSession) {
           // 최종 응답 생성
-          const finalSummary = (createdFiles.length > 0 || modifiedFiles.length > 0)
-            ? `작업이 완료되었습니다.\n${createdFiles.length > 0 ? `생성된 파일: ${createdFiles.join(", ")}\n` : ""}${modifiedFiles.length > 0 ? `수정된 파일: ${modifiedFiles.join(", ")}` : ""}`
-            : "작업이 완료되었습니다.";
+          const finalSummary =
+            createdFiles.length > 0 || modifiedFiles.length > 0
+              ? `${createdFiles.length > 0 ? `생성된 파일: ${createdFiles.join(", ")}\n` : ""}${modifiedFiles.length > 0 ? `수정된 파일: ${modifiedFiles.join(", ")}` : ""}`
+              : "";
 
-          console.log(`[ConversationManager] Saving CODE mode entry (loop end) - userQuery: "${userQuery?.substring(0, 50)}..."`);
+          // PLAN 모드: 플랜 원문을 assistantResponse로 저장 (다음 턴 히스토리 참조용)
+          const assistantResponseToSave =
+            isPlanMode && planTextResponse ? planTextResponse : finalSummary;
+
+          const modeLabel = isPlanMode ? "PLAN" : "CODE";
+          console.log(
+            `[ConversationManager] Saving ${modeLabel} mode entry (loop end) - userQuery: "${userQuery?.substring(0, 50)}..."`,
+          );
           await sessionManager.addConversationEntry(currentSession.id, {
             id: `conv_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
             timestamp: Date.now(),
             userRequest: userQuery || "",
-            assistantResponse: finalSummary,
+            assistantResponse: assistantResponseToSave,
             actions: collectedActions as any,
             filesCreated: createdFiles,
             filesModified: modifiedFiles,
             uiMessages: collectedUIMessages,
             result: "success",
             model: options.currentModelType,
+            conversationTurnId: lastExecutionTurnId, // Undo 복원 시 turnCheckpointStack 매칭용
           });
-          console.log(`[ConversationManager] CODE mode entry saved successfully (loop end)`);
+          console.log(
+            `[ConversationManager] ${modeLabel} mode entry saved successfully (loop end)`,
+          );
         }
       } catch (e) {
-        console.warn("[ConversationManager] Failed to save CODE mode entry (loop end):", e);
+        console.warn(
+          "[ConversationManager] Failed to save CODE mode entry (loop end):",
+          e,
+        );
+      }
+
+      // Prompt Suggestions (설정으로 on/off)
+      const promptSuggestionEnabled = vscode.workspace
+        .getConfiguration("codepilot")
+        .get<boolean>("promptSuggestion", false);
+      if (!promptSuggestionEnabled) {
+        console.log(
+          "[ConversationManager] Prompt suggestions disabled by setting",
+        );
+      } else
+        try {
+          console.log(
+            `[ConversationManager] Generating prompt suggestions (files: ${createdFiles.length} created, ${modifiedFiles.length} modified)...`,
+          );
+          const { PromptSuggestionService } =
+            await import("../suggestion/PromptSuggestionService");
+          const suggestionService = PromptSuggestionService.getInstance(
+            this.llmManager,
+          );
+          const suggestions = await suggestionService.generateSuggestions(
+            userQuery || "",
+            createdFiles,
+            modifiedFiles,
+            "",
+          );
+          if (suggestions.length > 0 && webviewToRespond) {
+            console.log(
+              `[ConversationManager] Sending ${suggestions.length} suggestions to webview`,
+            );
+            webviewToRespond.postMessage({
+              command: "showSuggestions",
+              suggestions,
+            });
+          } else {
+            console.log(
+              `[ConversationManager] No suggestions to show (${suggestions.length} items)`,
+            );
+          }
+        } catch (e) {
+          console.warn("[ConversationManager] Prompt suggestions failed:", e);
+        }
+
+      // Session Memory auto-extraction
+      try {
+        const { SessionMemoryExtractor } =
+          await import("../../memory/SessionMemoryExtractor");
+        const extractor = SessionMemoryExtractor.getInstance(this.llmManager);
+        const compactorForExtraction = ConversationCompactor.getInstance(
+          this.llmManager,
+        );
+        const extractionTokens = compactorForExtraction.calculateTotalTokens(
+          accumulatedUserParts,
+          systemPrompt,
+        );
+        if (extractor.shouldExtract(extractionTokens, turnCount)) {
+          const summary = compactorForExtraction.getLastSummary();
+          if (summary) {
+            await extractor.extractAndSave(summary, turnCount);
+          }
+        }
+      } catch (e) {
+        console.warn(
+          "[ConversationManager] Session memory extraction failed:",
+          e,
+        );
+      }
+
+      // AutoDream: increment session counter and check for consolidation
+      try {
+        const { AutoDreamService } =
+          await import("../../memory/AutoDreamService");
+        const dreamService = AutoDreamService.getInstance(this.llmManager);
+        dreamService.onSessionComplete();
+        if (dreamService.shouldConsolidate()) {
+          // Run in background (don't block the UI)
+          dreamService
+            .consolidate()
+            .catch((e) =>
+              console.warn(
+                "[ConversationManager] AutoDream consolidation failed:",
+                e,
+              ),
+            );
+        }
+      } catch (e) {
+        console.warn("[ConversationManager] AutoDream check failed:", e);
       }
     }
   }
@@ -3782,24 +5420,69 @@ export class ConversationManager implements IConversationHandler {
         }
       };
 
+      const _llmStartAskS = Date.now();
       response = await this.llmManager.sendMessageWithSystemPromptStreaming(
         systemPrompt,
         userParts,
         onAskChunk,
         { signal: options.abortSignal },
       );
+      {
+        const _t = Date.now() - _llmStartAskS;
+        const _tok = estimateTokens(response);
+        UsageMetricsManager.getInstance().recordLLMCall(
+          _t,
+          _tok,
+          true,
+          await this.llmManager.getCurrentModelName().catch(() => "unknown"),
+        );
+      }
     } else {
-      // 비스트리밍 모드: 기존 방식 (🔥 스트리밍 효과 추가)
+      // 비스트리밍 모드: 기존 방식 (스트리밍 효과 추가)
+      const _llmStartAskNS = Date.now();
       response = await this.llmManager.sendMessageWithSystemPrompt(
         systemPrompt,
         userParts,
         { signal: options.abortSignal },
       );
+      {
+        const _t = Date.now() - _llmStartAskNS;
+        const _tok = estimateTokens(response);
+        UsageMetricsManager.getInstance().recordLLMCall(
+          _t,
+          _tok,
+          true,
+          await this.llmManager.getCurrentModelName().catch(() => "unknown"),
+        );
+      }
       await WebviewBridge.streamText(
         options.webviewToRespond,
         "CODEPILOT",
         response,
       );
+    }
+
+    // ASK 모드 메시지별 토큰 정보
+    if (response) {
+      const askTokenCount = estimateTokens(response);
+      let askModelName: string | undefined;
+      try {
+        askModelName = await this.llmManager.getCurrentModelName();
+      } catch {}
+      WebviewBridge.updateMessageTokenInfo(options.webviewToRespond, {
+        tokens: askTokenCount,
+        model: askModelName,
+      });
+
+      // ASK 모드 참조 추적 정보 전송
+      const askPromptRefs = PromptComposer.getLastReferences();
+      const askRagRefs = ContextGatherer.getLastRagReferences();
+      const askAllRefs = [...askRagRefs, ...askPromptRefs];
+      if (askAllRefs.length > 0) {
+        WebviewBridge.sendReferenceInfo(options.webviewToRespond, {
+          items: askAllRefs,
+        });
+      }
     }
 
     // 📝 구조화된 메타데이터로 세션에 저장 (ASK 모드)
@@ -3835,20 +5518,20 @@ export class ConversationManager implements IConversationHandler {
       }
       sessionManager.addTokensUsed(askTokens);
 
-      // 세션 누적 컨텍스트 정보 업데이트
+      // 실제 컨텍스트 토큰 사용량으로 게이지 업데이트 (누적이 아닌 현재 LLM 컨텍스트)
       const currentModelType = options.currentModelType || AiModelType.OLLAMA;
       const modelLimits =
         MODEL_TOKEN_LIMITS[currentModelType] ||
         MODEL_TOKEN_LIMITS[AiModelType.OLLAMA];
       const maxTokens = modelLimits?.maxInputTokens || 128000;
 
-      const cumulativeStats = sessionManager.getCumulativeSessionStats();
+      // askTokens = 시스템 프롬프트 + userParts + response (실제 LLM 컨텍스트)
       WebviewBridge.updateContextInfo(options.webviewToRespond, {
-        messageCount: cumulativeStats.messageCount,
+        messageCount: userParts.length,
         tokenUsage: {
-          current: cumulativeStats.totalTokensUsed,
+          current: askTokens,
           max: maxTokens,
-          percentage: (cumulativeStats.totalTokensUsed / maxTokens) * 100,
+          percentage: (askTokens / maxTokens) * 100,
         },
       });
 
@@ -3979,11 +5662,13 @@ export class ConversationManager implements IConversationHandler {
       return false;
     }
 
-    // execution 카테고리 또는 code 카테고리의 code_generate/code_modify 서브타입
+    // execution 카테고리 또는 code 카테고리의 code_generate/code_modify/code_remove 서브타입
     const isExecutionCategory = intent.category === "execution";
     const isCodeGenerateOrModify =
       intent.category === "code" &&
-      (intent.subtype === "code_generate" || intent.subtype === "code_modify");
+      (intent.subtype === "code_generate" ||
+        intent.subtype === "code_modify" ||
+        intent.subtype === "code_remove");
 
     // confidence >= MIN_EXECUTION_FIRST_CONFIDENCE 필수
     const hasHighConfidence =
@@ -4062,14 +5747,25 @@ export class ConversationManager implements IConversationHandler {
       );
 
       try {
+        const _llmStartSummary = Date.now();
         const verifiedSummary =
           await this.llmManager.sendMessageWithSystemPrompt(
             summaryPrompt,
             accumulatedParts,
             { signal: abortSignal },
           );
+        {
+          const _t = Date.now() - _llmStartSummary;
+          const _tok = estimateTokens(verifiedSummary);
+          UsageMetricsManager.getInstance().recordLLMCall(
+            _t,
+            _tok,
+            true,
+            await this.llmManager.getCurrentModelName().catch(() => "unknown"),
+          );
+        }
 
-        // 🔥 문제 해결: REVIEW 단계에서 도구 호출 및 thinking 제거 강화
+        // 문제 해결: REVIEW 단계에서 도구 호출 및 thinking 제거 강화
         let summaryText =
           this.responseProcessor.extractResponseText(verifiedSummary);
 
@@ -4106,216 +5802,6 @@ export class ConversationManager implements IConversationHandler {
         // 실패 시 기본 메시지 반환
         return "작업이 완료되었습니다.";
       }
-    }
-  }
-
-  /**
-   * Formatter 실행 여부 결정 (조건부 호출)
-   * ✅ 무조건 호출 ❌ → 조건부 호출 ✅
-   */
-  private shouldRunFormatter(
-    createdFiles: string[],
-    modifiedFiles: string[],
-  ): boolean {
-    // 🟢 1. 새 파일 추가 시 → YES (거의 무조건)
-    if (createdFiles.length > 0) {
-      console.log(
-        "[ConversationManager] New files detected, formatter will run",
-      );
-      return true;
-    }
-
-    // 🟢 2. 10줄 이상 구조 변경 → YES
-    const inlineDiffManager = InlineDiffManager.getInstance();
-    let totalModifiedLines = 0;
-
-    for (const filePath of modifiedFiles) {
-      const workspaceRoot =
-        vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "";
-      const absolutePath = path.isAbsolute(filePath)
-        ? filePath
-        : workspaceRoot
-          ? path.join(workspaceRoot, filePath)
-          : filePath;
-
-      const changes = inlineDiffManager.getChanges(absolutePath);
-      if (changes && changes.length > 0) {
-        for (const change of changes) {
-          if (change.status === "pending") {
-            // range 기반으로 영향받은 라인 수 계산
-            const affectedLines = Math.max(
-              1,
-              change.range.end.line - change.range.start.line + 1,
-            );
-            totalModifiedLines += affectedLines;
-          }
-        }
-      }
-    }
-
-    if (totalModifiedLines >= AgentConfig.MIN_SIGNIFICANT_MODIFICATION_LINES) {
-      console.log(
-        `[ConversationManager] ${totalModifiedLines} lines modified, formatter will run`,
-      );
-      return true;
-    }
-
-    // 🟡 3. 단순 문자열 / 한 줄 수정 → NO (기본)
-    console.log(
-      `[ConversationManager] Only ${totalModifiedLines} lines modified (threshold: ${AgentConfig.MIN_SIGNIFICANT_MODIFICATION_LINES}), skipping formatter`,
-    );
-    return false;
-  }
-
-  /**
-   * 파일 변경 후 formatter 및 validation 실행
-   * 실행 순서: Formatter → Validation
-   * ✅ 조건부 호출 + diff 보호
-   */
-  private async afterFileChanges(
-    webview: vscode.Webview,
-    workspaceRoot: string,
-    createdFiles: string[],
-    modifiedFiles: string[],
-  ): Promise<void> {
-    try {
-      // ✅ 조건부 Formatter 실행 결정
-      if (!this.shouldRunFormatter(createdFiles, modifiedFiles)) {
-        console.log("[ConversationManager] Skipping formatter (small changes)");
-        return;
-      }
-
-      const detector = new ProjectDetector();
-      const projectInfo = await detector.detectProjectType(workspaceRoot);
-
-      // Fallback: LLM으로 프로젝트 타입 감지
-      if (projectInfo.type === ProjectType.UNKNOWN) {
-        console.log(
-          "[ConversationManager] Unknown project type, trying LLM fallback...",
-        );
-        const currentProject = ProjectManager.getInstance().getCurrentProject();
-        const llmManager = LLMManager.getInstance();
-        const currentModelType = llmManager.getCurrentModel();
-        const geminiApi = llmManager.getGeminiApi();
-        const ollamaApi = llmManager.getOllamaApi();
-
-        const llmResult = await detector.detectWithLLMFallback(
-          workspaceRoot,
-          currentModelType === AiModelType.GEMINI ? geminiApi : ollamaApi,
-          currentModelType,
-        );
-
-        if (llmResult && llmResult.type !== ProjectType.UNKNOWN) {
-          console.log(
-            `[ConversationManager] LLM fallback detected project type: ${llmResult.type}`,
-          );
-          Object.assign(projectInfo, llmResult);
-        } else {
-          console.log(
-            "[ConversationManager] Unknown project type, skipping formatter and validation.",
-          );
-          return;
-        }
-      }
-
-      const executionManager = ExecutionManager.getInstance();
-      const inlineDiffManager = InlineDiffManager.getInstance();
-
-      // 1. Formatter 실행 (조건부)
-      const formatterCmd = detector.getFormatterCommand(
-        projectInfo.type,
-        workspaceRoot,
-        createdFiles,
-        modifiedFiles,
-      );
-      if (formatterCmd) {
-        // ✅ Formatter 실행 전: diff 보호 시작
-        const allAffectedFiles = [...createdFiles, ...modifiedFiles];
-        for (const filePath of allAffectedFiles) {
-          const absolutePath = path.isAbsolute(filePath)
-            ? filePath
-            : workspaceRoot
-              ? path.join(workspaceRoot, filePath)
-              : filePath;
-          inlineDiffManager.markFormatterRunning(absolutePath);
-        }
-
-        WebviewBridge.sendProcessingStatus(
-          webview,
-          "executing",
-          `${formatterCmd.description} 실행 중...`,
-        );
-        try {
-          const formatterResult = await executionManager.executeCommand(
-            formatterCmd.command,
-            {
-              cwd: workspaceRoot,
-              timeout: AgentConfig.VALIDATION_COMMAND_TIMEOUT,
-            },
-          );
-
-          // ✅ Formatter 실행 후: diff 보호 해제
-          for (const filePath of allAffectedFiles) {
-            const absolutePath = path.isAbsolute(filePath)
-              ? filePath
-              : workspaceRoot
-                ? path.join(workspaceRoot, filePath)
-                : filePath;
-            inlineDiffManager.markFormatterFinished(absolutePath);
-          }
-
-          if (formatterResult.exitCode === 0) {
-            console.log(
-              `[ConversationManager] Formatter executed successfully: ${formatterCmd.description}`,
-            );
-            WebviewBridge.sendProcessingStatus(
-              webview,
-              "executing",
-              `${formatterCmd.description} 완료`,
-            );
-          } else {
-            // Formatter 실패는 경고로만 처리 (테스트 실패로 간주하지 않음)
-            console.warn(
-              `[ConversationManager] Formatter failed (non-fatal): ${formatterResult.stderr || formatterResult.stdout || ""}`,
-            );
-            WebviewBridge.sendProcessingStatus(
-              webview,
-              "executing",
-              `${formatterCmd.description} 경고 (계속 진행)`,
-            );
-          }
-        } catch (error) {
-          // ✅ 에러 발생 시에도 diff 보호 해제
-          for (const filePath of allAffectedFiles) {
-            const absolutePath = path.isAbsolute(filePath)
-              ? filePath
-              : workspaceRoot
-                ? path.join(workspaceRoot, filePath)
-                : filePath;
-            inlineDiffManager.markFormatterFinished(absolutePath);
-          }
-          // Formatter 오류는 경고로만 처리
-          console.warn(
-            `[ConversationManager] Formatter error (non-fatal):`,
-            error,
-          );
-          WebviewBridge.sendProcessingStatus(
-            webview,
-            "executing",
-            `${formatterCmd.description} 경고 (계속 진행)`,
-          );
-        }
-      } else {
-        console.log(
-          `[ConversationManager] No formatter command found for project type: ${projectInfo.type}`,
-        );
-      }
-
-      // 2. Validation 실행 (TestRunner에서 처리)
-      // Validation은 TestRunner.runAutomatedTests()에서 실행되므로 여기서는 실행하지 않음
-    } catch (error) {
-      console.error("[ConversationManager] Error in afterFileChanges:", error);
-      // 오류가 발생해도 계속 진행
     }
   }
 
@@ -4408,6 +5894,9 @@ export class ConversationManager implements IConversationHandler {
       text: string;
       type?: "action" | "code" | "summary" | "message";
     }>,
+    conversationTurnId?: string,
+    executedCommands: string[] = [],
+    retryCoordinator?: RetryCoordinator,
   ): Promise<TurnAction> {
     // REVIEW가 이미 처리되었는지 확인 (중복 호출 방지)
     const reviewProcessedKey = `review_processed_${createdFiles.join(",")}_${modifiedFiles.join(",")}`;
@@ -4432,59 +5921,18 @@ export class ConversationManager implements IConversationHandler {
     const currentProject = ProjectManager.getInstance().getCurrentProject();
     const workspaceRoot = currentProject?.root || "";
 
-    // A4: 완료 여부 판단 (파일 변경이 있는 경우에만)
-    // v9.7.0: REVIEW phase는 테스트 통과 후 진입하므로 buildTestPassed=true
-    if (createdFiles.length > 0 || modifiedFiles.length > 0) {
-      try {
-        const judgment = await this.completionJudge.judge(
-          userQuery,
-          createdFiles,
-          modifiedFiles,
-          "", // lastResponse는 아직 생성 전
-          abortSignal,
-          true, // buildTestPassed: REVIEW phase는 테스트 통과 후 진입
-        );
-
-        console.log(
-          `[ConversationManager] A4 CompletionJudge: complete=${judgment.isComplete}, confidence=${judgment.confidence}, reason=${judgment.reason}`,
-        );
-
-        // 미완성으로 판단되고 추가 작업이 필요한 경우
-        if (this.completionJudge.shouldContinue(judgment)) {
-          console.log(
-            "[ConversationManager] A4: Incomplete work detected, continuing EXECUTION",
-          );
-          this.completionJudge.incrementAutoContinue();
-
-          // v9.7.0: EXECUTION으로 돌아갈 때 reviewProcessed 리셋 (다음 REVIEW에서 요약 생성 위해)
-          (this as any).reviewProcessed = null;
-
-          // 추가 작업 프롬프트 생성 및 userParts에 추가
-          const continuePrompt =
-            this.completionJudge.buildContinuePrompt(judgment);
-          accumulatedUserParts.push({ text: continuePrompt });
-
-          // EXECUTION으로 돌아가서 추가 작업 수행
-          stateManager.transitionTo(AgentPhase.EXECUTION);
-          WebviewBridge.sendProcessingStatus(
-            webview,
-            "executing",
-            "추가 작업 진행 중...",
-          );
-
-          return { action: "continue" };
-        }
-      } catch (e) {
-        console.warn("[ConversationManager] A4 CompletionJudge failed:", e);
-        // 판단 실패 시 그냥 완료로 처리
-      }
-    }
-
     // 페이즈별 프롬프트 보정 (REVIEW 단계용)
     const activeSystemPrompt = systemPrompt;
 
     // 요약 생성 (파일이 생성/수정된 경우)
     let finalResponse = "";
+
+    WebviewBridge.sendProcessingStep(webview, "review");
+    WebviewBridge.sendProcessingStatus(
+      webview,
+      "review",
+      "결과 요약 생성 중......",
+    );
 
     if (createdFiles.length > 0 || modifiedFiles.length > 0) {
       const verifiedSummary =
@@ -4500,37 +5948,65 @@ export class ConversationManager implements IConversationHandler {
 
       if (verifiedSummary && verifiedSummary.trim()) {
         finalResponse = this.parseCommandsInSummary(verifiedSummary);
-        await WebviewBridge.streamText(webview, "CODEPILOT", finalResponse);
-      } else {
+        await WebviewBridge.streamText(
+          webview,
+          "CODEPILOT",
+          finalResponse,
+          30,
+          10,
+          conversationTurnId ? { conversationTurnId } : undefined,
+        );
+      } else if (createdFiles.length > 0 || modifiedFiles.length > 0) {
         finalResponse =
-          `작업이 완료되었습니다.\n\n` +
           (createdFiles.length > 0
             ? `생성된 파일: ${createdFiles.join(", ")}\n`
             : "") +
           (modifiedFiles.length > 0
             ? `수정된 파일: ${modifiedFiles.join(", ")}\n`
             : "");
-        await WebviewBridge.streamText(webview, "CODEPILOT", finalResponse);
+        await WebviewBridge.streamText(
+          webview,
+          "CODEPILOT",
+          finalResponse,
+          30,
+          10,
+          conversationTurnId ? { conversationTurnId } : undefined,
+        );
       }
+      // 파일 변경 없고 요약도 없으면 메시지 출력하지 않음
     } else {
-      finalResponse = "작업이 완료되었습니다.";
-      await WebviewBridge.streamText(webview, "CODEPILOT", finalResponse);
+      // 파일 변경 없으면 완료 메시지 출력하지 않음
+      finalResponse = "";
+    }
+
+    // CODE 모드 누적 토큰 정보 전송 (요약 메시지 렌더링 후)
+    if (this._pendingTokenInfo) {
+      WebviewBridge.updateMessageTokenInfo(webview, this._pendingTokenInfo);
+      this._pendingTokenInfo = null;
     }
 
     // 📝 v9.7.0: 세션 저장은 루프 종료 후 executeAgentLoop 끝에서 처리
     // (collectedActions, collectedUIMessages 업데이트는 유지)
     createdFiles.forEach((file) => {
-      if (!collectedActions.some((a) => a.type === "create" && a.file === file)) {
+      if (
+        !collectedActions.some((a) => a.type === "create" && a.file === file)
+      ) {
         collectedActions.push({ type: "create", file, result: "success" });
       }
     });
     modifiedFiles.forEach((file) => {
-      if (!collectedActions.some((a) => a.type === "modify" && a.file === file)) {
+      if (
+        !collectedActions.some((a) => a.type === "modify" && a.file === file)
+      ) {
         collectedActions.push({ type: "modify", file, result: "success" });
       }
     });
     if (finalResponse) {
-      collectedUIMessages.push({ sender: "CODEPILOT", text: finalResponse, type: "summary" });
+      collectedUIMessages.push({
+        sender: "CODEPILOT",
+        text: finalResponse,
+        type: "summary",
+      });
     }
 
     // CODE 모드 사용 토큰을 세션에 설정
@@ -4588,6 +6064,42 @@ export class ConversationManager implements IConversationHandler {
       "[ConversationManager] REVIEW completed, transitioning to DONE.",
     );
     return { action: "break" };
+  }
+
+  /**
+   * PreToolUseValidator에 의해 차단된 도구 처리
+   * @returns 'break' (모든 도구 차단 → 루프 종료), 'continue' (일부 성공 → 계속), null (차단 없음)
+   */
+  private handleBlockedTools(
+    hasBlocked: boolean,
+    blockedMessages: string[],
+    hasSuccessful: boolean,
+    stateManager: AgentStateManager,
+    accumulatedUserParts: UserPart[],
+    webview?: vscode.Webview,
+  ): "break" | "continue" | null {
+    if (!hasBlocked || blockedMessages.length === 0) {
+      return null;
+    }
+
+    console.log(
+      `[ConversationManager] Tool blocked by PreToolUseValidator: ${blockedMessages.join(", ")}`,
+    );
+
+    // 차단 메시지 채팅 출력은 ToolExecutionCoordinator 가 이미 `🚫 [보안 차단]`
+    // 으로 송출함 (BLOCKED_BY_VALIDATOR 분기). 여기서 또 송출하면 동일 차단이
+    // 두 번 표시되는 회귀가 생기므로 ConversationManager 측 emit 은 제거.
+    // (로그는 디버깅용으로 유지)
+
+    if (!hasSuccessful) {
+      stateManager.transitionTo(AgentPhase.REVIEW);
+      return "break";
+    }
+
+    accumulatedUserParts.push({
+      text: `[시스템 알림] 다음 파일은 보안 규칙에 의해 접근이 차단되었습니다: ${blockedMessages.join(", ")}. 해당 파일을 제외하고 나머지 파일로 작업을 계속하세요.`,
+    });
+    return "continue";
   }
 
   /**
@@ -4670,6 +6182,32 @@ export class ConversationManager implements IConversationHandler {
 
     // 조사 단계에서는 계획이 없어도 계속 진행
     if (currentPhase === AgentPhase.INVESTIGATION) {
+      // 핵심 수정: INVESTIGATION 단계에서도 MCP 도구 실행 후 결과 해석 플래그 설정
+      // 이전: MCP 체크가 INVESTIGATION early return 이후에 있어서 도달 불가 → 무한 루프
+      // 현재: MCP 도구가 실행되었으면 pendingMCPResultInterpretation=true로 설정
+      const toolRegistry = ToolRegistry.getInstance();
+      const hasMCPToolInInvestigation = totalToolCalls.some((call) =>
+        toolRegistry.isMCPTool(call.name),
+      );
+
+      if (hasMCPToolInInvestigation) {
+        console.log(
+          "[ConversationManager] INVESTIGATION phase: MCP tool executed. Feeding results back to LLM for interpretation.",
+        );
+        WebviewBridge.sendProcessingStep(webview, "thinking");
+        WebviewBridge.sendProcessingStatus(
+          webview,
+          "thinking",
+          `[조사] MCP 도구 결과 분석 중...`,
+        );
+        return {
+          turnAction: { action: "continue" },
+          testFixAttempts,
+          pendingRetryPrompt: false,
+          pendingMCPResultInterpretation: true,
+        };
+      }
+
       console.log(
         "[ConversationManager] Investigation phase: continuing to allow plan creation or work execution.",
       );
@@ -4684,25 +6222,32 @@ export class ConversationManager implements IConversationHandler {
       };
     }
 
-    // code_modify intent일 때 write tool이 없으면 완료로 판단하지 않음
-    const writeTools = [
-      Tool.CREATE_FILE,
-      Tool.UPDATE_FILE,
-      Tool.REMOVE_FILE,
-      Tool.RUN_COMMAND,
-    ];
-    const hasWriteToolInHistory =
+    // code_modify/code_generate intent일 때 파일 도구(create_file/update_file) 없으면 완료로 판단하지 않음
+    // v1.0.25: run_command만으로는 파일 생성 완료로 판단하지 않음 (mkdir, cat 등은 파일 추적 안 됨)
+    const fileTools = [Tool.CREATE_FILE, Tool.UPDATE_FILE, Tool.REMOVE_FILE];
+    const hasFileToolInHistory =
       createdFiles.length > 0 ||
       modifiedFiles.length > 0 ||
-      totalToolCalls.some((call) => writeTools.includes(call.name as Tool));
+      totalToolCalls.some((call) => fileTools.includes(call.name as Tool));
     const isCodeModifyIntent = intent && intent.subtype === "code_modify";
 
-    if (isCodeModifyIntent && !hasWriteToolInHistory) {
+    const isCodeGenerateIntent = intent && intent.subtype === "code_generate";
+
+    const isCodeRemoveIntent = intent && intent.subtype === "code_remove";
+
+    if (
+      (isCodeModifyIntent || isCodeGenerateIntent || isCodeRemoveIntent) &&
+      !hasFileToolInHistory
+    ) {
       console.log(
-        `[ConversationManager] EXECUTION phase: code_modify intent requires write tool. Continuing.`,
+        `[ConversationManager] EXECUTION phase: ${intent!.subtype} intent requires write tool. Continuing.`,
       );
       accumulatedUserParts.push({
-        text: getCodeModifyRequiresFileToolPrompt(),
+        text: isCodeModifyIntent
+          ? getCodeModifyRequiresFileToolPrompt()
+          : isCodeRemoveIntent
+            ? `\n[System] You have inspected the relevant files. Now perform the actual deletion the user requested by calling update_file (to remove the referenced code blocks) or remove_file (to delete the whole file). Do not end the turn without a write/delete tool call.`
+            : `\n[System] 조사 결과를 바탕으로 실제 파일을 생성하세요. create_file, update_file 등의 도구를 사용하여 사용자가 요청한 코드를 작성하세요.`,
       });
       return {
         turnAction: { action: "continue" },
@@ -4764,7 +6309,7 @@ export class ConversationManager implements IConversationHandler {
       };
     }
 
-    // execution_run intent일 때는 run_command가 실행될 때까지 계속 진행
+    // execution_run intent일 때는 run_command가 실행될 때까지 계속 진행 (CODE 모드만 — AGENT는 LLM 자율)
     if (isExecutionRunIntent && !hasRunCommandInHistory) {
       console.log(
         "[ConversationManager] EXECUTION phase: execution_run intent requires run_command. Continuing.",
@@ -4820,20 +6365,27 @@ export class ConversationManager implements IConversationHandler {
       type?: "action" | "code" | "summary" | "message";
     }>,
     preloadedFiles: Set<string>,
+    alreadyStattedFiles: Set<string>,
     createdFiles: string[],
     modifiedFiles: string[],
     includeWebviewInContext: boolean = false,
+    conversationTurnId?: string,
+    executedCommands: string[] = [],
+    isPlanMode: boolean = false,
+    abortSignal?: AbortSignal,
   ): Promise<{
     toolResults: ToolResponse[];
     hasSuccessfulExecution: boolean;
+    hasWriteToolExecution: boolean;
     hasBlockedByValidator: boolean;
     blockedMessages: string[];
     hasUserSkipped?: boolean;
+    inlineDiagnosticErrors?: string;
   }> {
     const currentProject = ProjectManager.getInstance().getCurrentProject();
     const workspaceRoot = currentProject?.root || "";
 
-    // 🔥 사용자 확인이 필요한 도구 필터링
+    // 사용자 확인이 필요한 도구 필터링
     const settingsManager = SettingsManager.getInstance();
     const isAutoToolEnabled =
       await settingsManager.isAutoToolExecutionEnabled();
@@ -4847,7 +6399,73 @@ export class ConversationManager implements IConversationHandler {
     const approvedToolCalls: ToolUse[] = [];
     const skippedToolResults: ToolResponse[] = [];
 
+    // ⚡ 동일 턴 read_file(A) + update_file(A) 차단: LLM이 파일 내용 모르고 SEARCH 생성하는 패턴
+    const readPathsInBatch = new Set<string>();
     for (const call of toolCalls) {
+      if (call.name === Tool.READ_FILE && call.params.path) {
+        readPathsInBatch.add(call.params.path);
+      }
+    }
+
+    for (const call of toolCalls) {
+      // PLAN 모드: 쓰기 도구 차단
+      if (
+        isPlanMode &&
+        [
+          Tool.CREATE_FILE,
+          Tool.UPDATE_FILE,
+          Tool.REMOVE_FILE,
+          Tool.RUN_COMMAND,
+        ].includes(call.name as Tool)
+      ) {
+        console.log(
+          `[ConversationManager] PLAN mode blocked write tool: ${call.name}`,
+        );
+        skippedToolResults.push({
+          success: false,
+          message: `[PLAN 모드] ${call.name}은 PLAN 모드에서 실행할 수 없습니다. PLAN 모드는 읽기 전용입니다. 탐색을 마치고 구현 계획 Markdown만 출력하세요.`,
+        });
+        continue;
+      }
+
+      // cross-turn 중복 stat_file → 스킵
+      if (
+        call.name === Tool.STAT_FILE &&
+        call.params.path &&
+        alreadyStattedFiles.has(call.params.path)
+      ) {
+        console.log(
+          `[ConversationManager] Cross-turn duplicate stat skipped: ${call.params.path}`,
+        );
+        skippedToolResults.push({
+          success: true,
+          message: `[이미 조회됨] ${call.params.path}는 이전 턴에서 이미 stat_file로 조회했습니다. 이전 결과를 그대로 사용하세요. 다시 stat_file을 호출하지 마세요.`,
+        });
+        continue;
+      }
+
+      // read_file과 동턴 update_file → 보호 파일만 차단
+      if (
+        call.name === Tool.UPDATE_FILE &&
+        call.params.path &&
+        readPathsInBatch.has(call.params.path)
+      ) {
+        const { PreToolUseValidator } =
+          await import("../../tools/PreToolUseValidator");
+        if (PreToolUseValidator.isSensitiveFile(call.params.path)) {
+          console.log(
+            `[ConversationManager] Skipped update_file (protected file): ${call.params.path}`,
+          );
+          const blockedMsg = `🚫 [보안 차단] 민감한 파일 수정 차단: ${call.params.path}`;
+          WebviewBridge.receiveMessage(webview, "System", blockedMsg);
+          skippedToolResults.push({
+            success: false,
+            message: blockedMsg,
+          });
+          continue;
+        }
+      }
+
       const needsConfirmation = await this.checkToolNeedsConfirmation(
         call,
         isAutoToolEnabled,
@@ -4891,6 +6509,7 @@ export class ConversationManager implements IConversationHandler {
       return {
         toolResults: skippedToolResults,
         hasSuccessfulExecution: false,
+        hasWriteToolExecution: false,
         hasBlockedByValidator: false,
         blockedMessages: [],
         hasUserSkipped,
@@ -4904,6 +6523,7 @@ export class ConversationManager implements IConversationHandler {
       executionManager,
       terminalManager,
       contextManager: this.contextManager,
+      conversationTurnId,
     };
     if (includeWebviewInContext) {
       executionContext.webview = webview;
@@ -4924,11 +6544,17 @@ export class ConversationManager implements IConversationHandler {
           result,
         );
         uiMsgs.push(...msgs);
+        WebviewBridge.sendProcessingStatus(
+          webview,
+          "executing",
+          "LLM 응답 대기 중...",
+        );
       },
-      // 🔥 도구 실행 시작 시 진행 상태 표시 (v9.5.0)
+      // 도구 실행 시작 시 진행 상태 표시 (v9.5.0)
       (toolUse: ToolUse, _index: number) => {
         ToolExecutionCoordinator.sendToolStartStatus(webview, toolUse);
       },
+      abortSignal,
     );
 
     // 스킵된 결과와 실행된 결과를 합침 (원래 순서 유지를 위해 재구성)
@@ -4937,7 +6563,18 @@ export class ConversationManager implements IConversationHandler {
     let skippedIdx = 0;
     for (const call of toolCalls) {
       if (approvedToolCalls.includes(call)) {
-        toolResults.push(executedResults[executedIdx++]);
+        const result = executedResults[executedIdx++];
+        // 병렬 실행에서 실패로 인해 스킵된 도구는 undefined일 수 있음
+        toolResults.push(
+          result ?? {
+            success: false,
+            message: `Tool execution skipped due to prior failure: ${call.name}`,
+            error: {
+              code: "SKIPPED_DUE_TO_FAILURE",
+              message: "Prior command failed, execution stopped",
+            },
+          },
+        );
       } else {
         toolResults.push(skippedToolResults[skippedIdx++]);
       }
@@ -4955,36 +6592,127 @@ export class ConversationManager implements IConversationHandler {
       }
     });
 
-    // 파일 변경 추적
+    // stat_file 결과를 alreadyStattedFiles에 추가 (턴 간 중복 방지)
+    toolCalls.forEach((call: ToolUse, index: number) => {
+      if (
+        call.name === Tool.STAT_FILE &&
+        call.params.path &&
+        toolResults[index]?.success
+      ) {
+        alreadyStattedFiles.add(call.params.path);
+      }
+    });
+
+    // 파일 변경 추적 (이번 도구 실행에서 새로 변경된 파일만 추적하기 위해 스냅샷)
+    const prevCreatedCount = createdFiles.length;
+    const prevModifiedCount = modifiedFiles.length;
     ToolExecutionCoordinator.trackFileChanges(
       toolCalls,
       toolResults,
       createdFiles,
       modifiedFiles,
+      this.deletedFiles,
     );
 
     // 성공 여부 추적
     const hasSuccessfulExecution = toolResults.some(
-      (result: ToolResponse) => result.success === true,
+      (result: ToolResponse) => result?.success === true,
     );
 
-    // 🔥 PreToolUseValidator 차단 여부 추적 (재시도 방지용)
+    // 쓰기 도구(create_file, update_file, remove_file, run_command) 실행 여부 추적
+    // 읽기 전용 도구만 실행된 경우 "작업 완료"로 판단하지 않기 위해 사용
+    const hasWriteToolExecution = toolCalls.some(
+      (call: ToolUse, index: number) =>
+        toolResults[index]?.success === true && !READ_ONLY_TOOLS.has(call.name),
+    );
+
+    // PreToolUseValidator 차단 여부 추적 (재시도 방지용)
     const hasBlockedByValidator = toolResults.some(
       (result: ToolResponse) => result.error?.code === "BLOCKED_BY_VALIDATOR",
     );
     const blockedMessages = toolResults
-      .filter((result: ToolResponse) => result.error?.code === "BLOCKED_BY_VALIDATOR")
+      .filter(
+        (result: ToolResponse) => result.error?.code === "BLOCKED_BY_VALIDATOR",
+      )
       .map((result: ToolResponse) => result.message || result.error?.message)
       .filter((msg): msg is string => Boolean(msg));
 
-    // 파일 변경 후 formatter 및 validation 실행
-    if (createdFiles.length > 0 || modifiedFiles.length > 0) {
-      await this.afterFileChanges(
+    // 파일 변경 후 formatter 및 validation 실행 (이번 도구 실행에서 새로 변경된 파일만)
+    // 누적된 createdFiles/modifiedFiles 전체를 넘기면 이전 턴 pending diff가 남아 중복 포맷팅 발생
+    const newlyCreated = createdFiles.slice(prevCreatedCount);
+    const newlyModified = modifiedFiles.slice(prevModifiedCount);
+    if (newlyCreated.length > 0 || newlyModified.length > 0) {
+      await FileChangeHandler.afterFileChanges(
         webview,
         workspaceRoot,
-        createdFiles,
-        modifiedFiles,
+        newlyCreated,
+        newlyModified,
       );
+    }
+
+    // v1.0.24: EXECUTION 중 즉시 LSP diagnostics 검사
+    // 파일 수정 직후 에러를 감지하여 다음 턴에서 LLM이 즉시 수정할 수 있도록 함
+    let inlineDiagnosticErrors: string | undefined;
+    if (
+      hasWriteToolExecution &&
+      (createdFiles.length > 0 || modifiedFiles.length > 0)
+    ) {
+      try {
+        // LSP가 변경사항을 처리할 시간을 약간 대기
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        const diagnosticErrors = await TestRunner.checkDiagnostics(
+          createdFiles,
+          modifiedFiles,
+          workspaceRoot,
+        );
+        if (diagnosticErrors.length > 0) {
+          // Error 수준만 (Warning은 무시) — checkDiagnostics에서 이미 필터링됨
+          const errorLines = diagnosticErrors
+            .slice(0, 10)
+            .map(
+              (e) =>
+                `  - ${e.file}:${e.line} [${e.source}/${e.code}] ${e.message}`,
+            );
+          inlineDiagnosticErrors = `[System] ⚠️ LSP Diagnostics: ${diagnosticErrors.length}개 에러 감지\n${errorLines.join("\n")}${diagnosticErrors.length > 10 ? `\n  ... 외 ${diagnosticErrors.length - 10}개` : ""}\n\n위 에러를 수정해주세요. 현재 파일 내용을 read_file로 확인한 후 update_file로 수정하세요.`;
+          console.log(
+            `[ConversationManager] Inline diagnostics: ${diagnosticErrors.length} errors detected during EXECUTION`,
+          );
+        }
+      } catch (e) {
+        console.warn(
+          "[ConversationManager] Inline diagnostics check failed:",
+          e,
+        );
+      }
+    }
+
+    // 파일 삭제 후 import 정리 컨텍스트 수집
+    if (this.deletedFiles.length > 0) {
+      try {
+        const importMap = await FileChangeHandler.findImportingFiles(
+          this.deletedFiles,
+          workspaceRoot,
+        );
+        if (importMap.size > 0) {
+          let cleanupMsg =
+            "[SYSTEM] 삭제된 파일의 import를 사용하는 파일이 감지되었습니다. 해당 import 문을 정리해주세요:\n";
+          for (const [deleted, importers] of importMap) {
+            cleanupMsg += `\n삭제된 파일: ${deleted}\nimport하는 파일: ${importers.join(", ")}\n`;
+          }
+          this._pendingImportCleanupMsg = cleanupMsg;
+          console.log(
+            `[ConversationManager] Import cleanup needed for ${importMap.size} deleted file(s)`,
+          );
+        }
+      } catch (e) {
+        console.warn(
+          "[ConversationManager] Import cleanup detection failed:",
+          e,
+        );
+      } finally {
+        // 처리 완료 후 deletedFiles 초기화 (중복 검색 방지, 메모리 누수 방지)
+        this.deletedFiles = [];
+      }
     }
 
     // 사용자가 스킵한 도구가 있는지 확인
@@ -4995,9 +6723,11 @@ export class ConversationManager implements IConversationHandler {
     return {
       toolResults,
       hasSuccessfulExecution,
+      hasWriteToolExecution,
       hasBlockedByValidator,
       blockedMessages,
       hasUserSkipped,
+      inlineDiagnosticErrors,
     };
   }
 
@@ -5062,8 +6792,8 @@ export class ConversationManager implements IConversationHandler {
       detail = params.path || params.file_path || params.target_file || "";
     } else if (toolName === Tool.READ_FILE) {
       detail = params.path || params.paths || "";
-    } else if (toolName === Tool.LIST_FILES || toolName === Tool.SEARCH_FILES) {
-      // list_files, search_files는 path만 표시
+    } else if (toolName === Tool.LIST_FILES) {
+      // list_files는 path만 표시
       detail = params.path || "(project root)";
     } else {
       // 기타 도구는 빈 문자열 (JSON 표시 안 함)
@@ -5104,6 +6834,9 @@ export class ConversationManager implements IConversationHandler {
     isAutoTestRetryEnabled: boolean,
     accumulatedUserParts: UserPart[],
     turnCount: number,
+    allPlanItemsDone: boolean = false,
+    hasWriteToolSinceLastTest: boolean = true,
+    abortSignal?: AbortSignal,
   ): Promise<{
     turnAction: TurnAction;
     testFixAttempts: number;
@@ -5118,6 +6851,18 @@ export class ConversationManager implements IConversationHandler {
         "작업 완료 - 결과 검토 중...",
       );
       return { turnAction: action, testFixAttempts, pendingRetryPrompt: false };
+    }
+
+    // write tool 없이 read_file만 실행된 retry 턴에서는 테스트 스킵 (코드 변경 없으므로 결과 동일)
+    if (!hasWriteToolSinceLastTest && testFixAttempts > 0) {
+      console.log(
+        "[ConversationManager] Skipping TestRunner: no write tools since last test (read-only retry turn).",
+      );
+      return {
+        turnAction: { action: "continue" },
+        testFixAttempts,
+        pendingRetryPrompt: false,
+      };
     }
 
     // UI 상태: 테스트 실행 중
@@ -5135,9 +6880,14 @@ export class ConversationManager implements IConversationHandler {
       workspaceRoot,
       createdFiles,
       modifiedFiles,
+      retryCoordinator.getValidationTimeout(),
+      retryCoordinator.excludedValidationCommands,
+      "executing",
+      abortSignal,
     );
 
     if (testResult.success) {
+      retryCoordinator.onValidationSuccess();
       console.log(
         "[ConversationManager] Tests passed. Transitioning to REVIEW phase.",
       );
@@ -5171,15 +6921,19 @@ export class ConversationManager implements IConversationHandler {
       };
     }
 
-    // 재시도 초과
-    WebviewBridge.receiveMessage(
-      webview,
-      "System",
-      getTestRetryExceededMessage(
-        maxTestFixAttempts,
-        testResult.errorMessage || "",
-      ),
-    );
+    // 재시도 초과 또는 RetryCoordinator give_up
+    this._retryGaveUp = true;
+    if (retryDecision.giveUpReason !== "disabled") {
+      WebviewBridge.receiveMessage(
+        webview,
+        "System",
+        getTestRetryExceededMessage(
+          maxTestFixAttempts,
+          testResult.errorMessage || "",
+          retryDecision.giveUpReason,
+        ),
+      );
+    }
     const action = this.transitionToReview(
       stateManager,
       webview,
@@ -5203,18 +6957,62 @@ export class ConversationManager implements IConversationHandler {
       );
       // 첫 번째 항목(원래 사용자 쿼리)과 최근 항목들 유지
       const firstPart = parts[0];
-      const recentParts = parts.slice(-AgentConfig.ACCUMULATED_PARTS_TRIM_TARGET + 1);
+      const recentParts = parts.slice(
+        -AgentConfig.ACCUMULATED_PARTS_TRIM_TARGET + 1,
+      );
       parts = [firstPart, ...recentParts];
     }
 
-    // 2. 개별 항목 텍스트 길이 제한
+    // 2. read_file 중복 제거 (같은 파일을 여러 번 읽은 경우 최신 결과만 유지)
+    const fileReadPattern = /\[Tool: read_file\][\s\S]*?File:\s*([^\n]+)/;
+    const lastReadIndex = new Map<string, number>(); // filePath → 마지막 인덱스
+
+    // 역순으로 탐색하여 각 파일의 마지막 읽기 위치 기록
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const text = parts[i]?.text;
+      if (!text) continue;
+      const match = text.match(fileReadPattern);
+      if (match) {
+        const filePath = match[1].trim();
+        if (!lastReadIndex.has(filePath)) {
+          lastReadIndex.set(filePath, i);
+        }
+      }
+    }
+
+    // 중복된 이전 읽기 결과를 축약으로 교체
+    let dedupeCount = 0;
+    for (let i = 0; i < parts.length; i++) {
+      const text = parts[i]?.text;
+      if (!text) continue;
+      const match = text.match(fileReadPattern);
+      if (match) {
+        const filePath = match[1].trim();
+        const lastIdx = lastReadIndex.get(filePath);
+        if (lastIdx !== undefined && lastIdx !== i) {
+          // 이전 읽기 → 축약으로 교체
+          parts[i] = {
+            text: `[이전 read_file 결과 생략: ${filePath} — 최신 결과가 아래에 있음]`,
+          };
+          dedupeCount++;
+        }
+      }
+    }
+    if (dedupeCount > 0) {
+      console.log(
+        `[ConversationManager] Deduped ${dedupeCount} duplicate read_file results`,
+      );
+    }
+
+    // 3. 개별 항목 텍스트 길이 제한
     for (const part of parts) {
       if (part.text && part.text.length > AgentConfig.MAX_PART_TEXT_LENGTH) {
         console.log(
           `[ConversationManager] Trimming part text: ${part.text.length} → ${AgentConfig.PART_TEXT_TRIM_LENGTH}`,
         );
-        part.text = part.text.substring(0, AgentConfig.PART_TEXT_TRIM_LENGTH) +
-          '\n\n... [내용이 너무 길어 일부가 생략되었습니다] ...';
+        part.text =
+          part.text.substring(0, AgentConfig.PART_TEXT_TRIM_LENGTH) +
+          "\n\n... [내용이 너무 길어 일부가 생략되었습니다] ...";
       }
     }
 
@@ -5234,7 +7032,5 @@ export class ConversationManager implements IConversationHandler {
     } catch (e) {
       // 무시
     }
-
-    console.log('[ConversationManager] Conversation resources cleaned up');
   }
 }

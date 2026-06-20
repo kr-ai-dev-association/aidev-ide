@@ -1,26 +1,26 @@
 /**
  * StreamingCodeApplier
- * 채팅 패널에 타이핑 효과로 텍스트 출력
+ * Output text with typing effect to chat panel
  *
- * 🔥 v9.2.0: XML 스타일 file_content 태그로 변경
- * - { "tool": ... }<file_content>...</file_content> → ```언어\n코드\n```
- * - 자연어 텍스트 + 코드 블록 모두 타이핑 효과
+ * v9.2.0: Changed to XML-style file_content tags
+ * - { "tool": ... }<file_content>...</file_content> -> ```language\ncode\n```
+ * - Typing effect for both natural language text and code blocks
  */
 
 export interface StreamingTextCallbacks {
-    /** 텍스트 청크 출력 (채팅용) */
+    /** Output text chunk (for chat) */
     onTextChunk?: (chunk: string) => void;
-    /** 스트리밍 완료 시 호출 */
+    /** Called when streaming is complete */
     onComplete?: () => void;
 }
 
 /**
- * 채팅 패널에 타이핑 효과로 텍스트 출력
+ * Output text with typing effect to chat panel
  *
- * 🔥 핵심 원리:
- * 1. LLM 청크 → rawBuffer에 축적 (빠름)
- * 2. interval이 rawBuffer에서 일정 속도로 꺼내서 출력 (타이핑 효과)
- * 3. CODE 블록을 마크다운 코드 블록으로 변환
+ * Core principles:
+ * 1. LLM chunks -> accumulate in rawBuffer (fast)
+ * 2. interval pulls from rawBuffer at constant speed for output (typing effect)
+ * 3. Convert CODE blocks to markdown code blocks
  */
 export class StreamingCodeApplier {
     // Raw buffer: LLM에서 받은 그대로
@@ -34,26 +34,28 @@ export class StreamingCodeApplier {
     private isDone: boolean = false;
     private isFinalized: boolean = false;
 
-    // 🔥 CODE 블록 패턴 (마크다운으로 변환) - XML 스타일
-    // 완전한 CODE 블록: { "tool": ... }<file_content>...</file_content>
+    // CODE block patterns (convert to markdown) - XML style
+    // Complete CODE block: { "tool": ... }<file_content>...</file_content>
     private static readonly CODE_BLOCK_PATTERN = /\{\s*["']tool["']\s*:\s*["']([^"']+)["'][^}]*["']path["']\s*:\s*["']([^"']+)["'][^}]*\}\s*<file_content>\s*([\s\S]*?)<\/file_content>/g;
-    // JSON만 있는 도구 호출 (CODE 블록 없음)
+    // JSON-only tool call (no CODE block)
     private static readonly TOOL_JSON_ONLY = /\{\s*["']tool["']\s*:\s*["']([^"']+)["'][^}]*\}(?!\s*<file_content>)/g;
-    // 부분적 도구 시작 감지
+    // Detect partial tool start
     private static readonly PARTIAL_TOOL_START = /\{\s*["']tool["']\s*:/;
-    // 부분적 CODE 블록 시작 감지
+    // Detect partial CODE block start
     private static readonly PARTIAL_CODE_START = /<file_content>/;
 
-    // 🔥 타이핑 속도 설정
-    private static readonly CHARS_PER_TICK = 8; // 코드도 출력하므로 약간 빠르게
+    // Typing speed settings
+    private static readonly CHARS_PER_TICK = 8; // Slightly faster since code is also output
     private static readonly TICK_INTERVAL_MS = 16; // interval 주기 (16ms ≈ 60fps)
+    // Buffer size limit (memory stability)
+    private static readonly MAX_RAW_BUFFER_SIZE = 512000; // 512KB
 
     constructor(callbacks: StreamingTextCallbacks = {}) {
         this.callbacks = callbacks;
     }
 
     /**
-     * 스트리밍 시작
+     * Start streaming
      */
     start(): void {
         if (this.processingInterval) return;
@@ -64,24 +66,38 @@ export class StreamingCodeApplier {
     }
 
     /**
-     * LLM 청크 수신 (SYNC - rawBuffer에만 추가)
+     * Receive LLM chunk (SYNC - only append to rawBuffer)
      */
     processChunk(chunk: string): void {
         this.rawBuffer += chunk;
 
-        // interval이 없으면 시작
+        // Buffer overflow prevention: force flush when limit exceeded
+        if (this.rawBuffer.length > StreamingCodeApplier.MAX_RAW_BUFFER_SIZE) {
+            console.warn(
+                `[StreamingCodeApplier] rawBuffer overflow (${(this.rawBuffer.length / 1024).toFixed(0)}KB), flushing`,
+            );
+            // Clear buffer if tool call pattern exists, otherwise move to displayBuffer
+            if (/\{\s*["']tool["']\s*:/.test(this.rawBuffer)) {
+                this.rawBuffer = '';
+            } else {
+                this.displayBuffer += this.rawBuffer;
+                this.rawBuffer = '';
+            }
+        }
+
+        // Start interval if not running
         if (!this.processingInterval) {
             this.start();
         }
     }
 
     /**
-     * Display buffer에서 일정 속도로 처리 (타이핑 효과)
+     * Process display buffer at constant speed (typing effect)
      */
     private processDisplayBuffer(): void {
         if (this.isFinalized) return;
 
-        // rawBuffer → displayBuffer 이동 (도구 호출 제거)
+        // Move rawBuffer -> displayBuffer (remove tool calls)
         if (this.rawBuffer.length > 0) {
             // 도구 호출이 완성되지 않았을 수 있으므로 안전한 부분만 이동
             const safeText = this.extractSafeText(this.rawBuffer);
@@ -113,10 +129,10 @@ export class StreamingCodeApplier {
 
     /**
      * CODE 블록을 마크다운으로 변환하고 안전한 텍스트 추출
-     * 🔥 v8.9.9: 도구 호출이 포함된 응답에서는 전체 텍스트 출력 차단
+     * v8.9.9: 도구 호출이 포함된 응답에서는 전체 텍스트 출력 차단
      */
     private extractSafeText(text: string): { extracted: string; remaining: string } {
-        // 🔥 핵심: 도구 호출 패턴이 있으면 전체 텍스트 출력 차단
+        // 핵심: 도구 호출 패턴이 있으면 전체 텍스트 출력 차단
         // EXECUTION 단계에서 CODE 블록이 패널에 표시되는 문제 해결
         if (/\{\s*["']tool["']\s*:/.test(text)) {
             return { extracted: '', remaining: text };

@@ -1,17 +1,19 @@
 /**
  * Read File Tool Handler
- * 파일 읽기 툴 핸들러
- * - 전체 파일 읽기 (작은 파일)
- * - 자동 truncate (큰 파일) - 시스템 강제
- * - 부분 읽기 (startLine, endLine 지원)
+ * - Full file read (small files)
+ * - Auto truncate (large files) - system enforced
+ * - Partial read (startLine, endLine support)
  */
 
 import { IToolHandler, ToolExecutionContext } from '../IToolHandler';
 import { ToolUse, ToolResponse, Tool } from '../types';
 import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
 import * as path from 'path';
 import { ProjectContextCache } from '../../managers/context/ProjectContextCache';
 import { UsageMetricsManager } from '../../managers/state/UsageMetricsManager';
+import { SubProjectDetector } from '../../managers/project/SubProjectDetector';
+import { isBinaryFile } from '../../../utils/binaryDetection';
 
 // 파일 크기 임계값 (라인 수)
 // v9.6.0: 300 → 2000으로 증가 (대부분의 일반 파일 전체 읽기 지원)
@@ -80,9 +82,18 @@ export class ReadFileToolHandler implements IToolHandler {
         let hasError = false;
 
         for (const filePath of pathsToRead) {
-            const absolutePath = path.isAbsolute(filePath)
+            let absolutePath = path.isAbsolute(filePath)
                 ? filePath
                 : path.join(context.projectRoot, filePath);
+
+            // 서브프로젝트 경로 fallback: 파일이 없으면 서브프로젝트 루트에서 재탐색
+            if (!path.isAbsolute(filePath) && !fsSync.existsSync(absolutePath)) {
+                const fallback = SubProjectDetector.resolveWithFallback(context.projectRoot, filePath);
+                if (fallback) {
+                    console.log(`[ReadFileToolHandler] SubProject fallback: ${filePath} → ${path.relative(context.projectRoot, fallback)}`);
+                    absolutePath = fallback;
+                }
+            }
 
             // 프로젝트 루트 외부 파일 접근 차단
             if (!absolutePath.startsWith(context.projectRoot) && absolutePath !== context.projectRoot) {
@@ -91,6 +102,17 @@ export class ReadFileToolHandler implements IToolHandler {
                     path: filePath,
                     content: '',
                     error: `Access denied: ${filePath} is outside of project root`
+                });
+                hasError = true;
+                continue;
+            }
+
+            // A-3: Binary file detection
+            if (isBinaryFile(absolutePath)) {
+                results.push({
+                    path: filePath,
+                    content: '',
+                    error: `Binary file detected: ${filePath}. Use a hex viewer or specific tool to inspect binary files.`
                 });
                 hasError = true;
                 continue;
@@ -105,7 +127,7 @@ export class ReadFileToolHandler implements IToolHandler {
                 } else {
                     fullContent = await fs.readFile(absolutePath, 'utf8');
                     // 캐시에 저장 (백그라운드)
-                    cache.cacheFile(absolutePath).catch(() => {});
+                    cache.cacheFile(absolutePath).catch(() => { });
                 }
                 const lines = fullContent.split('\n');
                 const totalLines = lines.length;
@@ -201,12 +223,18 @@ export class ReadFileToolHandler implements IToolHandler {
         if (results.length === 1) {
             const result = results[0];
             if (result.error) {
+                const isNotFound = result.error.includes('ENOENT') || result.error.includes('no such file');
+                const fileName = result.path.split('/').pop() || result.path;
                 return {
                     success: false,
-                    message: `Failed to read file: ${result.path}`,
+                    message: isNotFound
+                        ? `File does not exist: ${result.path}`
+                        : `Failed to read file: ${result.path}`,
                     error: {
-                        code: 'READ_ERROR',
-                        message: result.error
+                        code: isNotFound ? 'FILE_NOT_FOUND' : 'READ_ERROR',
+                        message: isNotFound
+                            ? `File does not exist: ${result.path}. The path may be incorrect. You MUST use glob_search with "**/${fileName}" pattern to find the actual location. If the file does not exist in the project, inform the user. NEVER create the file with create_file.`
+                            : result.error
                     }
                 };
             }
