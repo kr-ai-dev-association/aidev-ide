@@ -2,7 +2,7 @@
   "name": "codepilot",
   "displayName": "codepilot",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "1.0.79",
+  "version": "9.7.4",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"
@@ -232,7 +232,11 @@
         "codepilot.thinkingLevel": {
           "type": "string",
           "default": "medium",
-          "enum": ["low", "medium", "high"],
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
           "description": "Thinking 레벨. low(빠름/저비용), medium(균형), high(깊은 추론/고비용).",
           "scope": "resource"
         },
