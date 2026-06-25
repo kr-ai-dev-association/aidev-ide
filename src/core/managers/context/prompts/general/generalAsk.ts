@@ -98,30 +98,45 @@ Do not answer about general knowledge or other topics.
 
   // Integrated Skills loading: local (.agent/rules) + server (dev_rules)
   // Required server rules take priority over local; recommended rules defer to local
-  let skillsSection = '';
+  let skillsSection = "";
   try {
-    const { PromptComposer } = require('../PromptComposer');
-    const { text: agentRulesRaw, ruleKeys: localRuleKeys } = PromptComposer.loadAgentRulesWithKeys();
-    const { text: serverRules, overrideKeys } = PromptComposer.loadServerPromptTemplates(localRuleKeys);
+    const { PromptComposer } = require("../PromptComposer");
+    const { text: agentRulesRaw, ruleKeys: localRuleKeys } =
+      PromptComposer.loadAgentRulesWithKeys();
+    const { text: serverRules, overrideKeys } =
+      PromptComposer.loadServerPromptTemplates(localRuleKeys);
 
     // Remove local rules overridden by required server rules
     let agentRules = agentRulesRaw;
     if (overrideKeys.size > 0 && agentRulesRaw) {
       for (const key of overrideKeys) {
-        const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const sectionRegex = new RegExp(`\\*\\*[^*]*${escapedKey}[^*]*\\(mandatory rule\\):\\*\\*[\\s\\S]*?(?=\\n---\\n|$)`, 'gi');
-        agentRules = agentRules.replace(sectionRegex, '').trim();
+        const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const sectionRegex = new RegExp(
+          `\\*\\*[^*]*${escapedKey}[^*]*\\(mandatory rule\\):\\*\\*[\\s\\S]*?(?=\\n---\\n|$)`,
+          "gi",
+        );
+        agentRules = agentRules.replace(sectionRegex, "").trim();
       }
-      agentRules = agentRules.replace(/(\n---\n)+/g, '\n---\n').replace(/^\n---\n|\n---\n$/g, '').trim();
+      agentRules = agentRules
+        .replace(/(\n---\n)+/g, "\n---\n")
+        .replace(/^\n---\n|\n---\n$/g, "")
+        .trim();
     }
 
     const parts = [agentRules, serverRules].filter(Boolean);
     if (parts.length > 0) {
-      skillsSection = `\n\n## Project Development Rules (Mandatory)\nThe Skills below are mandatory rules registered for the project. You must apply these rules when answering.\n\n${parts.join('\n\n')}`;
+      skillsSection = `\n\n## Project Development Rules (Mandatory)\nThe Skills below are mandatory rules registered for the project. You must apply these rules when answering.\n\n${parts.join("\n\n")}`;
     }
-  } catch { /* Ignore if Skills loading fails */ }
+  } catch {
+    /* Ignore if Skills loading fails */
+  }
 
-  return `You are a professional software developer and technical expert.
+  return `You are a professional software developer and technical expert answering in READ-ONLY ASK mode.
+
+## ASK 모드 필수 규칙 (최우선)
+- 사용자 질문에 **자연어로 직접 답변**합니다. 파일 수정/생성/삭제·명령 실행은 할 수 없습니다.
+- **절대 plan JSON(예: {"plan":[...]})이나 도구 호출/도구 코드(예: <tool_code>...</tool_code>, read_file(...), ls_r(...), {"tool":"..."})를 출력하지 마세요.**
+- 코드 변경이 필요하면, 바꿀 코드를 **예시 코드 블록과 설명**으로 자연어로 제시하고, 실제 적용은 사용자가 CODE 모드로 전환해 수행한다고 안내하세요.
 ${hotLoadPrompt}${attachedContextWarning}${selectedFilesSection}${terminalContextSection}${diagnosticsContextSection}${ragSection}${skillsSection}
 Key guidelines:
 ${gitContext}

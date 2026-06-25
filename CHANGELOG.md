@@ -2,8 +2,17 @@
 
 VS Code용 AI 코딩 어시스턴트 — Ollama / OpenAI / Gemini / Anthropic 멀티 LLM 지원
 
-> **현재 버전: v1.2.6**  
+> **현재 버전: v1.2.7**  
 > **브랜치:** `agentgocoder`
+
+---
+
+## v1.2.7 (2026-06-25)
+
+### ASK 모드 읽기 전용 동작 수정
+
+- **ASK 모드 백엔드 연결**: 그동안 채팅 모드 드롭다운의 `ASK`가 UI에만 존재하고 백엔드는 이를 무시(`CODE_GENERATION` 하드코딩)하여, ASK 모드에서도 파일이 생성·수정되던 문제를 수정했습니다. 이제 선택한 모드가 webview → 백엔드 → ConversationManager로 정확히 전달됩니다.
+- **ASK = 읽기 전용 강제**: ASK 턴에서는 파일 쓰기/삭제·명령 실행 도구를 LLM에 노출하지 않고(read-only allowedTools), 모든 실행 경로(INVESTIGATION 시작 강제, EXECUTION 전환 차단, 스트리밍 파일 쓰기 차단)에서 write를 차단합니다.
 
 ---
 

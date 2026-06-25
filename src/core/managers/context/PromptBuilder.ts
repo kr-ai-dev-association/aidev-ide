@@ -15,6 +15,7 @@ import {
 } from "./prompts/PromptComposer";
 import { ProjectManager } from "../project/ProjectManager";
 import { Tool } from "../../tools/types";
+import { getGeneralAskPrompt } from "./prompts/general";
 
 export interface PromptBuilderOptions {
   userOS: string;
@@ -74,6 +75,27 @@ export class PromptBuilder {
     // CODE_GENERATION 타입은 PromptComposer 사용
     const projectManager = ProjectManager.getInstance();
     const currentProject = projectManager.getCurrentProject();
+
+    // ASK(읽기 전용) 모드는 전용 질의응답 프롬프트 사용 — plan 유도 없음 (v2 미러)
+    if (promptType === PromptType.GENERAL_ASK) {
+      // ASK(읽기 전용 질의응답)는 HotLoad 프롬프트를 제외한다.
+      // HotLoad는 "키워드 매칭 시 run_command 도구로 실행"하라는 작업 트리거라,
+      // 읽기 전용 ASK에 주입되면 LLM을 도구(tool_code)·작업(plan JSON) 모드로 유도해
+      // 자연어 답변을 막는다. (덤프 결과 ASK system prompt의 대부분이 HotLoad였음)
+      return getGeneralAskPrompt({
+        codebaseContext,
+        profileContext,
+        intentContext,
+        realTimeInfo,
+        gitContext,
+        languageInstruction,
+        selectedFilesContent: options.selectedFilesContent,
+        terminalContextContent: options.terminalContextContent,
+        diagnosticsContextContent: options.diagnosticsContextContent,
+        frameworkRulesPrompt: options.frameworkRulesPrompt,
+        ragContext: options.ragContext,
+      });
+    }
 
     const composerOptions: PromptComposerOptions = {
       userOS: this.userOS,

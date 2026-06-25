@@ -2,7 +2,7 @@
   "name": "agentgocoder",
   "displayName": "AgentGoCoder",
   "description": "AI-powered development assistant with customizable LLM",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "publisher": "banya",
   "engines": {
     "vscode": "^1.85.0"

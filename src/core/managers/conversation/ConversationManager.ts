@@ -1039,7 +1039,15 @@ export class ConversationManager implements IConversationHandler {
     }
 
     // 파일 목록은 시스템이 먼저 제공: 첫 LLM 호출 전에 프로젝트 파일 인벤토리 제공 ([D] [F] 형식)
-    if (initialState === AgentPhase.INVESTIGATION && !hasActivePlan) {
+    // ASK(읽기 전용) 모드는 file inventory를 주입하지 않는다.
+    // v2 ASK는 EXECUTION 시작이라 inventory를 안 거치는데, standalone은 INVESTIGATION
+    // 강제라 거치게 됨 — inventory("필요한 파일 읽으세요")가 약한 LLM을 작업(read_file+plan)
+    // 모드로 유도해 plan JSON/tool_code raw 출력을 유발하므로 ASK에선 제외. (v2 동일 입력)
+    if (
+      initialState === AgentPhase.INVESTIGATION &&
+      !hasActivePlan &&
+      !this._currentTurnIsAskMode
+    ) {
       try {
         const projectManager = ProjectManager.getInstance();
         const inventory = await projectManager.buildProjectInventorySection(
@@ -1352,10 +1360,13 @@ export class ConversationManager implements IConversationHandler {
           ragContext: gatheredContext?.ragContext, // RAG 컨텍스트 포함
           subProjectStructure: gatheredContext?.subProjectStructure, // 서브프로젝트 구조
         };
-        activeSystemPrompt =
-          investigationPrompt +
-          "\n\n" +
-          this.promptBuilder.generateSystemPrompt(promptOptions);
+        // ASK 모드는 전용 질의응답 프롬프트(generateSystemPrompt가 getGeneralAskPrompt 반환)만
+        // 사용 — INVESTIGATION 프롬프트(plan 유도)를 붙이지 않는다. (v2 미러)
+        activeSystemPrompt = this._currentTurnIsAskMode
+          ? this.promptBuilder.generateSystemPrompt(promptOptions)
+          : investigationPrompt +
+            "\n\n" +
+            this.promptBuilder.generateSystemPrompt(promptOptions);
 
         // 🔥 핵심 수정: analysis/documentation 인텐트에서는 plan JSON 대신 자연어 응답 유도
         if (
@@ -3931,6 +3942,40 @@ export class ConversationManager implements IConversationHandler {
             console.log(
               "[ConversationManager] Text response sent (file-not-exist or analysis). Transitioning to DONE.",
             );
+            break;
+          }
+        }
+
+        // ASK 모드: 조사 후 자연어 답변이 정답. INVESTIGATION에서 텍스트 응답
+        // 수신 시 사용자에게 표시 + DONE 전환 (blocking 우회). intent.category가
+        // undefined여도 (IntentDetector 실패 등) promptType으로 결정. (v2 미러)
+        if (
+          this._currentTurnIsAskMode &&
+          totalResponseText &&
+          totalResponseText.trim()
+        ) {
+          const cleanAskText = StringUtils.cleanText(totalResponseText, {
+            removeThinking: true,
+            removeNaturalLanguage: false,
+            removeSystemMessages: false,
+            removeToolTags: false,
+            removeJsonThinking: true,
+            extractJson: false,
+          })
+            .replace(/<investigation_done\s*\/>/gi, "")
+            .replace(/\{\s*["']investigation_done["']\s*:\s*true\s*\}/gi, "")
+            .trim();
+
+          if (cleanAskText) {
+            console.log(
+              `[ConversationManager] ASK mode: Text response in INVESTIGATION accepted as final answer.`,
+            );
+            await WebviewBridge.streamText(
+              webviewToRespond,
+              "AgentGoCoder",
+              cleanAskText,
+            );
+            stateManager.transitionTo(AgentPhase.DONE, {});
             break;
           }
         }
