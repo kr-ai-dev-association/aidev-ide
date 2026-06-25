@@ -1,7 +1,12 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { getHtmlContentWithUris } from "../../utils";
-import { PromptType, NotificationService, AiModelType } from "../../services";
+import {
+  PromptType,
+  NotificationService,
+  AiModelType,
+  chatModeToPromptType,
+} from "../../services";
 import {
   SettingsManager,
   TerminalManager,
@@ -740,7 +745,8 @@ ${JSON.stringify(errorContext, null, 2)}
           // Standalone: 로그인 체크 불필요
 
           // ConversationService를 통해 메시지 처리
-          const promptType = PromptType.CODE_GENERATION;
+          // 채팅 모드(CODE/ASK/PLAN)를 promptType으로 매핑
+          const promptType = chatModeToPromptType(data.mode);
 
           await ConversationService.handleUserMessage({
             userQuery: data.text,

@@ -130,6 +130,12 @@ export class ConversationManager implements IConversationHandler {
   private llmManager: LLMManager;
   private responseProcessor: ResponseProcessor;
   private currentAbortController: AbortController | null = null;
+  /** 현재 턴이 ASK(읽기 전용) 모드인지 — write/명령 실행 도구 차단용 (executeToolsWithUI에서 참조) */
+  private _currentTurnIsAskMode: boolean = false;
+  /** ASK(읽기 전용): write/명령 실행 도구를 차단하는 턴 (PLAN 모드는 추후 재도입 예정) */
+  private get _currentTurnBlocksWrite(): boolean {
+    return this._currentTurnIsAskMode;
+  }
   private stateManager: StateManager | null = null;
   private _retryGaveUp = false; // RetryCoordinator가 동일 에러 반복으로 포기한 경우
   private deletedFiles: string[] = []; // 파일 삭제 추적 (import 정리용)
@@ -248,6 +254,12 @@ export class ConversationManager implements IConversationHandler {
       ...options,
       abortSignal,
     };
+
+    // ASK(읽기 전용) 모드 여부: 파일 쓰기/삭제·명령 실행 도구를 차단한다.
+    // 별도 메서드(executeToolsWithUI)에서도 참조할 수 있도록 인스턴스 필드에 보관.
+    // (이 매니저는 한 번에 한 대화만 처리 — 위에서 이전 요청을 abort)
+    const isAskMode = options.promptType === PromptType.GENERAL_ASK;
+    this._currentTurnIsAskMode = isAskMode;
 
     try {
       // 1. 초기화 및 준비
@@ -995,11 +1007,15 @@ export class ConversationManager implements IConversationHandler {
       isSimpleTask &&
       (intent?.category === "execution" || intent?.category === "code");
 
-    const initialState = hasActivePlan
-      ? AgentPhase.EXECUTION
-      : isDirectExecutionTask || (isExecutionFirstTask && !hasExistingProject)
+    // ASK/PLAN(읽기 전용) 모드는 EXECUTION으로 시작하지 않고 항상 INVESTIGATION.
+    // (intent가 code/execution으로 분류돼도 write 실행을 막음 — v2의 "PLAN은 INVESTIGATION 시작" 미러)
+    const initialState = this._currentTurnBlocksWrite
+      ? AgentPhase.INVESTIGATION
+      : hasActivePlan
         ? AgentPhase.EXECUTION
-        : AgentPhase.INVESTIGATION;
+        : isDirectExecutionTask || (isExecutionFirstTask && !hasExistingProject)
+          ? AgentPhase.EXECUTION
+          : AgentPhase.INVESTIGATION;
     const stateManager = new AgentStateManager(initialState);
 
     if (isDirectResponseTask) {
@@ -1260,7 +1276,11 @@ export class ConversationManager implements IConversationHandler {
 
       // 페이즈별 프롬프트 보정 및 도구 제한
       let activeSystemPrompt = systemPrompt;
-      let allowedTools: Tool[] | undefined = undefined;
+      // ASK(읽기 전용) 모드: phase와 무관하게 항상 read-only 도구만 LLM에 노출
+      // (write 도구를 애초에 제공하지 않음 — v2의 GENERAL_ASK와 동일)
+      let allowedTools: Tool[] | undefined = this._currentTurnBlocksWrite
+        ? investigationManager.getInvestigationTools()
+        : undefined;
       let nativeToolsForCall: any[] | undefined = undefined; // 네이티브 툴 콜링용 (나중에 설정됨)
 
       if (currentPhase === AgentPhase.INVESTIGATION) {
@@ -2474,6 +2494,10 @@ export class ConversationManager implements IConversationHandler {
           toolName: string,
           args: Record<string, any>,
         ) => {
+          // ASK/PLAN(읽기 전용) 모드: 스트리밍 중 파일 생성/수정 차단
+          if (this._currentTurnBlocksWrite) {
+            return;
+          }
           if (
             (toolName !== "create_file" && toolName !== "update_file") ||
             !args.path
@@ -2498,7 +2522,12 @@ export class ConversationManager implements IConversationHandler {
         const onChunk = (chunk: string, done: boolean) => {
           accumulatedResponse += chunk;
 
-          if (isAutoToolForStreaming && isAutoUpdateForStreaming) {
+          // ASK/PLAN(읽기 전용) 모드: 스트리밍 중 실시간 파일 생성 차단
+          if (
+            !this._currentTurnBlocksWrite &&
+            isAutoToolForStreaming &&
+            isAutoUpdateForStreaming
+          ) {
             let endIdx = accumulatedResponse.indexOf(
               FILE_END_MARKER,
               streamLastFileContentPos,
@@ -2537,7 +2566,9 @@ export class ConversationManager implements IConversationHandler {
                 streamLastFileContentPos,
               );
             }
-          } else {
+          } else if (!this._currentTurnBlocksWrite) {
+            // ASK/PLAN(읽기 전용) 모드가 아닐 때만 수동 승인 경로로 파일 생성.
+            // ASK/PLAN이면 위 if·이 else 둘 다 skip → 스트리밍 중 파일 쓰기 차단.
             let endIdx = accumulatedResponse.indexOf(
               FILE_END_MARKER,
               streamLastFileContentPos,
@@ -2974,10 +3005,14 @@ export class ConversationManager implements IConversationHandler {
               `[ConversationManager] INVESTIGATION: All tools were write tools, keeping plan for next turn`,
             );
           }
-          stateManager.transitionTo(AgentPhase.EXECUTION);
-          console.log(
-            "[ConversationManager] Transitioning to EXECUTION phase (tool found with plan)",
-          );
+          // ASK/PLAN(읽기 전용) 모드: EXECUTION 전환 차단 — INVESTIGATION 유지(write 미실행).
+          // write 도구를 주지 않으므로 정상적으론 도달하지 않지만 방어선으로 둔다.
+          if (!this._currentTurnBlocksWrite) {
+            stateManager.transitionTo(AgentPhase.EXECUTION);
+            console.log(
+              "[ConversationManager] Transitioning to EXECUTION phase (tool found with plan)",
+            );
+          }
         }
       }
 
@@ -3100,7 +3135,12 @@ export class ConversationManager implements IConversationHandler {
         !isCodeMode &&
         intent &&
         (intent.category === "analysis" || intent.category === "documentation");
-      if (hasJsonPlanInResponse && !isTextOnlyIntent) {
+      // ASK 모드는 계획 수립 자체를 건너뜀(순수 질의응답). PLAN/CODE만 plan 처리.
+      if (
+        hasJsonPlanInResponse &&
+        !isTextOnlyIntent &&
+        !this._currentTurnIsAskMode
+      ) {
         console.log(`[ConversationManager] JSON plan detected`);
         // ⚠️ 핵심 수정: thinking 제거된 응답에서 파싱 - thinking 안의 plan JSON 오탐 방지
         const planItems = ToolParser.parsePlanItems(responseWithoutThinking);
@@ -3120,7 +3160,14 @@ export class ConversationManager implements IConversationHandler {
           );
 
           // 🔥 핵심 수정: Plan이 수립되면 INVESTIGATION → EXECUTION 전환
-          if (currentPhase === AgentPhase.INVESTIGATION) {
+          // - CODE: 즉시 EXECUTION 전환(실행)
+          // - PLAN: 계획만 수립 → 승인 UI 표시 후 종료. 승인 시 webview가
+          //         mode:"CODE" "위 계획대로 진행해줘"를 보내 실제로 실행됨.
+          // - ASK: plan 블록에 진입하지 않음(위 가드)
+          if (
+            currentPhase === AgentPhase.INVESTIGATION &&
+            !this._currentTurnBlocksWrite
+          ) {
             console.log(
               "[ConversationManager] Plan received in INVESTIGATION phase. Transitioning to EXECUTION.",
             );
@@ -3294,9 +3341,12 @@ export class ConversationManager implements IConversationHandler {
             // 🔥 개선: 실행 도구 자체가 "실행 의도"의 명확한 증거이므로 조건 완화
             // - 이전: hasExecutionIntentInHistory || executionIntent 조건 필요
             // - 현재: 실행 도구가 나오면 무조건 EXECUTION으로 전환 (불필요한 재요청 방지)
+            // ASK/PLAN(읽기 전용) 모드: write 도구가 나와도 EXECUTION 전환 차단
+            // (위 2998/3144 가드와 동일 — write 실행 방지. 누락 보완)
             if (
               blockedCalls.length > 0 &&
-              currentPhase === AgentPhase.INVESTIGATION
+              currentPhase === AgentPhase.INVESTIGATION &&
+              !this._currentTurnBlocksWrite
             ) {
               const existingPlanItems = taskManager.listPlanItems();
 

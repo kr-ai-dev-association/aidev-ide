@@ -38,6 +38,8 @@ export interface SendMessageCommand {
   command: "sendMessage";
   text: string;
   imageData?: string;
+  /** 채팅 모드 ("ASK" = 읽기 전용, 그 외/미지정 = CODE) */
+  mode?: string;
 }
 
 export interface CancelLLMCallCommand {

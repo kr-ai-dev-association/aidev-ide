@@ -1,7 +1,11 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { getHtmlContentWithUris, safePostMessage } from "../../utils";
-import { PromptType, NotificationService } from "../../services"; // PromptType 임포트
+import {
+  PromptType,
+  NotificationService,
+  chatModeToPromptType,
+} from "../../services"; // PromptType 임포트
 import {
   SettingsManager,
   ConversationService,
@@ -49,10 +53,11 @@ export class AskViewProvider implements vscode.WebviewViewProvider {
       switch (data.command) {
         case "sendMessage":
           // ConversationService를 통해 메시지 처리
+          // 채팅 모드(CODE/ASK/PLAN)를 promptType으로 매핑
           await ConversationService.handleUserMessage({
             userQuery: data.text,
             webviewToRespond: webviewView.webview,
-            promptType: PromptType.CODE_GENERATION,
+            promptType: chatModeToPromptType(data.mode),
             imageData: data.imageData,
             imageMimeType: data.imageMimeType,
             selectedFiles: data.selectedFiles,
