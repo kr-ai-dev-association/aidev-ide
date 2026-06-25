@@ -1039,15 +1039,7 @@ export class ConversationManager implements IConversationHandler {
     }
 
     // 파일 목록은 시스템이 먼저 제공: 첫 LLM 호출 전에 프로젝트 파일 인벤토리 제공 ([D] [F] 형식)
-    // ASK(읽기 전용) 모드는 file inventory를 주입하지 않는다.
-    // v2 ASK는 EXECUTION 시작이라 inventory를 안 거치는데, standalone은 INVESTIGATION
-    // 강제라 거치게 됨 — inventory("필요한 파일 읽으세요")가 약한 LLM을 작업(read_file+plan)
-    // 모드로 유도해 plan JSON/tool_code raw 출력을 유발하므로 ASK에선 제외. (v2 동일 입력)
-    if (
-      initialState === AgentPhase.INVESTIGATION &&
-      !hasActivePlan &&
-      !this._currentTurnIsAskMode
-    ) {
+    if (initialState === AgentPhase.INVESTIGATION && !hasActivePlan) {
       try {
         const projectManager = ProjectManager.getInstance();
         const inventory = await projectManager.buildProjectInventorySection(

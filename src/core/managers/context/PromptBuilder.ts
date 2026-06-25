@@ -78,10 +78,8 @@ export class PromptBuilder {
 
     // ASK(읽기 전용) 모드는 전용 질의응답 프롬프트 사용 — plan 유도 없음 (v2 미러)
     if (promptType === PromptType.GENERAL_ASK) {
-      // ASK(읽기 전용 질의응답)는 HotLoad 프롬프트를 제외한다.
-      // HotLoad는 "키워드 매칭 시 run_command 도구로 실행"하라는 작업 트리거라,
-      // 읽기 전용 ASK에 주입되면 LLM을 도구(tool_code)·작업(plan JSON) 모드로 유도해
-      // 자연어 답변을 막는다. (덤프 결과 ASK system prompt의 대부분이 HotLoad였음)
+      // plan/도구 출력 금지는 generalAsk 본문의 명시 규칙으로 강제하므로
+      // HotLoad가 포함돼 있어도 ASK는 자연어 답변을 유지한다.
       return getGeneralAskPrompt({
         codebaseContext,
         profileContext,
@@ -93,6 +91,7 @@ export class PromptBuilder {
         terminalContextContent: options.terminalContextContent,
         diagnosticsContextContent: options.diagnosticsContextContent,
         frameworkRulesPrompt: options.frameworkRulesPrompt,
+        hotLoadPrompt: options.hotLoadPrompt,
         ragContext: options.ragContext,
       });
     }
