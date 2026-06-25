@@ -132,6 +132,8 @@ export class ConversationManager implements IConversationHandler {
   private currentAbortController: AbortController | null = null;
   /** 현재 턴이 ASK(읽기 전용) 모드인지 — write/명령 실행 도구 차단용 (executeToolsWithUI에서 참조) */
   private _currentTurnIsAskMode: boolean = false;
+  /** ASK 턴의 최종 자연어 응답 — loop 종료 저장·히스토리 복원용 (빈 entry 방지) */
+  private _currentTurnAskResponse: string = "";
   /** ASK(읽기 전용): write/명령 실행 도구를 차단하는 턴 (PLAN 모드는 추후 재도입 예정) */
   private get _currentTurnBlocksWrite(): boolean {
     return this._currentTurnIsAskMode;
@@ -260,6 +262,7 @@ export class ConversationManager implements IConversationHandler {
     // (이 매니저는 한 번에 한 대화만 처리 — 위에서 이전 요청을 abort)
     const isAskMode = options.promptType === PromptType.GENERAL_ASK;
     this._currentTurnIsAskMode = isAskMode;
+    this._currentTurnAskResponse = "";
 
     try {
       // 1. 초기화 및 준비
@@ -3899,8 +3902,17 @@ export class ConversationManager implements IConversationHandler {
               cleanResponse,
             );
 
-            // 🔥 v9.5.0: 파일 미존재 응답도 세션에 저장 (대화 연속성 유지)
-            if (options.extensionContext) {
+            if (this._currentTurnIsAskMode) {
+              // ASK 턴: 응답을 기록만 하고 저장은 loop 종료에 위임한다.
+              // (여기서 자체 저장하면 loop 종료 저장과 중복되고, loop 종료가
+              //  _currentTurnAskResponse 없이 빈 entry를 만들어 resume 오탐을 유발)
+              this._currentTurnAskResponse = cleanResponse;
+              collectedUIMessages.push({
+                sender: "AgentGoCoder",
+                text: cleanResponse,
+              });
+            } else if (options.extensionContext) {
+              // 🔥 v9.5.0: 파일 미존재 응답도 세션에 저장 (대화 연속성 유지)
               try {
                 const { SessionManager } =
                   await import("../state/SessionManager");
@@ -3967,6 +3979,13 @@ export class ConversationManager implements IConversationHandler {
               "AgentGoCoder",
               cleanAskText,
             );
+            // ASK 응답을 저장/복원용으로 기록 — loop 종료 저장이 빈 entry를 만들어
+            // resume 오탐·히스토리 누락을 일으키던 문제 방지
+            this._currentTurnAskResponse = cleanAskText;
+            collectedUIMessages.push({
+              sender: "AgentGoCoder",
+              text: cleanAskText,
+            });
             stateManager.transitionTo(AgentPhase.DONE, {});
             break;
           }
@@ -4667,9 +4686,13 @@ export class ConversationManager implements IConversationHandler {
               ? `${createdFiles.length > 0 ? `생성된 파일: ${createdFiles.join(", ")}\n` : ""}${modifiedFiles.length > 0 ? `수정된 파일: ${modifiedFiles.join(", ")}` : ""}`
               : "";
 
-          const assistantResponseToSave = finalSummary;
+          const isAskTurn = this._currentTurnIsAskMode;
+          const assistantResponseToSave =
+            isAskTurn && this._currentTurnAskResponse
+              ? this._currentTurnAskResponse
+              : finalSummary;
 
-          const modeLabel = "CODE";
+          const modeLabel = isAskTurn ? "ASK" : "CODE";
           console.log(
             `[ConversationManager] Saving ${modeLabel} mode entry (loop end) - userQuery: "${userQuery?.substring(0, 50)}..."`,
           );

@@ -16,6 +16,9 @@ export interface GeneralAskPromptOptions {
   frameworkRulesPrompt?: string; // Framework rules
   hotLoadPrompt?: string; // Hot Load prompt
   ragContext?: string; // Server RAG search results
+  repoMap?: string; // 프로젝트 파일 맵 (경로 + 심볼)
+  memoryContext?: string; // 영속 메모리 컨텍스트
+  subProjectStructure?: string; // 모노레포/프로젝트 구조
 }
 
 export function getGeneralAskPrompt(options: GeneralAskPromptOptions): string {
@@ -32,6 +35,9 @@ export function getGeneralAskPrompt(options: GeneralAskPromptOptions): string {
     frameworkRulesPrompt = "",
     hotLoadPrompt = "",
     ragContext = "",
+    repoMap = "",
+    memoryContext = "",
+    subProjectStructure = "",
   } = options;
 
   // User-selected files section - strong directive
@@ -131,13 +137,25 @@ Do not answer about general knowledge or other topics.
     /* Ignore if Skills loading fails */
   }
 
+  // 프로젝트 파일 맵/구조/메모리 — "구조 설명"·"이 코드 설명" 류 질문에
+  // read_file 호출 대신 답변 근거를 미리 제공한다 (v2 ASK와 동일한 grounding).
+  const repoMapSection = repoMap
+    ? `\n## 프로젝트 파일 맵 (Repo Map)\n아래는 프로젝트의 파일 경로와 주요 심볼입니다. 구조·위치·"이 코드 설명" 류 질문은 도구 호출 없이 이 정보와 첨부된 파일로 답하세요.\n\n${repoMap}\n`
+    : "";
+  const subProjectStructureSection = subProjectStructure
+    ? `\n## 프로젝트 구조\n${subProjectStructure}\n`
+    : "";
+  const memorySection = memoryContext
+    ? `\n## 이전 대화 메모리\n${memoryContext}\n`
+    : "";
+
   return `You are a professional software developer and technical expert answering in READ-ONLY ASK mode.
 
 ## ASK 모드 필수 규칙 (최우선)
 - 사용자 질문에 **자연어로 직접 답변**합니다. 파일 수정/생성/삭제·명령 실행은 할 수 없습니다.
 - **절대 plan JSON(예: {"plan":[...]})이나 도구 호출/도구 코드(예: <tool_code>...</tool_code>, read_file(...), ls_r(...), {"tool":"..."})를 출력하지 마세요.**
 - 코드 변경이 필요하면, 바꿀 코드를 **예시 코드 블록과 설명**으로 자연어로 제시하고, 실제 적용은 사용자가 CODE 모드로 전환해 수행한다고 안내하세요.
-${hotLoadPrompt}${attachedContextWarning}${selectedFilesSection}${terminalContextSection}${diagnosticsContextSection}${ragSection}${skillsSection}
+${hotLoadPrompt}${attachedContextWarning}${selectedFilesSection}${terminalContextSection}${diagnosticsContextSection}${ragSection}${repoMapSection}${subProjectStructureSection}${memorySection}${skillsSection}
 Key guidelines:
 ${gitContext}
 ${languageInstruction}`;

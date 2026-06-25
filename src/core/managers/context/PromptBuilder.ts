@@ -93,6 +93,9 @@ export class PromptBuilder {
         frameworkRulesPrompt: options.frameworkRulesPrompt,
         hotLoadPrompt: options.hotLoadPrompt,
         ragContext: options.ragContext,
+        repoMap: options.repoMap,
+        memoryContext: options.memoryContext,
+        subProjectStructure: options.subProjectStructure,
       });
     }
 
